@@ -2,17 +2,53 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - One Messenger</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Вход — One Messenger iOS</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body class="auth-page">
-    <div class="glass-card">
-        <h1>One Messenger</h1>
-        <p>Вход по юзернейму</p>
-        <input type="text" id="usernameInput" placeholder="@username">
-        <button onclick="login()">Войти</button>
+
+    <div class="glass-panel">
+        <div class="auth-header">
+            <div class="app-logo">
+                <i class="fa-brands fa-telegram"></i>
+            </div>
+            <h1>One Messenger</h1>
+            <p>Версия iOS 26 Ultra</p>
+        </div>
+
+        <div class="auth-form">
+            <div class="input-group">
+                <i class="fa-solid fa-at"></i>
+                <input type="text" id="user" placeholder="Юзернейм (напр. asadbek)">
+            </div>
+            
+            <div class="input-group">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" id="pass" placeholder="Пароль">
+            </div>
+
+            <div class="auth-buttons">
+                <button onclick="auth('login')" class="btn-primary">
+                    <span>Войти</span>
+                    <i class="fa-solid fa-chevron-right"></i>
+                </button>
+                <button onclick="auth('reg')" class="btn-secondary">
+                    Регистрация
+                </button>
+            </div>
+        </div>
+
+        <div class="auth-footer">
+            <p>Забыли пароль? Обратитесь в поддержку</p>
+        </div>
     </div>
+
+    <div id="loader" class="loader-overlay" style="display:none;">
+        <div class="ios-spinner"></div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>
