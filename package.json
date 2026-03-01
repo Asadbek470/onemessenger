@@ -6,12 +6,11 @@
   "scripts": {
     "start": "node server.js"
   },
-  "dependencies": {
-    "express": "^4.18.2",
-    "express-session": "^1.17.3",
-    "ws": "^8.13.0",
-    "sqlite3": "^5.1.7",
-    "multer": "^1.4.5-lts.1",
-    "bcrypt": "^5.1.1"
-  }
+ "dependencies": {
+  "express": "^4.18.2",
+  "sqlite3": "^5.1.6",
+  "ws": "^8.13.0",
+  "bcrypt": "^5.1.0",
+  "multer": "^1.4.5-lts.1"
+}
 }
