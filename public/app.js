@@ -1,60 +1,38 @@
-let socket;
-const user = localStorage.getItem('username');
+let activeReceiver = 'global'; // По умолчанию общий чат
 
-// Авторизация
-function login() {
-    const input = document.getElementById('usernameInput');
-    if (input.value.trim()) {
-        localStorage.setItem('username', input.value.trim());
-        window.location.href = 'chat.html';
-    }
+// Функция поиска пользователя (как в TG)
+async function searchPeople() {
+    const query = document.getElementById('searchInp').value;
+    if (query.length < 2) return;
+    const res = await fetch(`/api/search?username=${query}`);
+    const users = await res.json();
+    
+    const list = document.getElementById('searchResults');
+    list.innerHTML = users.map(u => `
+        <div class="user-item" onclick="startPrivate('${u.username}')">
+            @${u.username} <span>${u.displayName}</span>
+        </div>
+    `).join('');
 }
 
-// Работа чата
-if (window.location.pathname.includes('chat.html')) {
-    if (!user) window.location.href = 'index.html';
+function startPrivate(username) {
+    activeReceiver = username;
+    document.getElementById('chatTitle').innerText = "Чат с @" + username;
+    // Очистить и загрузить историю из БД для этой пары
+}
 
-    // Инициализация WS
-    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-    socket = new WebSocket(`${protocol}://${location.host}`);
-
-    socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        renderMessage(data);
+// Запись "Кружка" (Video Note)
+async function sendVideoNote() {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const recorder = new MediaRecorder(stream);
+    const chunks = [];
+    
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        // Отправка файла через fetch на /api/upload...
+        // После получения URL отправляем через сокет с типом 'video_note'
     };
-
-    // История
-    fetch('/api/messages').then(r => r.json()).then(msgs => {
-        msgs.forEach(renderMessage);
-    });
-
-    // Отправка
-    document.getElementById('sendBtn').onclick = sendMessage;
-    document.getElementById('msgInput').onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
-}
-
-function sendMessage() {
-    const input = document.getElementById('msgInput');
-    if (input.value.trim() && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-            type: 'chat',
-            sender: user,
-            text: input.value.trim()
-        }));
-        input.value = '';
-    }
-}
-
-function renderMessage(data) {
-    const box = document.getElementById('messages');
-    if (!box) return;
-    const div = document.createElement('div');
-    div.className = `bubble ${data.sender === user ? 'sent' : 'received'}`;
-    div.innerHTML = `<small style="display:block; color:#888">${data.sender}</small>${data.text}`;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-}
-
-function toggleSidebar(show) {
-    document.getElementById('sidebar').classList.toggle('open', show);
+    recorder.start();
+    setTimeout(() => recorder.stop(), 5000); // Пример на 5 секунд
 }
