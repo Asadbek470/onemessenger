@@ -57,3 +57,49 @@ input {
 @media (max-width: 768px) {
     .sidebar { display: none; }
 }
+
+body.auth-page {
+    background: #f4f4f5; /* Светлый фон Web-версии */
+    display: flex; align-items: center; justify-content: center;
+    height: 100vh; font-family: 'Roboto', sans-serif;
+}
+
+.auth-container {
+    width: 100%; max-width: 360px; text-align: center; padding: 20px;
+}
+
+.tg-logo-inner {
+    width: 120px; height: 120px; background: #33a6e3; 
+    border-radius: 50%; margin: 0 auto 25px;
+    display: flex; align-items: center; justify-content: center;
+}
+
+.auth-header h1 { font-size: 32px; font-weight: 700; color: #1c1c1c; margin-bottom: 12px; }
+.auth-header p { font-size: 16px; color: #707579; line-height: 1.5; margin-bottom: 35px; }
+
+/* Инпуты с "плавающими" подписями */
+.tg-input-group { position: relative; margin-bottom: 25px; }
+.tg-input {
+    width: 100%; border: 1px solid #dadce0; border-radius: 12px;
+    padding: 16px 15px; font-size: 16px; transition: 0.2s; outline: none;
+}
+.tg-input:focus { border-color: #33a6e3; box-shadow: 0 0 0 1px #33a6e3; }
+
+.tg-label {
+    position: absolute; left: 15px; top: 16px; color: #707579;
+    pointer-events: none; transition: 0.2s; background: white; padding: 0 4px;
+}
+.tg-input:focus ~ .tg-label, .tg-input:not(:placeholder-shown) ~ .tg-label {
+    top: -10px; font-size: 12px; color: #33a6e3;
+}
+
+/* Кнопки */
+.tg-btn-next {
+    width: 100%; background: #33a6e3; color: white; border: none;
+    padding: 16px; border-radius: 12px; font-size: 14px; font-weight: 500;
+    cursor: pointer; text-transform: uppercase; margin-top: 10px;
+}
+.tg-btn-text {
+    background: none; border: none; color: #33a6e3; font-size: 14px;
+    font-weight: 500; margin-top: 20px; cursor: pointer;
+}
