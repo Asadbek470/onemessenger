@@ -1,489 +1,172 @@
-const express = require("express");
-const sqlite3 = require("sqlite3").verbose();
-const path = require("path");
-const fs = require("fs");
-const bcrypt = require("bcrypt");
-const multer = require("multer");
-const http = require("http");
-const WebSocket = require("ws");
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Uz Messenger — Авторизация</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      background: #f4f4f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: 'Roboto', sans-serif;
+      margin: 0;
+    }
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+    .tg-card {
+      width: 100%;
+      max-width: 360px;
+      background: #fff;
+      padding: 40px;
+      border-radius: 20px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      text-align: center;
+    }
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public")));
+    .tg-logo {
+      width: 100px;
+      height: 100px;
+      background: #33a6e3;
+      border-radius: 50%;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
 
-const uploadsDir = path.join(__dirname, "public", "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+    .tg-logo svg {
+      width: 50px;
+      fill: white;
+    }
 
-const storage = multer.diskStorage({
-  destination: (_, __, cb) => cb(null, uploadsDir),
-  filename: (_, file, cb) => {
-    const safeName = Date.now() + "-" + Math.random().toString(36).slice(2) + path.extname(file.originalname);
-    cb(null, safeName);
-  }
-});
+    h1 {
+      font-size: 26px;
+      margin: 0 0 10px;
+      color: #1c1c1c;
+    }
 
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 25 * 1024 * 1024
-  }
-});
+    p {
+      color: #707579;
+      font-size: 15px;
+      line-height: 1.4;
+      margin-bottom: 30px;
+    }
 
-const db = new sqlite3.Database("./database.db");
+    .input-box {
+      position: relative;
+      margin-bottom: 16px;
+    }
 
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      username TEXT PRIMARY KEY,
-      passwordHash TEXT NOT NULL,
-      pinHash TEXT NOT NULL,
-      displayName TEXT DEFAULT '',
-      bio TEXT DEFAULT '',
-      avatar TEXT DEFAULT '',
-      createdAt INTEGER DEFAULT 0
-    )
-  `);
+    input {
+      width: 100%;
+      padding: 14px 15px;
+      border: 1px solid #dadce0;
+      border-radius: 10px;
+      font-size: 16px;
+      outline: none;
+      box-sizing: border-box;
+      transition: 0.2s;
+    }
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sender TEXT NOT NULL,
-      receiver TEXT NOT NULL,
-      text TEXT DEFAULT '',
-      mediaType TEXT DEFAULT 'text',
-      mediaUrl TEXT DEFAULT '',
-      createdAt INTEGER NOT NULL
-    )
-  `);
-});
+    input:focus {
+      border-color: #33a6e3;
+    }
 
-function getUser(username) {
-  return new Promise((resolve, reject) => {
-    db.get(
-      `SELECT username, displayName, bio, avatar, createdAt, passwordHash, pinHash
-       FROM users WHERE username = ?`,
-      [username],
-      (err, row) => {
-        if (err) reject(err);
-        else resolve(row || null);
+    .btn-main {
+      width: 100%;
+      background: #33a6e3;
+      color: white;
+      border: none;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-transform: uppercase;
+      margin-top: 10px;
+    }
+
+    .btn-alt {
+      background: none;
+      border: none;
+      color: #33a6e3;
+      margin-top: 15px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #7a7f86;
+      text-align: left;
+      margin-top: -6px;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="tg-card">
+    <div class="tg-logo">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.64 8.8C16.49 10.38 15.84 14.19 15.51 15.96C15.37 16.71 15.09 16.96 14.82 16.99C14.24 17.04 13.8 16.6 13.24 16.23C12.36 15.65 11.86 15.29 11 14.72C10.01 14.07 10.65 13.71 11.22 13.13C11.37 12.97 13.94 10.63 13.99 10.42C14 10.39 14 10.28 13.93 10.22C13.86 10.16 13.77 10.18 13.71 10.19C13.62 10.21 12.23 11.13 9.53 12.95C9.14 13.22 8.78 13.35 8.46 13.34C8.11 13.33 7.42 13.14 6.91 12.98C6.28 12.77 5.79 12.66 5.83 12.31C5.85 12.13 6.1 11.95 6.58 11.77C9.55 10.47 11.53 9.61 12.51 9.2C15.32 8.03 15.91 7.83 16.29 7.83C16.37 7.83 16.56 7.85 16.68 7.95C16.78 8.03 16.81 8.16 16.82 8.25C16.81 8.32 16.82 8.6 16.64 8.8Z"/></svg>
+    </div>
+
+    <h1>Uz Messenger</h1>
+    <p>Введите данные для входа в ваш аккаунт.</p>
+
+    <div class="input-box">
+      <input type="text" id="userInput" placeholder="Юзернейм (@username)" />
+    </div>
+
+    <div class="input-box">
+      <input type="password" id="passInput" placeholder="Пароль" />
+    </div>
+
+    <div class="input-box">
+      <input type="password" id="pinInput" placeholder="Второй код (6 цифр)" maxlength="6" />
+    </div>
+    <div class="hint">При регистрации этот код создаётся один раз, а потом запрашивается при входе.</div>
+
+    <button class="btn-main" id="loginBtn" onclick="handleAuth('login')">Войти</button>
+    <button class="btn-alt" id="regBtn" onclick="handleAuth('reg')">Создать аккаунт</button>
+  </div>
+
+  <script>
+    async function handleAuth(type) {
+      const username = document.getElementById('userInput').value.trim();
+      const password = document.getElementById('passInput').value.trim();
+      const pin = document.getElementById('pinInput').value.trim();
+
+      if (!username || !password || !pin) {
+        return alert("Заполните все поля!");
       }
-    );
-  });
-}
 
-function getPublicUser(username) {
-  return new Promise((resolve, reject) => {
-    db.get(
-      `SELECT username, displayName, bio, avatar, createdAt
-       FROM users WHERE username = ?`,
-      [username],
-      (err, row) => {
-        if (err) reject(err);
-        else resolve(row || null);
+      if (!/^\d{6}$/.test(pin)) {
+        return alert("Второй код должен быть из 6 цифр.");
       }
-    );
-  });
-}
 
-function dbAll(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
-}
+      try {
+        const res = await fetch(`/api/auth/${type}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, pin })
+        });
 
-function dbRun(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function onRun(err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
-  });
-}
+        const data = await res.json();
 
-function normalizeUsername(value = "") {
-  return String(value).trim().replace(/^@+/, "").toLowerCase();
-}
-
-function authUserFromHeader(req) {
-  return normalizeUsername(req.headers["x-user"] || "");
-}
-
-function requireUser(req, res, next) {
-  const username = authUserFromHeader(req);
-  if (!username) {
-    return res.status(401).json({ success: false, error: "Нет пользователя в заголовке x-user" });
-  }
-  req.currentUser = username;
-  next();
-}
-
-function messagePreview(row) {
-  if (row.mediaType === "image") return "📷 Фото";
-  if (row.mediaType === "video") return "🎬 Видео";
-  if (row.mediaType === "audio") return "🎙 Голосовое";
-  return row.text || "Сообщение";
-}
-
-const onlineUsers = new Map();
-
-function sendToUser(username, payload) {
-  const ws = onlineUsers.get(username);
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(payload));
-  }
-}
-
-wss.on("connection", (ws, req) => {
-  const url = new URL(req.url, "http://localhost");
-  const username = normalizeUsername(url.searchParams.get("user"));
-
-  if (!username) {
-    ws.close();
-    return;
-  }
-
-  onlineUsers.set(username, ws);
-
-  ws.on("message", async (raw) => {
-    try {
-      const data = JSON.parse(raw.toString());
-
-      if (data.type !== "text") return;
-
-      const sender = normalizeUsername(data.sender);
-      const receiver = normalizeUsername(data.receiver || "global");
-      const text = String(data.text || "").trim();
-
-      if (!sender || !receiver || !text) return;
-
-      const createdAt = Date.now();
-
-      await dbRun(
-        `INSERT INTO messages (sender, receiver, text, mediaType, mediaUrl, createdAt)
-         VALUES (?, ?, ?, 'text', '', ?)`,
-        [sender, receiver, text, createdAt]
-      );
-
-      const senderProfile = await getPublicUser(sender);
-
-      const payload = {
-        type: "message",
-        sender,
-        receiver,
-        text,
-        mediaType: "text",
-        mediaUrl: "",
-        createdAt,
-        displayName: senderProfile?.displayName || sender
-      };
-
-      if (receiver === "global") {
-        for (const [, client] of onlineUsers) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(payload));
-          }
+        if (data.success) {
+          localStorage.setItem('user', username.replace(/^@+/, '').toLowerCase());
+          window.location.href = 'chat.html';
+        } else {
+          alert("Ошибка: " + data.error);
         }
-      } else {
-        sendToUser(sender, payload);
-        sendToUser(receiver, payload);
+      } catch (err) {
+        alert("Ошибка сервера. Проверьте деплой на Render.");
       }
-    } catch (err) {
-      console.error("WS error:", err.message);
     }
-  });
-
-  ws.on("close", () => {
-    if (onlineUsers.get(username) === ws) {
-      onlineUsers.delete(username);
-    }
-  });
-});
-
-/* AUTH */
-
-app.post("/api/auth/reg", async (req, res) => {
-  try {
-    const username = normalizeUsername(req.body.username);
-    const password = String(req.body.password || "").trim();
-    const pin = String(req.body.pin || "").trim();
-
-    if (!username || !password || !pin) {
-      return res.status(400).json({ success: false, error: "Заполните все поля" });
-    }
-
-    if (!/^[a-z0-9_]{4,20}$/.test(username)) {
-      return res.status(400).json({ success: false, error: "Юзернейм: 4-20 символов, только a-z, 0-9 и _" });
-    }
-
-    if (!/^\d{6}$/.test(pin)) {
-      return res.status(400).json({ success: false, error: "Второй код должен быть из 6 цифр" });
-    }
-
-    const existing = await getUser(username);
-    if (existing) {
-      return res.status(400).json({ success: false, error: "Юзернейм занят" });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-    const pinHash = await bcrypt.hash(pin, 10);
-
-    await dbRun(
-      `INSERT INTO users (username, passwordHash, pinHash, displayName, bio, avatar, createdAt)
-       VALUES (?, ?, ?, ?, '', '', ?)`,
-      [username, passwordHash, pinHash, username, Date.now()]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка регистрации" });
-  }
-});
-
-app.post("/api/auth/login", async (req, res) => {
-  try {
-    const username = normalizeUsername(req.body.username);
-    const password = String(req.body.password || "").trim();
-    const pin = String(req.body.pin || "").trim();
-
-    const user = await getUser(username);
-
-    if (!user) {
-      return res.status(401).json({ success: false, error: "Пользователь не найден" });
-    }
-
-    const passwordOk = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordOk) {
-      return res.status(401).json({ success: false, error: "Неверный пароль" });
-    }
-
-    const pinOk = await bcrypt.compare(pin, user.pinHash);
-    if (!pinOk) {
-      return res.status(401).json({ success: false, error: "Неверный второй код" });
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка входа" });
-  }
-});
-
-/* USERS */
-
-app.get("/api/search", async (req, res) => {
-  try {
-    const query = normalizeUsername(req.query.q || "");
-    if (!query) return res.json([]);
-
-    const rows = await dbAll(
-      `SELECT username, displayName, bio, avatar
-       FROM users
-       WHERE username LIKE ?
-       ORDER BY username ASC
-       LIMIT 20`,
-      [`%${query}%`]
-    );
-
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json([]);
-  }
-});
-
-app.get("/api/profile/:username", async (req, res) => {
-  try {
-    const username = normalizeUsername(req.params.username);
-    const user = await getPublicUser(username);
-
-    if (!user) {
-      return res.status(404).json({ success: false, error: "Профиль не найден" });
-    }
-
-    res.json({ success: true, profile: user });
-  } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка загрузки профиля" });
-  }
-});
-
-app.get("/api/me", requireUser, async (req, res) => {
-  try {
-    const user = await getPublicUser(req.currentUser);
-    if (!user) {
-      return res.status(404).json({ success: false, error: "Пользователь не найден" });
-    }
-    res.json({ success: true, profile: user });
-  } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка загрузки профиля" });
-  }
-});
-
-app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
-  try {
-    const displayName = String(req.body.displayName || "").trim().slice(0, 40);
-    const bio = String(req.body.bio || "").trim().slice(0, 160);
-    const avatar = req.file ? `/uploads/${req.file.filename}` : String(req.body.currentAvatar || "");
-
-    await dbRun(
-      `UPDATE users
-       SET displayName = ?, bio = ?, avatar = ?
-       WHERE username = ?`,
-      [displayName || req.currentUser, bio, avatar, req.currentUser]
-    );
-
-    const updated = await getPublicUser(req.currentUser);
-    res.json({ success: true, profile: updated });
-  } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка сохранения профиля" });
-  }
-});
-
-/* CHATS */
-
-app.get("/api/chats", requireUser, async (req, res) => {
-  try {
-    const me = req.currentUser;
-
-    const rows = await dbAll(
-      `
-      SELECT * FROM (
-        SELECT
-          CASE
-            WHEN sender = ? THEN receiver
-            ELSE sender
-          END AS username,
-          text,
-          mediaType,
-          createdAt
-        FROM messages
-        WHERE receiver != 'global'
-          AND (sender = ? OR receiver = ?)
-        ORDER BY createdAt DESC
-      )
-      GROUP BY username
-      ORDER BY createdAt DESC
-      `,
-      [me, me, me]
-    );
-
-    const enriched = [];
-    for (const row of rows) {
-      const user = await getPublicUser(row.username);
-      if (!user) continue;
-
-      enriched.push({
-        username: user.username,
-        displayName: user.displayName || user.username,
-        bio: user.bio || "",
-        avatar: user.avatar || "",
-        preview: messagePreview(row),
-        createdAt: row.createdAt
-      });
-    }
-
-    res.json(enriched);
-  } catch (err) {
-    res.status(500).json([]);
-  }
-});
-
-app.get("/api/messages", requireUser, async (req, res) => {
-  try {
-    const chat = normalizeUsername(req.query.chat || "global");
-    const me = req.currentUser;
-    let rows = [];
-
-    if (chat === "global") {
-      rows = await dbAll(
-        `SELECT m.*, u.displayName
-         FROM messages m
-         LEFT JOIN users u ON u.username = m.sender
-         WHERE m.receiver = 'global'
-         ORDER BY m.createdAt ASC
-         LIMIT 300`
-      );
-    } else {
-      rows = await dbAll(
-        `SELECT m.*, u.displayName
-         FROM messages m
-         LEFT JOIN users u ON u.username = m.sender
-         WHERE
-           (m.sender = ? AND m.receiver = ?)
-           OR
-           (m.sender = ? AND m.receiver = ?)
-         ORDER BY m.createdAt ASC
-         LIMIT 300`,
-        [me, chat, chat, me]
-      );
-    }
-
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json([]);
-  }
-});
-
-app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => {
-  try {
-    const receiver = normalizeUsername(req.body.receiver || "global");
-    const sender = req.currentUser;
-    const text = String(req.body.text || "").trim();
-    const file = req.file;
-
-    if (!file) {
-      return res.status(400).json({ success: false, error: "Файл не загружен" });
-    }
-
-    let mediaType = "file";
-    if (file.mimetype.startsWith("image/")) mediaType = "image";
-    else if (file.mimetype.startsWith("video/")) mediaType = "video";
-    else if (file.mimetype.startsWith("audio/")) mediaType = "audio";
-
-    const mediaUrl = `/uploads/${file.filename}`;
-    const createdAt = Date.now();
-
-    await dbRun(
-      `INSERT INTO messages (sender, receiver, text, mediaType, mediaUrl, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [sender, receiver, text, mediaType, mediaUrl, createdAt]
-    );
-
-    const senderProfile = await getPublicUser(sender);
-
-    const payload = {
-      type: "message",
-      sender,
-      receiver,
-      text,
-      mediaType,
-      mediaUrl,
-      createdAt,
-      displayName: senderProfile?.displayName || sender
-    };
-
-    if (receiver === "global") {
-      for (const [, client] of onlineUsers) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(payload));
-        }
-      }
-    } else {
-      sendToUser(sender, payload);
-      sendToUser(receiver, payload);
-    }
-
-    res.json({ success: true, message: payload });
-  } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка загрузки файла" });
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  </script>
+</body>
+</html>
