@@ -1,42 +1,70 @@
-/* Базовые стили и Glassmorphism */
 :root {
-    --primary: #0088cc;
-    --glass: rgba(255, 255, 255, 0.8);
-    --bg: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+    --tg-blue: #0088cc;
+    --bg-light: #f4f4f5;
+    --glass: rgba(255, 255, 255, 0.9);
 }
 
-* { box-sizing: border-box; }
-body, html { margin: 0; height: 100%; font-family: -apple-system, sans-serif; background: var(--bg); }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto; background: var(--bg-light); height: 100vh; display: flex; justify-content: center; }
 
-/* Авторизация */
-.auth-page { display: flex; align-items: center; justify-content: center; }
-.glass-card { 
-    background: var(--glass); padding: 40px; border-radius: 20px; 
-    backdrop-filter: blur(10px); text-align: center; width: 320px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+.app-container {
+    display: flex;
+    width: 100%;
+    max-width: 1600px; /* Для сверхшироких мониторов */
+    height: 100vh;
+    background: white;
+    overflow: hidden;
 }
-input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 10px; border: 1px solid #ddd; }
-button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
 
-/* Интерфейс мессенджера */
-.app-container { display: flex; height: 100vh; overflow: hidden; }
-.sidebar { width: 300px; background: var(--glass); border-right: 1px solid rgba(0,0,0,0.05); backdrop-filter: blur(10px); }
-.main-chat { flex: 1; display: flex; flex-direction: column; background: rgba(255,255,255,0.3); }
+/* Настройки боковой панели (Список чатов и поиск) */
+.sidebar {
+    width: 30%; /* Планшеты и ПК */
+    min-width: 300px;
+    border-right: 1px solid #ddd;
+    display: flex;
+    flex-direction: column;
+}
 
-.chat-header { padding: 10px 20px; background: var(--glass); display: flex; align-items: center; gap: 15px; border-bottom: 1px solid #ddd; }
-.messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-.input-row { padding: 15px; background: var(--glass); display: flex; gap: 10px; }
+/* Настройки окна чата */
+.main-chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: url('https://web.telegram.org/a/chat-bg-pattern-light.0076a913416e9134.png');
+}
 
-/* Сообщения (Пузыри) */
-.bubble { max-width: 75%; padding: 10px 15px; border-radius: 15px; position: relative; font-size: 15px; line-height: 1.4; }
-.bubble.sent { align-self: flex-end; background: #efffde; border-bottom-right-radius: 2px; }
-.bubble.received { align-self: flex-start; background: white; border-bottom-left-radius: 2px; }
+/* --- АДАПТИВНОСТЬ (3-в-1) --- */
 
-.avatar { width: 40px; height: 40px; background: #ddd; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-.mobile-only { display: none; }
-
+/* 1. Мобильные устройства (до 768px) */
 @media (max-width: 768px) {
-    .sidebar { position: absolute; left: -100%; transition: 0.3s; z-index: 10; height: 100%; }
-    .sidebar.open { left: 0; }
-    .mobile-only { display: block; background: none; color: var(--primary); width: auto; font-size: 20px; }
+    .sidebar {
+        width: 100%;
+        position: absolute;
+        left: 0;
+        z-index: 10;
+        height: 100%;
+        transition: 0.3s;
+    }
+    .sidebar.hidden { left: -100%; }
+    .main-chat { width: 100%; }
+}
+
+/* 2. Планшеты (768px - 1024px) */
+@media (min-width: 768px) and (max-width: 1024px) {
+    .sidebar { width: 35%; }
+}
+
+/* 3. Компьютеры (от 1024px) */
+@media (min-width: 1024px) {
+    .sidebar { width: 25%; max-width: 400px; }
+}
+
+/* Стиль для "Кружков" */
+.video-note {
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--tg-blue);
+    background: black;
 }
