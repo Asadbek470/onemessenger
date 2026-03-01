@@ -2,37 +2,114 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>One Messenger Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>One Messenger Pro — iOS 26</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
+
     <div class="app-container">
         <aside class="sidebar" id="sidebar">
-            <div class="search-box">
-                <input type="text" placeholder="Поиск @username..." oninput="searchUsers(this.value)">
+            <div class="sidebar-header">
+                <div class="search-wrapper">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="userSearch" placeholder="Поиск @username..." oninput="searchUsers(this.value)">
+                </div>
+            </div>
+            <div class="chats-list" id="chatList">
+                <div class="chat-item active" onclick="selectChat('global')">
+                    <div class="avatar-circle" style="background: linear-gradient(45deg, #007AFF, #5AC8FA);">
+                        <i class="fa-solid fa-earth-americas"></i>
+                    </div>
+                    <div class="chat-info">
+                        <span class="chat-name">Общий чат</span>
+                        <span class="chat-last-msg">Напишите что-нибудь...</span>
+                    </div>
+                </div>
                 <div id="searchResults"></div>
             </div>
-            <div id="chats">
-                <div class="chat-item" onclick="selectChat('global')"><b># Общий чат</b></div>
+            
+            <div class="sidebar-footer">
+                <button onclick="toggleSettings(true)" class="settings-trigger">
+                    <i class="fa-solid fa-gear"></i> Настройки
+                </button>
             </div>
         </aside>
 
         <main class="main-chat">
             <header class="chat-header">
-                <button class="mobile-only" onclick="toggleSidebar()">☰</button>
-                <div id="chatTitle">Общий чат</div>
+                <button class="mobile-back" onclick="toggleSidebar(true)"><i class="fa-solid fa-chevron-left"></i></button>
+                <div class="header-user-info" onclick="viewProfile()">
+                    <div class="avatar-small" id="activeAvatar"></div>
+                    <div class="user-text">
+                        <h3 id="chatTitle">Общий чат</h3>
+                        <span class="status online">в сети</span>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <i class="fa-solid fa-phone"></i>
+                    <i class="fa-solid fa-ellipsis-vertical"></i>
+                </div>
             </header>
-            <div class="messages" id="messages"></div>
-            <div class="input-row">
-                <label class="circle-btn" style="background:#888">📎<input type="file" hidden onchange="uploadFile(this)"></label>
-                <input type="text" id="msgInput" placeholder="Сообщение...">
-                <button id="voiceBtn" class="circle-btn">🎤</button>
-                <button id="videoBtn" class="circle-btn" style="background:#ff4d4d">⭕</button>
-                <button id="sendBtn" class="circle-btn">➤</button>
+
+            <div class="messages-container" id="messages">
+                </div>
+
+            <div id="videoPreviewContainer" class="video-preview-overlay" style="display:none;">
+                <video id="videoPreview" autoplay muted></video>
+                <div class="timer" id="recordTimer">00:00</div>
             </div>
+
+            <footer class="chat-input-panel">
+                <button class="input-action-btn" onclick="document.getElementById('fileInput').click()">
+                    <i class="fa-solid fa-paperclip"></i>
+                </button>
+                <input type="file" id="fileInput" hidden onchange="handleFileUpload(this)">
+
+                <div class="input-wrapper">
+                    <input type="text" id="msgInput" placeholder="Сообщение..." autocomplete="off">
+                    <button class="emoji-btn"><i class="fa-regular fa-face-smile"></i></button>
+                </div>
+
+                <div class="media-controls">
+                    <button class="input-action-btn voice-btn" id="voiceBtn" onmousedown="startVoice()" onmouseup="stopVoice()">
+                        <i class="fa-solid fa-microphone"></i>
+                    </button>
+                    <button class="input-action-btn circle-btn" id="circleBtn" onclick="toggleCircleRecord()">
+                        <i class="fa-solid fa-circle-dot"></i>
+                    </button>
+                    <button class="send-btn" id="sendBtn" onclick="sendTextMessage()">
+                        <i class="fa-solid fa-arrow-up"></i>
+                    </button>
+                </div>
+            </footer>
         </main>
     </div>
+
+    <div id="settingsModal" class="modal-overlay" style="display:none;">
+        <div class="settings-card glass-panel">
+            <button class="close-modal" onclick="toggleSettings(false)">✕</button>
+            <div class="settings-content">
+                <div class="profile-upload" onclick="document.getElementById('avatarInput').click()">
+                    <img src="default-avatar.png" id="profilePic" alt="Аватар">
+                    <div class="overlay"><i class="fa-solid fa-camera"></i></div>
+                </div>
+                <input type="file" id="avatarInput" hidden onchange="updateAvatar(this)">
+                
+                <h2 id="settingsUsername">@username</h2>
+                <div class="settings-fields">
+                    <label>О себе</label>
+                    <input type="text" id="bioInput" placeholder="Расскажите о себе...">
+                    
+                    <label>Имя в чате</label>
+                    <input type="text" id="displayNameInput" placeholder="Ваше имя">
+                </div>
+                <button class="save-btn" onclick="saveProfile()">Сохранить изменения</button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>
