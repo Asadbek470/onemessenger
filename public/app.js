@@ -1,48 +1,43 @@
 let socket;
 let currentUser = localStorage.getItem('user');
 
-// ФУНКЦИЯ АВТОРИЗАЦИИ
-async function handleAuth(type) {
-    const username = document.getElementById('userInput').value;
-    const password = document.getElementById('passInput').value;
-
-    if (!username || !password) return alert("Fill fields!");
-
-    const res = await fetch(`/api/auth/${type}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ username, password })
-    });
-
-    const data = await res.json();
-    if (data.success) {
-        localStorage.setItem('user', username);
-        window.location.href = 'chat.html'; // Переход в чат
-    } else {
-        alert("Error: " + data.error);
-    }
-}
-
-// ЗАПИСЬ КРУЖКА (VIDEO NOTE)
-async function sendCircle() {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    const recorder = new MediaRecorder(stream);
-    const chunks = [];
-
-    recorder.ondataavailable = e => chunks.push(e.data);
-    recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: 'video/mp4' });
-        const url = await uploadFile(blob);
-        socket.send(JSON.stringify({ type: 'circle', url, sender: currentUser }));
+// Функция подключения (вызывать при загрузке chat.html)
+function connectWS() {
+    socket = new WebSocket(`ws://${window.location.host}`);
+    
+    socket.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        const container = document.getElementById('messagesContainer');
+        // Отрисовка сообщения (текст, фото, видео или кружок)
+        container.innerHTML += `<div class="bubble">${msg.text || 'Медиа-файл'}</div>`;
     };
-    recorder.start();
-    setTimeout(() => recorder.stop(), 5000); // Запись 5 сек
 }
 
-async function uploadFile(blob) {
-    const formData = new FormData();
-    formData.append('file', blob);
-    const res = await fetch('/api/upload', { method: 'POST', body: formData });
-    const data = await res.json();
-    return data.url;
+// ИСПРАВЛЕННЫЙ ПОИСК ЧЕЛОВЕКА
+async function searchUsers(val) {
+    if (!val.startsWith('@')) return;
+    const query = val.replace('@', '');
+    const res = await fetch(`/api/search?q=${query}`);
+    const users = await res.json();
+    
+    const results = document.getElementById('searchResults');
+    results.innerHTML = users.map(u => `
+        <div class="user-item" onclick="startPrivate('${u.username}')">
+            <b>@${u.username}</b>
+        </div>
+    `).join('');
+}
+
+// ОТПРАВКА В ОБЩИЙ ЧАТ
+function sendText() {
+    const input = document.getElementById('messageInput');
+    if (input.value && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'text',
+            text: input.value,
+            sender: currentUser,
+            receiver: 'global' // Это и есть общий чат
+        }));
+        input.value = '';
+    }
 }
