@@ -1,56 +1,51 @@
-let socket;
-let currentUser = localStorage.getItem('user');
+let mediaRecorder;
+let chunks = [];
 
-// Функция авторизации (исправляем нерабочие кнопки)
-async function auth(type) {
-    const user = document.getElementById('user').value;
-    const pass = document.getElementById('pass').value;
+// 1. Функция для записи КРУЖКА (Video Note)
+async function startCircle() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const videoPreview = document.createElement('video');
+        videoPreview.srcObject = stream;
+        videoPreview.muted = true;
+        videoPreview.play();
+        
+        // Показываем круглое превью пользователю (iOS Style)
+        videoPreview.className = "video-note-container";
+        document.body.appendChild(videoPreview);
 
-    if (!user || !pass) return alert("Заполни все поля!");
-
-    const res = await fetch(`/api/auth/${type}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ username: user, password: pass })
-    });
-
-    const data = await res.json();
-    if (data.success) {
-        localStorage.setItem('user', user);
-        window.location.href = 'chat.html';
-    } else {
-        alert("Ошибка: " + data.error);
-    }
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+            const blob = new Blob(chunks, { type: 'video/mp4' });
+            const formData = new FormData();
+            formData.append('file', blob);
+            
+            // Отправка на сервер
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            
+            // Отправка через сокет
+            socket.send(JSON.stringify({ type: 'video_note', url: data.url, sender: currentUser }));
+            videoPreview.remove();
+            chunks = [];
+        };
+        
+        mediaRecorder.start();
+        setTimeout(() => mediaRecorder.stop(), 5000); // Запись 5 секунд
+    } catch (err) { alert("Включи доступ к камере!"); }
 }
 
-// Поиск пользователей по Username
-async function searchUsers(val) {
-    if (val.length < 2) return;
-    const res = await fetch(`/api/search?q=${val}`);
-    const users = await res.json();
-    const results = document.getElementById('results');
-    results.innerHTML = users.map(u => `
-        <div onclick="startPrivate('${u.username}')" class="user-row">@${u.username}</div>
-    `).join('');
-}
-
-// Кружки (Video Notes)
-async function sendCircle() {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    const recorder = new MediaRecorder(stream);
-    const chunks = [];
+// 2. Функция поиска по Username (Личка)
+async function searchUsers(query) {
+    if (!query.startsWith('@')) return;
+    const res = await fetch(`/api/search?q=${query.substring(1)}`);
+    const results = await res.json();
     
-    recorder.ondataavailable = e => chunks.push(e.data);
-    recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: 'video/webm' });
-        const formData = new FormData();
-        formData.append('file', blob);
-        
-        const res = await fetch('/api/upload', { method: 'POST', body: formData });
-        const { url } = await res.json();
-        
-        socket.send(JSON.stringify({ type: 'video_note', fileUrl: url, sender: currentUser }));
-    };
-    recorder.start();
-    setTimeout(() => recorder.stop(), 5000); // Кружок на 5 секунд
+    const list = document.getElementById('chat-list');
+    list.innerHTML = results.map(u => `
+        <div class="user-item" onclick="openPrivate('${u.username}')">
+            <b>@${u.username}</b>
+        </div>
+    `).join('');
 }
