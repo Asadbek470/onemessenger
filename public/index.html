@@ -3,50 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Вход — One Messenger iOS</title>
+    <title>Uz Messenger — Войти</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body class="auth-page">
 
-    <div class="glass-panel">
-        <div class="auth-header">
-            <div class="app-logo">
-                <i class="fa-brands fa-telegram"></i>
+    <div class="auth-container">
+        <div class="auth-logo">
+            <div class="tg-logo-inner">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.64 8.8C16.49 10.38 15.84 14.19 15.51 15.96C15.37 16.71 15.09 16.96 14.82 16.99C14.24 17.04 13.8 16.6 13.24 16.23C12.36 15.65 11.86 15.29 11 14.72C10.01 14.07 10.65 13.71 11.22 13.13C11.37 12.97 13.94 10.63 13.99 10.42C14 10.39 14 10.28 13.93 10.22C13.86 10.16 13.77 10.18 13.71 10.19C13.62 10.21 12.23 11.13 9.53 12.95C9.14 13.22 8.78 13.35 8.46 13.34C8.11 13.33 7.42 13.14 6.91 12.98C6.28 12.77 5.79 12.66 5.83 12.31C5.85 12.13 6.1 11.95 6.58 11.77C9.55 10.47 11.53 9.61 12.51 9.2C15.32 8.03 15.91 7.83 16.29 7.83C16.37 7.83 16.56 7.85 16.68 7.95C16.78 8.03 16.81 8.16 16.82 8.25C16.81 8.32 16.82 8.6 16.64 8.8Z" fill="white"/>
+                </svg>
             </div>
-            <h1>One Messenger</h1>
-            <p>Версия iOS 26 Ultra</p>
         </div>
 
-        <div class="auth-form">
-            <div class="input-group">
-                <i class="fa-solid fa-at"></i>
-                <input type="text" id="user" placeholder="Юзернейм (напр. asadbek)">
-            </div>
-            
-            <div class="input-group">
-                <i class="fa-solid fa-lock"></i>
-                <input type="password" id="pass" placeholder="Пароль">
+        <div class="auth-header">
+            <h1>Uz Messenger</h1>
+            <p>Пожалуйста, выберите метод входа и <br> введите ваши данные.</p>
+        </div>
+
+        <div class="auth-form" id="authForm">
+            <div class="tg-input-group">
+                <input type="text" id="userInput" class="tg-input" required placeholder=" ">
+                <label class="tg-label">Имя пользователя (Username)</label>
             </div>
 
-            <div class="auth-buttons">
-                <button onclick="auth('login')" class="btn-primary">
-                    <span>Войти</span>
-                    <i class="fa-solid fa-chevron-right"></i>
-                </button>
-                <button onclick="auth('reg')" class="btn-secondary">
-                    Регистрация
-                </button>
+            <div class="tg-input-group">
+                <input type="password" id="passInput" class="tg-input" required placeholder=" ">
+                <label class="tg-label">Пароль</label>
             </div>
+
+            <button class="tg-btn-next" onclick="handleAuth('login')">
+                <span>ВОЙТИ</span>
+            </button>
+            
+            <button class="tg-btn-text" onclick="handleAuth('reg')">
+                Зарегистрироваться в Uz Messenger
+            </button>
         </div>
 
         <div class="auth-footer">
-            <p>Забыли пароль? Обратитесь в поддержку</p>
+            <p>Удобный мессенджер без номера телефона.</p>
         </div>
     </div>
 
-    <div id="loader" class="loader-overlay" style="display:none;">
-        <div class="ios-spinner"></div>
+    <div id="loader" class="tg-loader-overlay" style="display:none;">
+        <div class="tg-spinner"></div>
     </div>
 
     <script src="app.js"></script>
