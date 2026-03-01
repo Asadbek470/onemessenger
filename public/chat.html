@@ -2,36 +2,36 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Messenger</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>One Messenger Pro</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="app-container">
-        <div class="sidebar" id="sidebar">
-            <div class="header-ui">
-                <h3>Чаты</h3>
+        <aside class="sidebar" id="sidebar">
+            <div class="search-box">
+                <input type="text" placeholder="Поиск @username..." oninput="searchUsers(this.value)">
+                <div id="searchResults"></div>
             </div>
-            <div class="chat-list">
-                <div class="chat-item active" onclick="selectChat('Общий чат')">
-                    <div class="avatar">#</div>
-                    <div class="info"><strong>Общий чат</strong><p>Global Room</p></div>
-                </div>
+            <div id="chats">
+                <div class="chat-item" onclick="selectChat('global')"><b># Общий чат</b></div>
             </div>
-        </div>
+        </aside>
 
-        <div class="main-chat">
-            <div class="chat-header">
-                <button class="mobile-only" onclick="toggleSidebar(true)">☰</button>
-                <div class="avatar">#</div>
-                <div class="info"><strong id="chatTitle">Общий чат</strong><p>online</p></div>
-            </div>
+        <main class="main-chat">
+            <header class="chat-header">
+                <button class="mobile-only" onclick="toggleSidebar()">☰</button>
+                <div id="chatTitle">Общий чат</div>
+            </header>
             <div class="messages" id="messages"></div>
             <div class="input-row">
-                <input type="text" id="msgInput" placeholder="Сообщение..." autocomplete="off">
-                <button id="sendBtn">➤</button>
+                <label class="circle-btn" style="background:#888">📎<input type="file" hidden onchange="uploadFile(this)"></label>
+                <input type="text" id="msgInput" placeholder="Сообщение...">
+                <button id="voiceBtn" class="circle-btn">🎤</button>
+                <button id="videoBtn" class="circle-btn" style="background:#ff4d4d">⭕</button>
+                <button id="sendBtn" class="circle-btn">➤</button>
             </div>
-        </div>
+        </main>
     </div>
     <script src="app.js"></script>
 </body>
