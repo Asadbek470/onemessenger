@@ -3,12 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>One Messenger — iOS 26 Ultra</title>
+  <title>One Messenger</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
 </head>
 <body onload="initChat()">
-
   <div class="app-container">
     <aside class="sidebar active-mobile" id="sidebar">
       <div class="sidebar-header">
@@ -17,6 +16,8 @@
           <input type="text" id="userSearch" placeholder="Поиск @username..." oninput="searchUsers(this.value)" />
         </div>
       </div>
+
+      <div class="stories-strip" id="storiesStrip"></div>
 
       <div class="chats-list" id="chatsList">
         <div class="chat-item active" data-chat="global" onclick="switchChat('global')">
@@ -54,6 +55,7 @@
         </div>
       </header>
 
+      <section class="birthday-banner hidden" id="birthdayBanner"></section>
       <section class="messages-area" id="messagesContainer"></section>
 
       <footer class="input-panel">
@@ -79,7 +81,7 @@
     </main>
   </div>
 
-  <div id="settingsModal" class="modal-backdrop" style="display: none;">
+  <div id="settingsModal" class="modal-backdrop" style="display:none;">
     <div class="settings-card glass">
       <header class="modal-header">
         <h3>Настройки профиля</h3>
@@ -94,6 +96,11 @@
         </div>
 
         <div class="input-field">
+          <label>Юзернейм</label>
+          <input type="text" id="editUsername" placeholder="username" />
+        </div>
+
+        <div class="input-field">
           <label>Ваше имя</label>
           <input type="text" id="editName" placeholder="Введите имя" />
         </div>
@@ -103,12 +110,45 @@
           <input type="text" id="editBio" placeholder="Расскажите о себе" />
         </div>
 
+        <div class="input-field">
+          <label>День рождения</label>
+          <input type="date" id="editBirthday" />
+        </div>
+
+        <div class="input-field">
+          <label>Новый PIN-код (6 цифр)</label>
+          <input type="password" id="editPin" maxlength="6" placeholder="Оставьте пустым, если не меняете" />
+        </div>
+
+        <div class="input-field">
+          <label>Кто видит мой профиль</label>
+          <select id="editProfileVisibility">
+            <option value="all">Все</option>
+            <option value="contacts">Только контакты</option>
+          </select>
+        </div>
+
+        <div class="input-field">
+          <label>Кто видит мои сторис</label>
+          <select id="editStoryVisibility">
+            <option value="all">Все</option>
+            <option value="contacts">Только контакты</option>
+          </select>
+        </div>
+
+        <div class="story-editor">
+          <div class="story-title">Сторис профиля</div>
+          <input type="text" id="storyText" placeholder="Текст сторис..." />
+          <input type="file" id="storyInput" accept="image/*,video/*" />
+          <button class="secondary-btn" onclick="publishStory()">Опубликовать сторис</button>
+        </div>
+
         <button class="save-profile-btn" onclick="saveProfile()">Сохранить изменения</button>
       </div>
     </div>
   </div>
 
-  <div id="profileModal" class="modal-backdrop" style="display: none;">
+  <div id="profileModal" class="modal-backdrop" style="display:none;">
     <div class="settings-card glass">
       <header class="modal-header">
         <h3>Профиль</h3>
@@ -119,10 +159,26 @@
         <div class="profile-avatar-edit">
           <div class="avatar-large" id="viewProfileAvatar"></div>
         </div>
+
         <div class="profile-view-line"><b>Юзернейм:</b> <span id="viewProfileUsername"></span></div>
         <div class="profile-view-line"><b>Имя:</b> <span id="viewProfileName"></span></div>
         <div class="profile-view-line"><b>Bio:</b> <span id="viewProfileBio"></span></div>
+        <div class="profile-view-line"><b>День рождения:</b> <span id="viewProfileBirthday"></span></div>
+        <div class="profile-view-line" id="todayBirthdayLine" style="display:none;"><b>🎉 Сегодня день рождения!</b></div>
+
+        <button class="secondary-btn" id="addContactBtn" onclick="addCurrentProfileToContacts()">Добавить в контакты</button>
       </div>
+    </div>
+  </div>
+
+  <div id="storyModal" class="modal-backdrop" style="display:none;">
+    <div class="settings-card glass">
+      <header class="modal-header">
+        <h3>Сторис</h3>
+        <button class="close-btn" onclick="closeStoryModal()">✕</button>
+      </header>
+
+      <div class="settings-body" id="storyModalBody"></div>
     </div>
   </div>
 
