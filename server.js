@@ -6,6 +6,7 @@ const bcrypt = require("bcrypt");
 const multer = require("multer");
 const http = require("http");
 const WebSocket = require("ws");
+const crypto = require("crypto");
 
 const app = express();
 const server = http.createServer(app);
@@ -16,13 +17,18 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const uploadsDir = path.join(__dirname, "public", "uploads");
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, uploadsDir),
   filename: (_, file, cb) => {
     const safeName =
-      Date.now() + "-" + Math.random().toString(36).slice(2) + path.extname(file.originalname);
+      Date.now() +
+      "-" +
+      Math.random().toString(36).slice(2) +
+      path.extname(file.originalname);
     cb(null, safeName);
   }
 });
@@ -34,9 +40,11 @@ const upload = multer({
 
 const db = new sqlite3.Database("./database.db");
 
+/* -------------------- helpers -------------------- */
+
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
+    db.run(sql, params, function onRun(err) {
       if (err) reject(err);
       else resolve(this);
     });
@@ -82,16 +90,26 @@ function authUserFromHeader(req) {
 function requireUser(req, res, next) {
   const username = authUserFromHeader(req);
   if (!username) {
-    return res.status(401).json({ success: false, error: "Нет пользователя в заголовке x-user" });
+    return res.status(401).json({
+      success: false,
+      error: "Нет пользователя в заголовке x-user"
+    });
   }
+
   req.currentUser = username;
   next();
 }
 
+function isActiveUntil(ts) {
+  return Number(ts || 0) > Date.now();
+}
+
 function isTodayBirthday(dateStr = "") {
   if (!dateStr) return false;
+
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return false;
+
   const now = new Date();
   return d.getUTCDate() === now.getDate() && d.getUTCMonth() === now.getMonth();
 }
@@ -102,6 +120,37 @@ function messagePreview(row) {
   if (row.mediaType === "audio") return "🎙 Голосовое";
   return row.text || "Сообщение";
 }
+
+function getRestrictionField(type) {
+  if (type === "text") return "restrictTextUntil";
+  if (type === "image") return "restrictImageUntil";
+  if (type === "video") return "restrictVideoUntil";
+  if (type === "audio") return "restrictAudioUntil";
+  return null;
+}
+
+/* -------------------- admin -------------------- */
+
+const ADMIN_USER = process.env.ADMIN_USER || "admin";
+const ADMIN_PIN = process.env.ADMIN_PIN || "090909";
+const adminSessions = new Map();
+
+function createAdminToken() {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+function requireAdmin(req, res, next) {
+  const token = String(req.headers["x-admin-token"] || "");
+  if (!token || !adminSessions.has(token)) {
+    return res.status(401).json({
+      success: false,
+      error: "Нет доступа к админ-панели"
+    });
+  }
+  next();
+}
+
+/* -------------------- db init -------------------- */
 
 async function initDb() {
   await run(`
@@ -158,6 +207,15 @@ async function initDb() {
   await safeAlter(`ALTER TABLE users ADD COLUMN profileVisibility TEXT DEFAULT 'all'`);
   await safeAlter(`ALTER TABLE users ADD COLUMN storyVisibility TEXT DEFAULT 'all'`);
 
+  await safeAlter(`ALTER TABLE users ADD COLUMN isBanned INTEGER DEFAULT 0`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN banUntil INTEGER DEFAULT 0`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN banReason TEXT DEFAULT ''`);
+
+  await safeAlter(`ALTER TABLE users ADD COLUMN restrictTextUntil INTEGER DEFAULT 0`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN restrictImageUntil INTEGER DEFAULT 0`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN restrictVideoUntil INTEGER DEFAULT 0`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN restrictAudioUntil INTEGER DEFAULT 0`);
+
   await run(`
     UPDATE users
     SET displayName = CASE
@@ -173,11 +231,45 @@ async function initDb() {
       ELSE createdAt
     END
   `);
+
+  await run(`
+    UPDATE users
+    SET profileVisibility = CASE
+      WHEN profileVisibility IS NULL OR profileVisibility = '' THEN 'all'
+      ELSE profileVisibility
+    END
+  `);
+
+  await run(`
+    UPDATE users
+    SET storyVisibility = CASE
+      WHEN storyVisibility IS NULL OR storyVisibility = '' THEN 'all'
+      ELSE storyVisibility
+    END
+  `);
 }
+
+/* -------------------- user/profile helpers -------------------- */
 
 function getFullUser(username) {
   return get(
-    `SELECT username, pinHash, displayName, bio, avatar, createdAt, birthday, profileVisibility, storyVisibility
+    `SELECT
+      username,
+      pinHash,
+      displayName,
+      bio,
+      avatar,
+      createdAt,
+      birthday,
+      profileVisibility,
+      storyVisibility,
+      isBanned,
+      banUntil,
+      banReason,
+      restrictTextUntil,
+      restrictImageUntil,
+      restrictVideoUntil,
+      restrictAudioUntil
      FROM users
      WHERE username = ?`,
     [username]
@@ -195,6 +287,7 @@ async function areConnected(a, b) {
      LIMIT 1`,
     [a, b, b, a]
   );
+
   return !!row;
 }
 
@@ -203,7 +296,10 @@ async function sanitizeProfileForViewer(ownerUsername, viewerUsername) {
   if (!user) return null;
 
   const connected = await areConnected(ownerUsername, viewerUsername);
-  const canSeePrivate = user.profileVisibility === "all" || connected || ownerUsername === viewerUsername;
+  const canSeePrivate =
+    user.profileVisibility === "all" ||
+    connected ||
+    ownerUsername === viewerUsername;
 
   return {
     username: user.username,
@@ -218,6 +314,79 @@ async function sanitizeProfileForViewer(ownerUsername, viewerUsername) {
   };
 }
 
+async function getUserModeration(username) {
+  const user = await get(
+    `SELECT
+      username,
+      displayName,
+      bio,
+      isBanned,
+      banUntil,
+      banReason,
+      restrictTextUntil,
+      restrictImageUntil,
+      restrictVideoUntil,
+      restrictAudioUntil
+     FROM users
+     WHERE username = ?`,
+    [username]
+  );
+
+  if (!user) return null;
+
+  return {
+    ...user,
+    isBanned: Number(user.isBanned) === 1 && isActiveUntil(user.banUntil),
+    textBlocked: isActiveUntil(user.restrictTextUntil),
+    imageBlocked: isActiveUntil(user.restrictImageUntil),
+    videoBlocked: isActiveUntil(user.restrictVideoUntil),
+    audioBlocked: isActiveUntil(user.restrictAudioUntil)
+  };
+}
+
+async function ensureCanSend(username, type) {
+  const row = await get(
+    `SELECT
+      isBanned,
+      banUntil,
+      restrictTextUntil,
+      restrictImageUntil,
+      restrictVideoUntil,
+      restrictAudioUntil
+     FROM users
+     WHERE username = ?`,
+    [username]
+  );
+
+  if (!row) {
+    return { ok: false, error: "Пользователь не найден" };
+  }
+
+  if (Number(row.isBanned) === 1 && isActiveUntil(row.banUntil)) {
+    return { ok: false, error: "Ваш аккаунт временно заблокирован" };
+  }
+
+  if (type === "text" && isActiveUntil(row.restrictTextUntil)) {
+    return { ok: false, error: "Вам временно запрещено отправлять сообщения" };
+  }
+
+  if (type === "image" && isActiveUntil(row.restrictImageUntil)) {
+    return { ok: false, error: "Вам временно запрещено отправлять фото" };
+  }
+
+  if (type === "video" && isActiveUntil(row.restrictVideoUntil)) {
+    return { ok: false, error: "Вам временно запрещено отправлять видео" };
+  }
+
+  if (type === "audio" && isActiveUntil(row.restrictAudioUntil)) {
+    return { ok: false, error: "Вам временно запрещено отправлять аудио" };
+  }
+
+  return { ok: true };
+}
+
+/* -------------------- websocket -------------------- */
+
 const onlineUsers = new Map();
 
 function sendToUser(username, payload) {
@@ -230,6 +399,7 @@ function sendToUser(username, payload) {
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url, "http://localhost");
   const username = normalizeUsername(url.searchParams.get("user"));
+
   if (!username) {
     ws.close();
     return;
@@ -247,6 +417,15 @@ wss.on("connection", (ws, req) => {
       const text = String(data.text || "").trim();
 
       if (!sender || !receiver || !text) return;
+
+      const textCheck = await ensureCanSend(sender, "text");
+      if (!textCheck.ok) {
+        sendToUser(sender, {
+          type: "system",
+          text: textCheck.error
+        });
+        return;
+      }
 
       const createdAt = Date.now();
 
@@ -271,7 +450,9 @@ wss.on("connection", (ws, req) => {
 
       if (receiver === "global") {
         for (const [, client] of onlineUsers) {
-          if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(payload));
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(payload));
+          }
         }
       } else {
         sendToUser(sender, payload);
@@ -283,11 +464,13 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("close", () => {
-    if (onlineUsers.get(username) === ws) onlineUsers.delete(username);
+    if (onlineUsers.get(username) === ws) {
+      onlineUsers.delete(username);
+    }
   });
 });
 
-/* AUTH */
+/* -------------------- auth -------------------- */
 
 app.post("/api/auth/reg", async (req, res) => {
   try {
@@ -299,11 +482,17 @@ app.post("/api/auth/reg", async (req, res) => {
     }
 
     if (!/^[a-z0-9_]{4,20}$/.test(username)) {
-      return res.status(400).json({ success: false, error: "Юзернейм: 4-20 символов, только a-z, 0-9 и _" });
+      return res.status(400).json({
+        success: false,
+        error: "Юзернейм: 4-20 символов, только a-z, 0-9 и _"
+      });
     }
 
     if (!/^\d{6}$/.test(pin)) {
-      return res.status(400).json({ success: false, error: "Код должен быть из 6 цифр" });
+      return res.status(400).json({
+        success: false,
+        error: "Код должен быть из 6 цифр"
+      });
     }
 
     const existing = await getFullUser(username);
@@ -315,8 +504,8 @@ app.post("/api/auth/reg", async (req, res) => {
 
     await run(
       `INSERT INTO users
-       (username, pinHash, displayName, bio, avatar, createdAt, birthday, profileVisibility, storyVisibility)
-       VALUES (?, ?, ?, '', '', ?, '', 'all', 'all')`,
+       (username, pinHash, displayName, bio, avatar, createdAt, birthday, profileVisibility, storyVisibility, isBanned, banUntil, banReason, restrictTextUntil, restrictImageUntil, restrictVideoUntil, restrictAudioUntil)
+       VALUES (?, ?, ?, '', '', ?, '', 'all', 'all', 0, 0, '', 0, 0, 0, 0)`,
       [username, pinHash, username, Date.now()]
     );
 
@@ -341,12 +530,25 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     if (!user.pinHash) {
-      return res.status(400).json({ success: false, error: "Для этого аккаунта не настроен PIN-код" });
+      return res.status(400).json({
+        success: false,
+        error: "Для этого аккаунта не настроен PIN-код"
+      });
+    }
+
+    if (Number(user.isBanned) === 1 && isActiveUntil(user.banUntil)) {
+      return res.status(403).json({
+        success: false,
+        error: "Аккаунт временно заблокирован"
+      });
     }
 
     const pinOk = await bcrypt.compare(pin, user.pinHash);
     if (!pinOk) {
-      return res.status(401).json({ success: false, error: "Неверный цифровой код" });
+      return res.status(401).json({
+        success: false,
+        error: "Неверный цифровой код"
+      });
     }
 
     res.json({ success: true });
@@ -355,7 +557,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-/* USERS / PROFILE */
+/* -------------------- users / profile -------------------- */
 
 app.get("/api/search", requireUser, async (req, res) => {
   try {
@@ -496,6 +698,7 @@ app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
     }
 
     const updated = await getFullUser(newUsername);
+
     res.json({
       success: true,
       profile: {
@@ -510,12 +713,12 @@ app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
         storyVisibility: updated.storyVisibility || "all"
       }
     });
-  } catch (err) {
+  } catch {
     res.status(500).json({ success: false, error: "Ошибка сохранения профиля" });
   }
 });
 
-/* CONTACTS */
+/* -------------------- contacts -------------------- */
 
 app.post("/api/contacts/add", requireUser, async (req, res) => {
   try {
@@ -570,7 +773,7 @@ app.get("/api/contacts", requireUser, async (req, res) => {
   }
 });
 
-/* STORIES */
+/* -------------------- stories -------------------- */
 
 app.post("/api/stories", requireUser, upload.single("story"), async (req, res) => {
   try {
@@ -585,7 +788,10 @@ app.post("/api/stories", requireUser, upload.single("story"), async (req, res) =
     }
 
     if (!text && !mediaUrl) {
-      return res.status(400).json({ success: false, error: "Добавьте текст или файл для сторис" });
+      return res.status(400).json({
+        success: false,
+        error: "Добавьте текст или файл для сторис"
+      });
     }
 
     const createdAt = Date.now();
@@ -610,8 +816,7 @@ app.get("/api/stories", requireUser, async (req, res) => {
 
     const rows = await all(
       `SELECT * FROM stories
-       ORDER BY createdAt DESC`,
-      []
+       ORDER BY createdAt DESC`
     );
 
     const result = [];
@@ -620,7 +825,10 @@ app.get("/api/stories", requireUser, async (req, res) => {
       if (!owner) continue;
 
       const connected = await areConnected(req.currentUser, row.owner);
-      const canSee = owner.storyVisibility === "all" || connected || row.owner === req.currentUser;
+      const canSee =
+        owner.storyVisibility === "all" ||
+        connected ||
+        row.owner === req.currentUser;
 
       if (!canSee) continue;
 
@@ -644,7 +852,7 @@ app.get("/api/stories", requireUser, async (req, res) => {
   }
 });
 
-/* BIRTHDAY */
+/* -------------------- birthdays -------------------- */
 
 app.get("/api/birthdays/today", requireUser, async (req, res) => {
   try {
@@ -664,11 +872,143 @@ app.get("/api/birthdays/today", requireUser, async (req, res) => {
   }
 });
 
-/* CHATS */
+/* -------------------- admin api -------------------- */
+
+app.post("/api/admin/login", async (req, res) => {
+  const username = String(req.body.username || "").trim();
+  const pin = String(req.body.pin || "").trim();
+
+  if (username !== ADMIN_USER || pin !== ADMIN_PIN) {
+    return res.status(401).json({
+      success: false,
+      error: "Неверные данные администратора"
+    });
+  }
+
+  const token = createAdminToken();
+  adminSessions.set(token, { username: ADMIN_USER, createdAt: Date.now() });
+
+  res.json({ success: true, token });
+});
+
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
+  try {
+    const q = normalizeUsername(req.query.q || "");
+
+    const users = await all(
+      q
+        ? `SELECT username FROM users WHERE username LIKE ? ORDER BY username ASC LIMIT 100`
+        : `SELECT username FROM users ORDER BY username ASC LIMIT 100`,
+      q ? [`%${q}%`] : []
+    );
+
+    const result = [];
+    for (const row of users) {
+      const item = await getUserModeration(row.username);
+      if (item) result.push(item);
+    }
+
+    res.json({ success: true, users: result });
+  } catch {
+    res.status(500).json({
+      success: false,
+      error: "Ошибка загрузки пользователей"
+    });
+  }
+});
+
+app.post("/api/admin/ban", requireAdmin, async (req, res) => {
+  try {
+    const username = normalizeUsername(req.body.username);
+    const durationMs = Number(req.body.durationMs || 0);
+
+    if (!username) {
+      return res.status(400).json({ success: false, error: "Нет username" });
+    }
+
+    if (durationMs <= 0) {
+      await run(
+        `UPDATE users
+         SET isBanned = 0, banUntil = 0, banReason = ''
+         WHERE username = ?`,
+        [username]
+      );
+      return res.json({ success: true });
+    }
+
+    await run(
+      `UPDATE users
+       SET isBanned = 1, banUntil = ?, banReason = 'admin restriction'
+       WHERE username = ?`,
+      [Date.now() + durationMs, username]
+    );
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ success: false, error: "Ошибка бана" });
+  }
+});
+
+app.post("/api/admin/restrict", requireAdmin, async (req, res) => {
+  try {
+    const username = normalizeUsername(req.body.username);
+    const type = String(req.body.type || "").trim();
+    const durationMs = Number(req.body.durationMs || 0);
+
+    const field = getRestrictionField(type);
+    if (!field) {
+      return res.status(400).json({
+        success: false,
+        error: "Неверный тип ограничения"
+      });
+    }
+
+    await run(
+      `UPDATE users
+       SET ${field} = ?
+       WHERE username = ?`,
+      [Date.now() + durationMs, username]
+    );
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ success: false, error: "Ошибка ограничения" });
+  }
+});
+
+app.post("/api/admin/clear", requireAdmin, async (req, res) => {
+  try {
+    const username = normalizeUsername(req.body.username);
+
+    await run(
+      `UPDATE users
+       SET
+         isBanned = 0,
+         banUntil = 0,
+         banReason = '',
+         restrictTextUntil = 0,
+         restrictImageUntil = 0,
+         restrictVideoUntil = 0,
+         restrictAudioUntil = 0
+       WHERE username = ?`,
+      [username]
+    );
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({
+      success: false,
+      error: "Ошибка снятия ограничений"
+    });
+  }
+});
+
+/* -------------------- chats -------------------- */
 
 app.get("/api/chats", requireUser, async (req, res) => {
   try {
     const me = req.currentUser;
+
     const rows = await all(
       `
       SELECT * FROM (
@@ -765,6 +1105,11 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
     else if (file.mimetype.startsWith("video/")) mediaType = "video";
     else if (file.mimetype.startsWith("audio/")) mediaType = "audio";
 
+    const mediaCheck = await ensureCanSend(sender, mediaType);
+    if (!mediaCheck.ok) {
+      return res.status(403).json({ success: false, error: mediaCheck.error });
+    }
+
     const mediaUrl = `/uploads/${file.filename}`;
     const createdAt = Date.now();
 
@@ -789,7 +1134,9 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
 
     if (receiver === "global") {
       for (const [, client] of onlineUsers) {
-        if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(payload));
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(payload));
+        }
       }
     } else {
       sendToUser(sender, payload);
@@ -802,10 +1149,14 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
   }
 });
 
+/* -------------------- start -------------------- */
+
 initDb()
   .then(() => {
     const PORT = process.env.PORT || 3000;
-    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    server.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
   })
   .catch((err) => {
     console.error("DB init error:", err);
