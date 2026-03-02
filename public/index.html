@@ -52,7 +52,7 @@
       color: #707579;
       font-size: 15px;
       line-height: 1.4;
-      margin-bottom: 30px;
+      margin-bottom: 24px;
     }
 
     .input-box {
@@ -115,44 +115,42 @@
     </div>
 
     <h1>Uz Messenger</h1>
-    <p>Введите данные для входа в ваш аккаунт.</p>
+    <p>Аккаунт сохраняется вместе с чатами. Для входа нужен только юзернейм и 6-значный код.</p>
 
     <div class="input-box">
       <input type="text" id="userInput" placeholder="Юзернейм (@username)" />
     </div>
 
     <div class="input-box">
-      <input type="password" id="passInput" placeholder="Пароль" />
+      <input type="password" id="pinInput" placeholder="Цифровой код (6 цифр)" maxlength="6" />
     </div>
 
-    <div class="input-box">
-      <input type="password" id="pinInput" placeholder="Второй код (6 цифр)" maxlength="6" />
+    <div class="hint">
+      При создании аккаунта пользователь задаёт свой 6-значный код. Потом этот код запрашивается при каждом входе.
     </div>
-    <div class="hint">При регистрации этот код создаётся один раз, а потом запрашивается при входе.</div>
 
-    <button class="btn-main" id="loginBtn" onclick="handleAuth('login')">Войти</button>
-    <button class="btn-alt" id="regBtn" onclick="handleAuth('reg')">Создать аккаунт</button>
+    <button class="btn-main" onclick="handleAuth('login')">Войти</button>
+    <button class="btn-alt" onclick="handleAuth('reg')">Создать аккаунт</button>
   </div>
 
   <script>
     async function handleAuth(type) {
       const username = document.getElementById('userInput').value.trim();
-      const password = document.getElementById('passInput').value.trim();
       const pin = document.getElementById('pinInput').value.trim();
 
-      if (!username || !password || !pin) {
+      if (!username || !pin) {
         return alert("Заполните все поля!");
       }
 
       if (!/^\d{6}$/.test(pin)) {
-        return alert("Второй код должен быть из 6 цифр.");
+        return alert("Цифровой код должен быть из 6 цифр.");
       }
 
       try {
         const res = await fetch(`/api/auth/${type}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, pin })
+          body: JSON.stringify({ username, pin })
         });
 
         const data = await res.json();
@@ -164,7 +162,7 @@
           alert("Ошибка: " + data.error);
         }
       } catch (err) {
-        alert("Ошибка сервера. Проверьте деплой на Render.");
+        alert("Ошибка сервера. Проверьте деплой.");
       }
     }
   </script>
