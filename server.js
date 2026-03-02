@@ -23,7 +23,11 @@ if (!fs.existsSync(uploadsDir)) {
 const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, uploadsDir),
   filename: (_, file, cb) => {
-    const safeName = Date.now() + "-" + Math.random().toString(36).slice(2) + path.extname(file.originalname);
+    const safeName =
+      Date.now() +
+      "-" +
+      Math.random().toString(36).slice(2) +
+      path.extname(file.originalname);
     cb(null, safeName);
   }
 });
@@ -37,76 +41,41 @@ const upload = multer({
 
 const db = new sqlite3.Database("./database.db");
 
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      username TEXT PRIMARY KEY,
-      passwordHash TEXT NOT NULL,
-      pinHash TEXT NOT NULL,
-      displayName TEXT DEFAULT '',
-      bio TEXT DEFAULT '',
-      avatar TEXT DEFAULT '',
-      createdAt INTEGER DEFAULT 0
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sender TEXT NOT NULL,
-      receiver TEXT NOT NULL,
-      text TEXT DEFAULT '',
-      mediaType TEXT DEFAULT 'text',
-      mediaUrl TEXT DEFAULT '',
-      createdAt INTEGER NOT NULL
-    )
-  `);
-});
-
-function getUser(username) {
+function run(sql, params = []) {
   return new Promise((resolve, reject) => {
-    db.get(
-      `SELECT username, displayName, bio, avatar, createdAt, passwordHash, pinHash
-       FROM users WHERE username = ?`,
-      [username],
-      (err, row) => {
-        if (err) reject(err);
-        else resolve(row || null);
-      }
-    );
-  });
-}
-
-function getPublicUser(username) {
-  return new Promise((resolve, reject) => {
-    db.get(
-      `SELECT username, displayName, bio, avatar, createdAt
-       FROM users WHERE username = ?`,
-      [username],
-      (err, row) => {
-        if (err) reject(err);
-        else resolve(row || null);
-      }
-    );
-  });
-}
-
-function dbAll(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
-}
-
-function dbRun(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function onRun(err) {
+    db.run(sql, params, function (err) {
       if (err) reject(err);
       else resolve(this);
     });
   });
+}
+
+function get(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row || null);
+    });
+  });
+}
+
+function all(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+}
+
+async function safeAlter(sql) {
+  try {
+    await run(sql);
+  } catch (err) {
+    if (!String(err.message).includes("duplicate column")) {
+      console.log("Migration:", err.message);
+    }
+  }
 }
 
 function normalizeUsername(value = "") {
@@ -120,7 +89,10 @@ function authUserFromHeader(req) {
 function requireUser(req, res, next) {
   const username = authUserFromHeader(req);
   if (!username) {
-    return res.status(401).json({ success: false, error: "Нет пользователя в заголовке x-user" });
+    return res.status(401).json({
+      success: false,
+      error: "Нет пользователя в заголовке x-user"
+    });
   }
   req.currentUser = username;
   next();
@@ -131,6 +103,71 @@ function messagePreview(row) {
   if (row.mediaType === "video") return "🎬 Видео";
   if (row.mediaType === "audio") return "🎙 Голосовое";
   return row.text || "Сообщение";
+}
+
+async function initDb() {
+  await run(`
+    CREATE TABLE IF NOT EXISTS users (
+      username TEXT PRIMARY KEY,
+      pinHash TEXT,
+      displayName TEXT DEFAULT '',
+      bio TEXT DEFAULT '',
+      avatar TEXT DEFAULT '',
+      createdAt INTEGER DEFAULT 0
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender TEXT NOT NULL,
+      receiver TEXT NOT NULL,
+      text TEXT DEFAULT '',
+      mediaType TEXT DEFAULT 'text',
+      mediaUrl TEXT DEFAULT '',
+      createdAt INTEGER NOT NULL
+    )
+  `);
+
+  await safeAlter(`ALTER TABLE users ADD COLUMN pinHash TEXT`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN displayName TEXT DEFAULT ''`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN createdAt INTEGER DEFAULT 0`);
+
+  await run(`
+    UPDATE users
+    SET displayName = CASE
+      WHEN displayName IS NULL OR displayName = '' THEN username
+      ELSE displayName
+    END
+  `);
+
+  await run(`
+    UPDATE users
+    SET createdAt = CASE
+      WHEN createdAt IS NULL OR createdAt = 0 THEN strftime('%s','now') * 1000
+      ELSE createdAt
+    END
+  `);
+}
+
+function getPublicUser(username) {
+  return get(
+    `SELECT username, displayName, bio, avatar, createdAt
+     FROM users
+     WHERE username = ?`,
+    [username]
+  );
+}
+
+function getFullUser(username) {
+  return get(
+    `SELECT username, pinHash, displayName, bio, avatar, createdAt
+     FROM users
+     WHERE username = ?`,
+    [username]
+  );
 }
 
 const onlineUsers = new Map();
@@ -167,7 +204,7 @@ wss.on("connection", (ws, req) => {
 
       const createdAt = Date.now();
 
-      await dbRun(
+      await run(
         `INSERT INTO messages (sender, receiver, text, mediaType, mediaUrl, createdAt)
          VALUES (?, ?, ?, 'text', '', ?)`,
         [sender, receiver, text, createdAt]
@@ -208,71 +245,101 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-/* AUTH */
+/* AUTH: только username + 6-значный PIN */
 
 app.post("/api/auth/reg", async (req, res) => {
   try {
     const username = normalizeUsername(req.body.username);
-    const password = String(req.body.password || "").trim();
     const pin = String(req.body.pin || "").trim();
 
-    if (!username || !password || !pin) {
-      return res.status(400).json({ success: false, error: "Заполните все поля" });
+    if (!username || !pin) {
+      return res.status(400).json({
+        success: false,
+        error: "Заполните все поля"
+      });
     }
 
     if (!/^[a-z0-9_]{4,20}$/.test(username)) {
-      return res.status(400).json({ success: false, error: "Юзернейм: 4-20 символов, только a-z, 0-9 и _" });
+      return res.status(400).json({
+        success: false,
+        error: "Юзернейм: 4-20 символов, только a-z, 0-9 и _"
+      });
     }
 
     if (!/^\d{6}$/.test(pin)) {
-      return res.status(400).json({ success: false, error: "Второй код должен быть из 6 цифр" });
+      return res.status(400).json({
+        success: false,
+        error: "Код должен быть из 6 цифр"
+      });
     }
 
-    const existing = await getUser(username);
+    const existing = await getFullUser(username);
     if (existing) {
-      return res.status(400).json({ success: false, error: "Юзернейм занят" });
+      return res.status(400).json({
+        success: false,
+        error: "Юзернейм занят"
+      });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
     const pinHash = await bcrypt.hash(pin, 10);
 
-    await dbRun(
-      `INSERT INTO users (username, passwordHash, pinHash, displayName, bio, avatar, createdAt)
-       VALUES (?, ?, ?, ?, '', '', ?)`,
-      [username, passwordHash, pinHash, username, Date.now()]
+    await run(
+      `INSERT INTO users (username, pinHash, displayName, bio, avatar, createdAt)
+       VALUES (?, ?, ?, '', '', ?)`,
+      [username, pinHash, username, Date.now()]
     );
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка регистрации" });
+    res.status(500).json({
+      success: false,
+      error: "Ошибка регистрации"
+    });
   }
 });
 
 app.post("/api/auth/login", async (req, res) => {
   try {
     const username = normalizeUsername(req.body.username);
-    const password = String(req.body.password || "").trim();
     const pin = String(req.body.pin || "").trim();
 
-    const user = await getUser(username);
-
-    if (!user) {
-      return res.status(401).json({ success: false, error: "Пользователь не найден" });
+    if (!username || !pin) {
+      return res.status(400).json({
+        success: false,
+        error: "Заполните все поля"
+      });
     }
 
-    const passwordOk = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordOk) {
-      return res.status(401).json({ success: false, error: "Неверный пароль" });
+    const user = await getFullUser(username);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: "Пользователь не найден"
+      });
+    }
+
+    if (!user.pinHash) {
+      return res.status(400).json({
+        success: false,
+        error: "Для этого аккаунта не настроен PIN-код. Создайте новый аккаунт или обновите базу."
+      });
     }
 
     const pinOk = await bcrypt.compare(pin, user.pinHash);
     if (!pinOk) {
-      return res.status(401).json({ success: false, error: "Неверный второй код" });
+      return res.status(401).json({
+        success: false,
+        error: "Неверный цифровой код"
+      });
     }
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка входа" });
+    res.status(500).json({
+      success: false,
+      error: "Ошибка входа"
+    });
   }
 });
 
@@ -283,7 +350,7 @@ app.get("/api/search", async (req, res) => {
     const query = normalizeUsername(req.query.q || "");
     if (!query) return res.json([]);
 
-    const rows = await dbAll(
+    const rows = await all(
       `SELECT username, displayName, bio, avatar
        FROM users
        WHERE username LIKE ?
@@ -304,12 +371,21 @@ app.get("/api/profile/:username", async (req, res) => {
     const user = await getPublicUser(username);
 
     if (!user) {
-      return res.status(404).json({ success: false, error: "Профиль не найден" });
+      return res.status(404).json({
+        success: false,
+        error: "Профиль не найден"
+      });
     }
 
-    res.json({ success: true, profile: user });
+    res.json({
+      success: true,
+      profile: user
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка загрузки профиля" });
+    res.status(500).json({
+      success: false,
+      error: "Ошибка загрузки профиля"
+    });
   }
 });
 
@@ -317,11 +393,21 @@ app.get("/api/me", requireUser, async (req, res) => {
   try {
     const user = await getPublicUser(req.currentUser);
     if (!user) {
-      return res.status(404).json({ success: false, error: "Пользователь не найден" });
+      return res.status(404).json({
+        success: false,
+        error: "Пользователь не найден"
+      });
     }
-    res.json({ success: true, profile: user });
+
+    res.json({
+      success: true,
+      profile: user
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка загрузки профиля" });
+    res.status(500).json({
+      success: false,
+      error: "Ошибка загрузки профиля"
+    });
   }
 });
 
@@ -329,9 +415,11 @@ app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
   try {
     const displayName = String(req.body.displayName || "").trim().slice(0, 40);
     const bio = String(req.body.bio || "").trim().slice(0, 160);
-    const avatar = req.file ? `/uploads/${req.file.filename}` : String(req.body.currentAvatar || "");
+    const avatar = req.file
+      ? `/uploads/${req.file.filename}`
+      : String(req.body.currentAvatar || "");
 
-    await dbRun(
+    await run(
       `UPDATE users
        SET displayName = ?, bio = ?, avatar = ?
        WHERE username = ?`,
@@ -339,9 +427,15 @@ app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
     );
 
     const updated = await getPublicUser(req.currentUser);
-    res.json({ success: true, profile: updated });
+    res.json({
+      success: true,
+      profile: updated
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка сохранения профиля" });
+    res.status(500).json({
+      success: false,
+      error: "Ошибка сохранения профиля"
+    });
   }
 });
 
@@ -351,7 +445,7 @@ app.get("/api/chats", requireUser, async (req, res) => {
   try {
     const me = req.currentUser;
 
-    const rows = await dbAll(
+    const rows = await all(
       `
       SELECT * FROM (
         SELECT
@@ -401,7 +495,7 @@ app.get("/api/messages", requireUser, async (req, res) => {
     let rows = [];
 
     if (chat === "global") {
-      rows = await dbAll(
+      rows = await all(
         `SELECT m.*, u.displayName
          FROM messages m
          LEFT JOIN users u ON u.username = m.sender
@@ -410,7 +504,7 @@ app.get("/api/messages", requireUser, async (req, res) => {
          LIMIT 300`
       );
     } else {
-      rows = await dbAll(
+      rows = await all(
         `SELECT m.*, u.displayName
          FROM messages m
          LEFT JOIN users u ON u.username = m.sender
@@ -438,7 +532,10 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
     const file = req.file;
 
     if (!file) {
-      return res.status(400).json({ success: false, error: "Файл не загружен" });
+      return res.status(400).json({
+        success: false,
+        error: "Файл не загружен"
+      });
     }
 
     let mediaType = "file";
@@ -449,7 +546,7 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
     const mediaUrl = `/uploads/${file.filename}`;
     const createdAt = Date.now();
 
-    await dbRun(
+    await run(
       `INSERT INTO messages (sender, receiver, text, mediaType, mediaUrl, createdAt)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [sender, receiver, text, mediaType, mediaUrl, createdAt]
@@ -479,11 +576,24 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
       sendToUser(receiver, payload);
     }
 
-    res.json({ success: true, message: payload });
+    res.json({
+      success: true,
+      message: payload
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: "Ошибка загрузки файла" });
+    res.status(500).json({
+      success: false,
+      error: "Ошибка загрузки файла"
+    });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+initDb()
+  .then(() => {
+    const PORT = process.env.PORT || 3000;
+    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  })
+  .catch((err) => {
+    console.error("DB init error:", err);
+    process.exit(1);
+  });
