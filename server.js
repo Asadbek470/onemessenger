@@ -16,27 +16,20 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const uploadsDir = path.join(__dirname, "public", "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, uploadsDir),
   filename: (_, file, cb) => {
     const safeName =
-      Date.now() +
-      "-" +
-      Math.random().toString(36).slice(2) +
-      path.extname(file.originalname);
+      Date.now() + "-" + Math.random().toString(36).slice(2) + path.extname(file.originalname);
     cb(null, safeName);
   }
 });
 
 const upload = multer({
   storage,
-  limits: {
-    fileSize: 25 * 1024 * 1024
-  }
+  limits: { fileSize: 25 * 1024 * 1024 }
 });
 
 const db = new sqlite3.Database("./database.db");
@@ -89,13 +82,18 @@ function authUserFromHeader(req) {
 function requireUser(req, res, next) {
   const username = authUserFromHeader(req);
   if (!username) {
-    return res.status(401).json({
-      success: false,
-      error: "Нет пользователя в заголовке x-user"
-    });
+    return res.status(401).json({ success: false, error: "Нет пользователя в заголовке x-user" });
   }
   req.currentUser = username;
   next();
+}
+
+function isTodayBirthday(dateStr = "") {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return false;
+  const now = new Date();
+  return d.getUTCDate() === now.getDate() && d.getUTCMonth() === now.getMonth();
 }
 
 function messagePreview(row) {
@@ -129,11 +127,36 @@ async function initDb() {
     )
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      owner TEXT NOT NULL,
+      contact TEXT NOT NULL,
+      savedName TEXT DEFAULT '',
+      createdAt INTEGER NOT NULL,
+      UNIQUE(owner, contact)
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS stories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner TEXT NOT NULL,
+      mediaType TEXT NOT NULL DEFAULT 'image',
+      mediaUrl TEXT DEFAULT '',
+      text TEXT DEFAULT '',
+      createdAt INTEGER NOT NULL,
+      expiresAt INTEGER NOT NULL
+    )
+  `);
+
   await safeAlter(`ALTER TABLE users ADD COLUMN pinHash TEXT`);
   await safeAlter(`ALTER TABLE users ADD COLUMN displayName TEXT DEFAULT ''`);
   await safeAlter(`ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''`);
   await safeAlter(`ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''`);
   await safeAlter(`ALTER TABLE users ADD COLUMN createdAt INTEGER DEFAULT 0`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN birthday TEXT DEFAULT ''`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN profileVisibility TEXT DEFAULT 'all'`);
+  await safeAlter(`ALTER TABLE users ADD COLUMN storyVisibility TEXT DEFAULT 'all'`);
 
   await run(`
     UPDATE users
@@ -152,22 +175,47 @@ async function initDb() {
   `);
 }
 
-function getPublicUser(username) {
+function getFullUser(username) {
   return get(
-    `SELECT username, displayName, bio, avatar, createdAt
+    `SELECT username, pinHash, displayName, bio, avatar, createdAt, birthday, profileVisibility, storyVisibility
      FROM users
      WHERE username = ?`,
     [username]
   );
 }
 
-function getFullUser(username) {
-  return get(
-    `SELECT username, pinHash, displayName, bio, avatar, createdAt
-     FROM users
-     WHERE username = ?`,
-    [username]
+async function areConnected(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const row = await get(
+    `SELECT 1 FROM contacts
+     WHERE (owner = ? AND contact = ?)
+        OR (owner = ? AND contact = ?)
+     LIMIT 1`,
+    [a, b, b, a]
   );
+  return !!row;
+}
+
+async function sanitizeProfileForViewer(ownerUsername, viewerUsername) {
+  const user = await getFullUser(ownerUsername);
+  if (!user) return null;
+
+  const connected = await areConnected(ownerUsername, viewerUsername);
+  const canSeePrivate = user.profileVisibility === "all" || connected || ownerUsername === viewerUsername;
+
+  return {
+    username: user.username,
+    displayName: canSeePrivate ? (user.displayName || user.username) : user.username,
+    bio: canSeePrivate ? (user.bio || "") : "",
+    avatar: canSeePrivate ? (user.avatar || "") : "",
+    createdAt: user.createdAt,
+    birthday: canSeePrivate ? (user.birthday || "") : "",
+    todayBirthday: canSeePrivate ? isTodayBirthday(user.birthday) : false,
+    profileVisibility: ownerUsername === viewerUsername ? user.profileVisibility : undefined,
+    storyVisibility: ownerUsername === viewerUsername ? user.storyVisibility : undefined
+  };
 }
 
 const onlineUsers = new Map();
@@ -182,7 +230,6 @@ function sendToUser(username, payload) {
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url, "http://localhost");
   const username = normalizeUsername(url.searchParams.get("user"));
-
   if (!username) {
     ws.close();
     return;
@@ -193,7 +240,6 @@ wss.on("connection", (ws, req) => {
   ws.on("message", async (raw) => {
     try {
       const data = JSON.parse(raw.toString());
-
       if (data.type !== "text") return;
 
       const sender = normalizeUsername(data.sender);
@@ -210,7 +256,7 @@ wss.on("connection", (ws, req) => {
         [sender, receiver, text, createdAt]
       );
 
-      const senderProfile = await getPublicUser(sender);
+      const senderProfile = await sanitizeProfileForViewer(sender, sender);
 
       const payload = {
         type: "message",
@@ -225,9 +271,7 @@ wss.on("connection", (ws, req) => {
 
       if (receiver === "global") {
         for (const [, client] of onlineUsers) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(payload));
-          }
+          if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(payload));
         }
       } else {
         sendToUser(sender, payload);
@@ -239,13 +283,11 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("close", () => {
-    if (onlineUsers.get(username) === ws) {
-      onlineUsers.delete(username);
-    }
+    if (onlineUsers.get(username) === ws) onlineUsers.delete(username);
   });
 });
 
-/* AUTH: только username + 6-значный PIN */
+/* AUTH */
 
 app.post("/api/auth/reg", async (req, res) => {
   try {
@@ -253,48 +295,34 @@ app.post("/api/auth/reg", async (req, res) => {
     const pin = String(req.body.pin || "").trim();
 
     if (!username || !pin) {
-      return res.status(400).json({
-        success: false,
-        error: "Заполните все поля"
-      });
+      return res.status(400).json({ success: false, error: "Заполните все поля" });
     }
 
     if (!/^[a-z0-9_]{4,20}$/.test(username)) {
-      return res.status(400).json({
-        success: false,
-        error: "Юзернейм: 4-20 символов, только a-z, 0-9 и _"
-      });
+      return res.status(400).json({ success: false, error: "Юзернейм: 4-20 символов, только a-z, 0-9 и _" });
     }
 
     if (!/^\d{6}$/.test(pin)) {
-      return res.status(400).json({
-        success: false,
-        error: "Код должен быть из 6 цифр"
-      });
+      return res.status(400).json({ success: false, error: "Код должен быть из 6 цифр" });
     }
 
     const existing = await getFullUser(username);
     if (existing) {
-      return res.status(400).json({
-        success: false,
-        error: "Юзернейм занят"
-      });
+      return res.status(400).json({ success: false, error: "Юзернейм занят" });
     }
 
     const pinHash = await bcrypt.hash(pin, 10);
 
     await run(
-      `INSERT INTO users (username, pinHash, displayName, bio, avatar, createdAt)
-       VALUES (?, ?, ?, '', '', ?)`,
+      `INSERT INTO users
+       (username, pinHash, displayName, bio, avatar, createdAt, birthday, profileVisibility, storyVisibility)
+       VALUES (?, ?, ?, '', '', ?, '', 'all', 'all')`,
       [username, pinHash, username, Date.now()]
     );
 
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: "Ошибка регистрации"
-    });
+  } catch {
+    res.status(500).json({ success: false, error: "Ошибка регистрации" });
   }
 });
 
@@ -304,54 +332,38 @@ app.post("/api/auth/login", async (req, res) => {
     const pin = String(req.body.pin || "").trim();
 
     if (!username || !pin) {
-      return res.status(400).json({
-        success: false,
-        error: "Заполните все поля"
-      });
+      return res.status(400).json({ success: false, error: "Заполните все поля" });
     }
 
     const user = await getFullUser(username);
-
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: "Пользователь не найден"
-      });
+      return res.status(401).json({ success: false, error: "Пользователь не найден" });
     }
 
     if (!user.pinHash) {
-      return res.status(400).json({
-        success: false,
-        error: "Для этого аккаунта не настроен PIN-код. Создайте новый аккаунт или обновите базу."
-      });
+      return res.status(400).json({ success: false, error: "Для этого аккаунта не настроен PIN-код" });
     }
 
     const pinOk = await bcrypt.compare(pin, user.pinHash);
     if (!pinOk) {
-      return res.status(401).json({
-        success: false,
-        error: "Неверный цифровой код"
-      });
+      return res.status(401).json({ success: false, error: "Неверный цифровой код" });
     }
 
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: "Ошибка входа"
-    });
+  } catch {
+    res.status(500).json({ success: false, error: "Ошибка входа" });
   }
 });
 
-/* USERS */
+/* USERS / PROFILE */
 
-app.get("/api/search", async (req, res) => {
+app.get("/api/search", requireUser, async (req, res) => {
   try {
     const query = normalizeUsername(req.query.q || "");
     if (!query) return res.json([]);
 
     const rows = await all(
-      `SELECT username, displayName, bio, avatar
+      `SELECT username
        FROM users
        WHERE username LIKE ?
        ORDER BY username ASC
@@ -359,55 +371,63 @@ app.get("/api/search", async (req, res) => {
       [`%${query}%`]
     );
 
-    res.json(rows);
-  } catch (err) {
+    const result = [];
+    for (const row of rows) {
+      if (row.username === req.currentUser) continue;
+      const profile = await sanitizeProfileForViewer(row.username, req.currentUser);
+      if (profile) result.push(profile);
+    }
+
+    res.json(result);
+  } catch {
     res.status(500).json([]);
   }
 });
 
-app.get("/api/profile/:username", async (req, res) => {
+app.get("/api/profile/:username", requireUser, async (req, res) => {
   try {
     const username = normalizeUsername(req.params.username);
-    const user = await getPublicUser(username);
+    const profile = await sanitizeProfileForViewer(username, req.currentUser);
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: "Профиль не найден"
-      });
+    if (!profile) {
+      return res.status(404).json({ success: false, error: "Профиль не найден" });
     }
+
+    const connected = await areConnected(req.currentUser, username);
 
     res.json({
       success: true,
-      profile: user
+      profile,
+      isContact: connected
     });
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: "Ошибка загрузки профиля"
-    });
+  } catch {
+    res.status(500).json({ success: false, error: "Ошибка загрузки профиля" });
   }
 });
 
 app.get("/api/me", requireUser, async (req, res) => {
   try {
-    const user = await getPublicUser(req.currentUser);
+    const user = await getFullUser(req.currentUser);
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: "Пользователь не найден"
-      });
+      return res.status(404).json({ success: false, error: "Пользователь не найден" });
     }
 
     res.json({
       success: true,
-      profile: user
+      profile: {
+        username: user.username,
+        displayName: user.displayName || user.username,
+        bio: user.bio || "",
+        avatar: user.avatar || "",
+        createdAt: user.createdAt,
+        birthday: user.birthday || "",
+        todayBirthday: isTodayBirthday(user.birthday),
+        profileVisibility: user.profileVisibility || "all",
+        storyVisibility: user.storyVisibility || "all"
+      }
     });
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: "Ошибка загрузки профиля"
-    });
+  } catch {
+    res.status(500).json({ success: false, error: "Ошибка загрузки профиля" });
   }
 });
 
@@ -415,27 +435,232 @@ app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
   try {
     const displayName = String(req.body.displayName || "").trim().slice(0, 40);
     const bio = String(req.body.bio || "").trim().slice(0, 160);
-    const avatar = req.file
-      ? `/uploads/${req.file.filename}`
-      : String(req.body.currentAvatar || "");
+    const birthday = String(req.body.birthday || "").trim().slice(0, 20);
+    const profileVisibility = ["all", "contacts"].includes(req.body.profileVisibility)
+      ? req.body.profileVisibility
+      : "all";
+    const storyVisibility = ["all", "contacts"].includes(req.body.storyVisibility)
+      ? req.body.storyVisibility
+      : "all";
+
+    const newUsername = normalizeUsername(req.body.username || req.currentUser);
+    const newPin = String(req.body.newPin || "").trim();
+
+    if (!/^[a-z0-9_]{4,20}$/.test(newUsername)) {
+      return res.status(400).json({ success: false, error: "Некорректный юзернейм" });
+    }
+
+    if (newPin && !/^\d{6}$/.test(newPin)) {
+      return res.status(400).json({ success: false, error: "Новый PIN должен быть из 6 цифр" });
+    }
+
+    const currentAvatar = String(req.body.currentAvatar || "");
+    const avatar = req.file ? `/uploads/${req.file.filename}` : currentAvatar;
+
+    if (newUsername !== req.currentUser) {
+      const existing = await getFullUser(newUsername);
+      if (existing) {
+        return res.status(400).json({ success: false, error: "Этот юзернейм уже занят" });
+      }
+    }
+
+    const currentUserRow = await getFullUser(req.currentUser);
+    let pinHash = currentUserRow?.pinHash || "";
+    if (newPin) {
+      pinHash = await bcrypt.hash(newPin, 10);
+    }
 
     await run(
       `UPDATE users
-       SET displayName = ?, bio = ?, avatar = ?
+       SET username = ?, pinHash = ?, displayName = ?, bio = ?, avatar = ?, birthday = ?, profileVisibility = ?, storyVisibility = ?
        WHERE username = ?`,
-      [displayName || req.currentUser, bio, avatar, req.currentUser]
+      [
+        newUsername,
+        pinHash,
+        displayName || newUsername,
+        bio,
+        avatar,
+        birthday,
+        profileVisibility,
+        storyVisibility,
+        req.currentUser
+      ]
     );
 
-    const updated = await getPublicUser(req.currentUser);
+    if (newUsername !== req.currentUser) {
+      await run(`UPDATE messages SET sender = ? WHERE sender = ?`, [newUsername, req.currentUser]);
+      await run(`UPDATE messages SET receiver = ? WHERE receiver = ?`, [newUsername, req.currentUser]);
+      await run(`UPDATE contacts SET owner = ? WHERE owner = ?`, [newUsername, req.currentUser]);
+      await run(`UPDATE contacts SET contact = ? WHERE contact = ?`, [newUsername, req.currentUser]);
+      await run(`UPDATE stories SET owner = ? WHERE owner = ?`, [newUsername, req.currentUser]);
+    }
+
+    const updated = await getFullUser(newUsername);
     res.json({
       success: true,
-      profile: updated
+      profile: {
+        username: updated.username,
+        displayName: updated.displayName || updated.username,
+        bio: updated.bio || "",
+        avatar: updated.avatar || "",
+        createdAt: updated.createdAt,
+        birthday: updated.birthday || "",
+        todayBirthday: isTodayBirthday(updated.birthday),
+        profileVisibility: updated.profileVisibility || "all",
+        storyVisibility: updated.storyVisibility || "all"
+      }
     });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: "Ошибка сохранения профиля"
-    });
+    res.status(500).json({ success: false, error: "Ошибка сохранения профиля" });
+  }
+});
+
+/* CONTACTS */
+
+app.post("/api/contacts/add", requireUser, async (req, res) => {
+  try {
+    const contact = normalizeUsername(req.body.username);
+    const savedName = String(req.body.savedName || "").trim().slice(0, 40);
+
+    if (!contact || contact === req.currentUser) {
+      return res.status(400).json({ success: false, error: "Некорректный контакт" });
+    }
+
+    const target = await getFullUser(contact);
+    if (!target) {
+      return res.status(404).json({ success: false, error: "Пользователь не найден" });
+    }
+
+    await run(
+      `INSERT OR IGNORE INTO contacts (owner, contact, savedName, createdAt)
+       VALUES (?, ?, ?, ?)`,
+      [req.currentUser, contact, savedName, Date.now()]
+    );
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ success: false, error: "Ошибка добавления контакта" });
+  }
+});
+
+app.get("/api/contacts", requireUser, async (req, res) => {
+  try {
+    const rows = await all(
+      `SELECT c.contact, c.savedName
+       FROM contacts c
+       WHERE c.owner = ?
+       ORDER BY c.createdAt DESC`,
+      [req.currentUser]
+    );
+
+    const result = [];
+    for (const row of rows) {
+      const profile = await sanitizeProfileForViewer(row.contact, req.currentUser);
+      if (profile) {
+        result.push({
+          ...profile,
+          savedName: row.savedName || ""
+        });
+      }
+    }
+
+    res.json(result);
+  } catch {
+    res.status(500).json([]);
+  }
+});
+
+/* STORIES */
+
+app.post("/api/stories", requireUser, upload.single("story"), async (req, res) => {
+  try {
+    const text = String(req.body.text || "").trim().slice(0, 120);
+    let mediaType = "text";
+    let mediaUrl = "";
+
+    if (req.file) {
+      mediaUrl = `/uploads/${req.file.filename}`;
+      if (req.file.mimetype.startsWith("image/")) mediaType = "image";
+      else if (req.file.mimetype.startsWith("video/")) mediaType = "video";
+    }
+
+    if (!text && !mediaUrl) {
+      return res.status(400).json({ success: false, error: "Добавьте текст или файл для сторис" });
+    }
+
+    const createdAt = Date.now();
+    const expiresAt = createdAt + 24 * 60 * 60 * 1000;
+
+    await run(
+      `INSERT INTO stories (owner, mediaType, mediaUrl, text, createdAt, expiresAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.currentUser, mediaType, mediaUrl, text, createdAt, expiresAt]
+    );
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ success: false, error: "Ошибка публикации сторис" });
+  }
+});
+
+app.get("/api/stories", requireUser, async (req, res) => {
+  try {
+    const now = Date.now();
+    await run(`DELETE FROM stories WHERE expiresAt < ?`, [now]);
+
+    const rows = await all(
+      `SELECT * FROM stories
+       ORDER BY createdAt DESC`,
+      []
+    );
+
+    const result = [];
+    for (const row of rows) {
+      const owner = await getFullUser(row.owner);
+      if (!owner) continue;
+
+      const connected = await areConnected(req.currentUser, row.owner);
+      const canSee = owner.storyVisibility === "all" || connected || row.owner === req.currentUser;
+
+      if (!canSee) continue;
+
+      const profile = await sanitizeProfileForViewer(row.owner, req.currentUser);
+
+      result.push({
+        id: row.id,
+        owner: row.owner,
+        displayName: profile?.displayName || row.owner,
+        avatar: profile?.avatar || "",
+        mediaType: row.mediaType,
+        mediaUrl: row.mediaUrl,
+        text: row.text,
+        createdAt: row.createdAt
+      });
+    }
+
+    res.json(result);
+  } catch {
+    res.status(500).json([]);
+  }
+});
+
+/* BIRTHDAY */
+
+app.get("/api/birthdays/today", requireUser, async (req, res) => {
+  try {
+    const users = await all(`SELECT username FROM users ORDER BY username ASC`);
+    const result = [];
+
+    for (const row of users) {
+      const profile = await sanitizeProfileForViewer(row.username, req.currentUser);
+      if (profile?.todayBirthday) {
+        result.push(profile);
+      }
+    }
+
+    res.json(result);
+  } catch {
+    res.status(500).json([]);
   }
 });
 
@@ -444,7 +669,6 @@ app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
 app.get("/api/chats", requireUser, async (req, res) => {
   try {
     const me = req.currentUser;
-
     const rows = await all(
       `
       SELECT * FROM (
@@ -469,7 +693,7 @@ app.get("/api/chats", requireUser, async (req, res) => {
 
     const enriched = [];
     for (const row of rows) {
-      const user = await getPublicUser(row.username);
+      const user = await sanitizeProfileForViewer(row.username, me);
       if (!user) continue;
 
       enriched.push({
@@ -477,13 +701,14 @@ app.get("/api/chats", requireUser, async (req, res) => {
         displayName: user.displayName || user.username,
         bio: user.bio || "",
         avatar: user.avatar || "",
+        todayBirthday: user.todayBirthday || false,
         preview: messagePreview(row),
         createdAt: row.createdAt
       });
     }
 
     res.json(enriched);
-  } catch (err) {
+  } catch {
     res.status(500).json([]);
   }
 });
@@ -519,7 +744,7 @@ app.get("/api/messages", requireUser, async (req, res) => {
     }
 
     res.json(rows);
-  } catch (err) {
+  } catch {
     res.status(500).json([]);
   }
 });
@@ -532,10 +757,7 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
     const file = req.file;
 
     if (!file) {
-      return res.status(400).json({
-        success: false,
-        error: "Файл не загружен"
-      });
+      return res.status(400).json({ success: false, error: "Файл не загружен" });
     }
 
     let mediaType = "file";
@@ -552,7 +774,7 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
       [sender, receiver, text, mediaType, mediaUrl, createdAt]
     );
 
-    const senderProfile = await getPublicUser(sender);
+    const senderProfile = await sanitizeProfileForViewer(sender, sender);
 
     const payload = {
       type: "message",
@@ -567,24 +789,16 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
 
     if (receiver === "global") {
       for (const [, client] of onlineUsers) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(payload));
-        }
+        if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(payload));
       }
     } else {
       sendToUser(sender, payload);
       sendToUser(receiver, payload);
     }
 
-    res.json({
-      success: true,
-      message: payload
-    });
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: "Ошибка загрузки файла"
-    });
+    res.json({ success: true, message: payload });
+  } catch {
+    res.status(500).json({ success: false, error: "Ошибка загрузки файла" });
   }
 });
 
