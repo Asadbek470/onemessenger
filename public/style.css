@@ -274,8 +274,8 @@ audio{ width: 280px; max-width:100%; }
   .sidebar.active-mobile{ transform: translateX(0); }
 }
 
-.search-results {
-  margin-top: 10px;
+#searchResults {
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
