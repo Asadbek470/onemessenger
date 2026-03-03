@@ -543,3 +543,55 @@ function cleanupCall() {
   pendingIncomingFrom = null;
   pendingIncomingOffer = null;
 }
+
+async function searchUsers(value) {
+  const container = document.getElementById("searchResults");
+  const query = String(value || "").trim();
+
+  if (!query) {
+    container.innerHTML = "";
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+      headers: headers()
+    });
+
+    const users = await res.json();
+
+    container.innerHTML = "";
+
+    if (!users.length) {
+      container.innerHTML = `
+        <div class="chat-item">Никого не найдено</div>
+      `;
+      return;
+    }
+
+    users.forEach(user => {
+      const div = document.createElement("div");
+      div.className = "chat-item";
+      div.innerHTML = `
+        <div class="avatar-circle">
+          ${user.username[0].toUpperCase()}
+        </div>
+        <div class="chat-meta">
+          <span class="name">@${user.username}</span>
+          <span class="preview">${user.displayName || ""}</span>
+        </div>
+      `;
+
+      div.onclick = () => {
+        switchChat(user.username);
+        container.innerHTML = "";
+        document.getElementById("userSearch").value = "";
+      };
+
+      container.appendChild(div);
+    });
+
+  } catch (err) {
+    console.error(err);
+  }
+}
