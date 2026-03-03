@@ -1,203 +1,168 @@
-function getAdminToken() {
+function getAdminToken(){
   return localStorage.getItem("admin_token") || "";
 }
 
-async function adminLogin() {
-  const username = document.getElementById("adminUser").value.trim();
-  const pin = document.getElementById("adminPin").value.trim();
+async function adminLogin(){
+  const username=document.getElementById("adminUser").value.trim();
+  const pin=document.getElementById("adminPin").value.trim();
 
-  const res = await fetch("/api/admin/login", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ username, pin })
+  const res=await fetch("/api/admin/login",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({username,pin})
   });
 
-  const data = await res.json();
+  const data=await res.json();
+  if(!data.success){alert("Ошибка входа");return;}
 
-  if (!data.success) {
-    alert(data.error || "Ошибка входа");
-    return;
-  }
-
-  localStorage.setItem("admin_token", data.token);
+  localStorage.setItem("admin_token",data.token);
   showAdminPanel();
   loadAdminUsers();
 }
 
-function logoutAdmin() {
+function logoutAdmin(){
   localStorage.removeItem("admin_token");
   document.getElementById("loginCard").classList.remove("hidden");
   document.getElementById("adminPanel").classList.add("hidden");
 }
 
-function showAdminPanel() {
+function showAdminPanel(){
   document.getElementById("loginCard").classList.add("hidden");
   document.getElementById("adminPanel").classList.remove("hidden");
 }
 
-async function loadAdminUsers() {
-  const q = document.getElementById("searchAdminUser").value.trim();
+async function loadAdminUsers(){
+  const q=document.getElementById("searchAdminUser").value.trim();
 
-  const res = await fetch(`/api/admin/users?q=${encodeURIComponent(q)}`, {
-    headers: {
-      "x-admin-token": getAdminToken()
-    }
+  const res=await fetch(`/api/admin/users?q=${encodeURIComponent(q)}`,{
+    headers:{"x-admin-token":getAdminToken()}
   });
 
-  const data = await res.json();
-  if (!data.success) {
-    alert(data.error || "Ошибка загрузки пользователей");
-    return;
-  }
+  const data=await res.json();
+  if(!data.success)return;
 
-  const list = document.getElementById("usersList");
-  list.innerHTML = data.users.map(user => `
+  const now=Date.now();
+  const list=document.getElementById("usersList");
+
+  list.innerHTML=data.users.map(user=>`
     <div class="user-row">
       <div>
-        <div><b>@${user.username}</b></div>
-        <div class="mini">${user.displayName || user.username}</div>
-        <div class="mini">${user.bio || ""}</div>
-        <div>
-          ${user.isBanned ? `<span class="status-badge">Заблокирован</span>` : `<span class="status-badge">Активен</span>`}
-          ${user.textBlocked ? `<span class="status-badge">Text off</span>` : ""}
-          ${user.imageBlocked ? `<span class="status-badge">Photo off</span>` : ""}
-          ${user.videoBlocked ? `<span class="status-badge">Video off</span>` : ""}
-          ${user.audioBlocked ? `<span class="status-badge">Audio off</span>` : ""}
+        <b>@${user.username}</b>
+        <div class="flex">
+          ${user.isBanned?`<span class="badge red">Заблокирован</span>`:`<span class="badge green">Активен</span>`}
+          ${user.textBlocked?`<span class="badge blue">Text off</span>`:""}
+          ${user.imageBlocked?`<span class="badge blue">Photo off</span>`:""}
+          ${user.videoBlocked?`<span class="badge blue">Video off</span>`:""}
+          ${user.audioBlocked?`<span class="badge blue">Audio off</span>`:""}
         </div>
       </div>
 
-      <div>
-        <select id="banType_${user.username}">
-          <option value="none">Без бана</option>
-          <option value="1d">1 день</option>
-          <option value="2d">2 дня</option>
-          <option value="3d">3 дня</option>
-          <option value="30d">30 дней</option>
-          <option value="1y">1 год</option>
-          <option value="10y">10 лет</option>
-          <option value="forever">Почти навсегда</option>
+      <div class="flex">
+        <select id="ban_${user.username}">
+          <option value="0">Без бана</option>
+          <option value="86400000">1 день</option>
+          <option value="259200000">3 дня</option>
+          <option value="2592000000">30 дней</option>
         </select>
-        <button class="danger" onclick="setBan('${user.username}')">Установить бан</button>
+        <button class="btn-danger" onclick="setBan('${user.username}')">Бан</button>
       </div>
 
-      <div>
+      <div class="flex">
         <select id="restrictType_${user.username}">
-          <option value="text">Запретить текст</option>
-          <option value="image">Запретить фото</option>
-          <option value="video">Запретить видео</option>
-          <option value="audio">Запретить аудио</option>
+          <option value="text">Text</option>
+          <option value="image">Photo</option>
+          <option value="video">Video</option>
+          <option value="audio">Audio</option>
         </select>
-
         <select id="restrictTime_${user.username}">
-          <option value="1h">1 час</option>
-          <option value="6h">6 часов</option>
-          <option value="12h">12 часов</option>
-          <option value="1d">1 день</option>
-          <option value="3d">3 дня</option>
-          <option value="7d">7 дней</option>
-          <option value="30d">30 дней</option>
+          <option value="3600000">1 час</option>
+          <option value="86400000">1 день</option>
+          <option value="259200000">3 дня</option>
         </select>
-
-        <button onclick="setRestriction('${user.username}')">Ограничить</button>
-      </div>
-
-      <div>
-        <button class="gray" onclick="clearRestrictions('${user.username}')">Снять все ограничения</button>
+        <button class="btn-gray" onclick="setRestriction('${user.username}')">Ограничить</button>
+        <button class="btn-primary" onclick="clearRestrictions('${user.username}')">Снять всё</button>
       </div>
     </div>
   `).join("");
 }
 
-function durationToMs(value) {
-  const map = {
-    "1h": 1 * 60 * 60 * 1000,
-    "6h": 6 * 60 * 60 * 1000,
-    "12h": 12 * 60 * 60 * 1000,
-    "1d": 1 * 24 * 60 * 60 * 1000,
-    "2d": 2 * 24 * 60 * 60 * 1000,
-    "3d": 3 * 24 * 60 * 60 * 1000,
-    "7d": 7 * 24 * 60 * 60 * 1000,
-    "30d": 30 * 24 * 60 * 60 * 1000,
-    "1y": 365 * 24 * 60 * 60 * 1000,
-    "10y": 10 * 365 * 24 * 60 * 60 * 1000,
-    "forever": 100 * 365 * 24 * 60 * 60 * 1000
-  };
-  return map[value] || 0;
-}
+async function setBan(username){
+  const durationMs=Number(document.getElementById(`ban_${username}`).value);
 
-async function setBan(username) {
-  const duration = document.getElementById(`banType_${username}`).value;
-
-  const res = await fetch("/api/admin/ban", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-token": getAdminToken()
+  await fetch("/api/admin/ban",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-admin-token":getAdminToken()
     },
-    body: JSON.stringify({
-      username,
-      durationMs: durationToMs(duration)
-    })
+    body:JSON.stringify({username,durationMs})
   });
-
-  const data = await res.json();
-  if (!data.success) {
-    alert(data.error || "Ошибка бана");
-    return;
-  }
 
   loadAdminUsers();
 }
 
-async function setRestriction(username) {
-  const type = document.getElementById(`restrictType_${username}`).value;
-  const duration = document.getElementById(`restrictTime_${username}`).value;
+async function setRestriction(username){
+  const type=document.getElementById(`restrictType_${username}`).value;
+  const durationMs=Number(document.getElementById(`restrictTime_${username}`).value);
 
-  const res = await fetch("/api/admin/restrict", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-token": getAdminToken()
+  await fetch("/api/admin/restrict",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-admin-token":getAdminToken()
     },
-    body: JSON.stringify({
-      username,
-      type,
-      durationMs: durationToMs(duration)
-    })
+    body:JSON.stringify({username,type,durationMs})
   });
-
-  const data = await res.json();
-  if (!data.success) {
-    alert(data.error || "Ошибка ограничения");
-    return;
-  }
 
   loadAdminUsers();
 }
 
-async function clearRestrictions(username) {
-  const res = await fetch("/api/admin/clear", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-token": getAdminToken()
+async function clearRestrictions(username){
+  await fetch("/api/admin/clear",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-admin-token":getAdminToken()
     },
-    body: JSON.stringify({ username })
+    body:JSON.stringify({username})
   });
-
-  const data = await res.json();
-  if (!data.success) {
-    alert(data.error || "Ошибка очистки");
-    return;
-  }
 
   loadAdminUsers();
 }
 
-window.addEventListener("DOMContentLoaded", () => {
-  if (getAdminToken()) {
+async function sendOfficial(){
+  const username=document.getElementById("officialUser").value.trim().replace("@","");
+  const text=document.getElementById("officialText").value;
+
+  await fetch("/api/admin/message",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-admin-token":getAdminToken()
+    },
+    body:JSON.stringify({username,text})
+  });
+
+  alert("Отправлено");
+}
+
+async function broadcastAll(){
+  const text=document.getElementById("broadcastText").value;
+
+  await fetch("/api/admin/broadcast",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-admin-token":getAdminToken()
+    },
+    body:JSON.stringify({text})
+  });
+
+  alert("Отправлено всем");
+}
+
+window.addEventListener("DOMContentLoaded",()=>{
+  if(getAdminToken()){
     showAdminPanel();
     loadAdminUsers();
   }
