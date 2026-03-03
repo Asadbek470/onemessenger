@@ -17,18 +17,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const uploadsDir = path.join(__dirname, "public", "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, uploadsDir),
   filename: (_, file, cb) => {
     const safeName =
-      Date.now() +
-      "-" +
-      Math.random().toString(36).slice(2) +
-      path.extname(file.originalname);
+      Date.now() + "-" + Math.random().toString(36).slice(2) + path.extname(file.originalname);
     cb(null, safeName);
   }
 });
@@ -89,13 +84,7 @@ function authUserFromHeader(req) {
 
 function requireUser(req, res, next) {
   const username = authUserFromHeader(req);
-  if (!username) {
-    return res.status(401).json({
-      success: false,
-      error: "Нет пользователя в заголовке x-user"
-    });
-  }
-
+  if (!username) return res.status(401).json({ success: false, error: "Нет x-user" });
   req.currentUser = username;
   next();
 }
@@ -106,10 +95,8 @@ function isActiveUntil(ts) {
 
 function isTodayBirthday(dateStr = "") {
   if (!dateStr) return false;
-
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return false;
-
   const now = new Date();
   return d.getUTCDate() === now.getDate() && d.getUTCMonth() === now.getMonth();
 }
@@ -133,9 +120,7 @@ function cleanupLocalUpload(mediaUrl = "") {
   try {
     if (!mediaUrl || !mediaUrl.startsWith("/uploads/")) return;
     const filePath = path.join(__dirname, "public", mediaUrl);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   } catch (err) {
     console.log("Upload cleanup skipped:", err.message);
   }
@@ -154,10 +139,7 @@ function createAdminToken() {
 function requireAdmin(req, res, next) {
   const token = String(req.headers["x-admin-token"] || "");
   if (!token || !adminSessions.has(token)) {
-    return res.status(401).json({
-      success: false,
-      error: "Нет доступа к админ-панели"
-    });
+    return res.status(401).json({ success: false, error: "Нет доступа к админке" });
   }
   next();
 }
@@ -210,11 +192,6 @@ async function initDb() {
     )
   `);
 
-  await safeAlter(`ALTER TABLE users ADD COLUMN pinHash TEXT`);
-  await safeAlter(`ALTER TABLE users ADD COLUMN displayName TEXT DEFAULT ''`);
-  await safeAlter(`ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''`);
-  await safeAlter(`ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''`);
-  await safeAlter(`ALTER TABLE users ADD COLUMN createdAt INTEGER DEFAULT 0`);
   await safeAlter(`ALTER TABLE users ADD COLUMN birthday TEXT DEFAULT ''`);
   await safeAlter(`ALTER TABLE users ADD COLUMN profileVisibility TEXT DEFAULT 'all'`);
   await safeAlter(`ALTER TABLE users ADD COLUMN storyVisibility TEXT DEFAULT 'all'`);
@@ -261,29 +238,13 @@ async function initDb() {
   `);
 }
 
-/* -------------------- user/profile helpers -------------------- */
-
 function getFullUser(username) {
   return get(
     `SELECT
-      username,
-      pinHash,
-      displayName,
-      bio,
-      avatar,
-      createdAt,
-      birthday,
-      profileVisibility,
-      storyVisibility,
-      isBanned,
-      banUntil,
-      banReason,
-      restrictTextUntil,
-      restrictImageUntil,
-      restrictVideoUntil,
-      restrictAudioUntil
-     FROM users
-     WHERE username = ?`,
+      username,pinHash,displayName,bio,avatar,createdAt,birthday,profileVisibility,storyVisibility,
+      isBanned,banUntil,banReason,
+      restrictTextUntil,restrictImageUntil,restrictVideoUntil,restrictAudioUntil
+     FROM users WHERE username = ?`,
     [username]
   );
 }
@@ -291,15 +252,12 @@ function getFullUser(username) {
 async function areConnected(a, b) {
   if (!a || !b) return false;
   if (a === b) return true;
-
   const row = await get(
     `SELECT 1 FROM contacts
-     WHERE (owner = ? AND contact = ?)
-        OR (owner = ? AND contact = ?)
+     WHERE (owner=? AND contact=?) OR (owner=? AND contact=?)
      LIMIT 1`,
     [a, b, b, a]
   );
-
   return !!row;
 }
 
@@ -308,10 +266,7 @@ async function sanitizeProfileForViewer(ownerUsername, viewerUsername) {
   if (!user) return null;
 
   const connected = await areConnected(ownerUsername, viewerUsername);
-  const canSeePrivate =
-    user.profileVisibility === "all" ||
-    connected ||
-    ownerUsername === viewerUsername;
+  const canSeePrivate = user.profileVisibility === "all" || connected || ownerUsername === viewerUsername;
 
   return {
     username: user.username,
@@ -329,21 +284,12 @@ async function sanitizeProfileForViewer(ownerUsername, viewerUsername) {
 async function getUserModeration(username) {
   const user = await get(
     `SELECT
-      username,
-      displayName,
-      bio,
-      isBanned,
-      banUntil,
-      banReason,
-      restrictTextUntil,
-      restrictImageUntil,
-      restrictVideoUntil,
-      restrictAudioUntil
-     FROM users
-     WHERE username = ?`,
+      username,displayName,bio,
+      isBanned,banUntil,banReason,
+      restrictTextUntil,restrictImageUntil,restrictVideoUntil,restrictAudioUntil
+     FROM users WHERE username = ?`,
     [username]
   );
-
   if (!user) return null;
 
   return {
@@ -359,40 +305,19 @@ async function getUserModeration(username) {
 async function ensureCanSend(username, type) {
   const row = await get(
     `SELECT
-      isBanned,
-      banUntil,
-      restrictTextUntil,
-      restrictImageUntil,
-      restrictVideoUntil,
-      restrictAudioUntil
-     FROM users
-     WHERE username = ?`,
+      isBanned,banUntil,
+      restrictTextUntil,restrictImageUntil,restrictVideoUntil,restrictAudioUntil
+     FROM users WHERE username = ?`,
     [username]
   );
 
-  if (!row) {
-    return { ok: false, error: "Пользователь не найден" };
-  }
+  if (!row) return { ok: false, error: "Пользователь не найден" };
+  if (Number(row.isBanned) === 1 && isActiveUntil(row.banUntil)) return { ok: false, error: "Ваш аккаунт временно заблокирован" };
 
-  if (Number(row.isBanned) === 1 && isActiveUntil(row.banUntil)) {
-    return { ok: false, error: "Ваш аккаунт временно заблокирован" };
-  }
-
-  if (type === "text" && isActiveUntil(row.restrictTextUntil)) {
-    return { ok: false, error: "Вам временно запрещено отправлять сообщения" };
-  }
-
-  if (type === "image" && isActiveUntil(row.restrictImageUntil)) {
-    return { ok: false, error: "Вам временно запрещено отправлять фото" };
-  }
-
-  if (type === "video" && isActiveUntil(row.restrictVideoUntil)) {
-    return { ok: false, error: "Вам временно запрещено отправлять видео" };
-  }
-
-  if (type === "audio" && isActiveUntil(row.restrictAudioUntil)) {
-    return { ok: false, error: "Вам временно запрещено отправлять аудио" };
-  }
+  if (type === "text" && isActiveUntil(row.restrictTextUntil)) return { ok: false, error: "Вам временно запрещено отправлять сообщения" };
+  if (type === "image" && isActiveUntil(row.restrictImageUntil)) return { ok: false, error: "Вам временно запрещено отправлять фото" };
+  if (type === "video" && isActiveUntil(row.restrictVideoUntil)) return { ok: false, error: "Вам временно запрещено отправлять видео" };
+  if (type === "audio" && isActiveUntil(row.restrictAudioUntil)) return { ok: false, error: "Вам временно запрещено отправлять аудио" };
 
   return { ok: true };
 }
@@ -403,9 +328,7 @@ const onlineUsers = new Map();
 
 function sendToUser(username, payload) {
   const ws = onlineUsers.get(username);
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(payload));
-  }
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
 }
 
 wss.on("connection", (ws, req) => {
@@ -423,18 +346,26 @@ wss.on("connection", (ws, req) => {
     try {
       const data = JSON.parse(raw.toString());
 
-      if (
-        ["call-offer", "call-answer", "ice-candidate", "call-reject", "call-end"].includes(data.type)
-      ) {
+      // --- signaling for calls (audio/video + renegotiation) ---
+      const signalTypes = new Set([
+        "call-offer",
+        "call-answer",
+        "call-renegotiate-offer",
+        "call-renegotiate-answer",
+        "ice-candidate",
+        "call-reject",
+        "call-end"
+      ]);
+
+      if (signalTypes.has(data.type)) {
         const from = normalizeUsername(data.from);
         const to = normalizeUsername(data.to);
-
         if (!from || !to) return;
-
         sendToUser(to, data);
         return;
       }
 
+      // --- chat messages ---
       if (data.type !== "text") return;
 
       const sender = normalizeUsername(data.sender);
@@ -445,10 +376,7 @@ wss.on("connection", (ws, req) => {
 
       const textCheck = await ensureCanSend(sender, "text");
       if (!textCheck.ok) {
-        sendToUser(sender, {
-          type: "system",
-          text: textCheck.error
-        });
+        sendToUser(sender, { type: "system", text: textCheck.error });
         return;
       }
 
@@ -478,9 +406,7 @@ wss.on("connection", (ws, req) => {
 
       if (receiver === "global") {
         for (const [, client] of onlineUsers) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(payload));
-          }
+          if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(payload));
         }
       } else {
         sendToUser(sender, payload);
@@ -492,9 +418,7 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("close", () => {
-    if (onlineUsers.get(username) === ws) {
-      onlineUsers.delete(username);
-    }
+    if (onlineUsers.get(username) === ws) onlineUsers.delete(username);
   });
 });
 
@@ -505,34 +429,23 @@ app.post("/api/auth/reg", async (req, res) => {
     const username = normalizeUsername(req.body.username);
     const pin = String(req.body.pin || "").trim();
 
-    if (!username || !pin) {
-      return res.status(400).json({ success: false, error: "Заполните все поля" });
-    }
+    if (!username || !pin) return res.status(400).json({ success: false, error: "Заполните все поля" });
 
     if (!/^[a-z0-9_]{4,20}$/.test(username)) {
-      return res.status(400).json({
-        success: false,
-        error: "Юзернейм: 4-20 символов, только a-z, 0-9 и _"
-      });
+      return res.status(400).json({ success: false, error: "Юзернейм: 4-20 символов, только a-z, 0-9 и _" });
     }
 
-    if (!/^\d{6}$/.test(pin)) {
-      return res.status(400).json({
-        success: false,
-        error: "Код должен быть из 6 цифр"
-      });
-    }
+    if (!/^\d{6}$/.test(pin)) return res.status(400).json({ success: false, error: "Код должен быть из 6 цифр" });
 
     const existing = await getFullUser(username);
-    if (existing) {
-      return res.status(400).json({ success: false, error: "Юзернейм занят" });
-    }
+    if (existing) return res.status(400).json({ success: false, error: "Юзернейм занят" });
 
     const pinHash = await bcrypt.hash(pin, 10);
 
     await run(
       `INSERT INTO users
-       (username, pinHash, displayName, bio, avatar, createdAt, birthday, profileVisibility, storyVisibility, isBanned, banUntil, banReason, restrictTextUntil, restrictImageUntil, restrictVideoUntil, restrictAudioUntil)
+       (username,pinHash,displayName,bio,avatar,createdAt,birthday,profileVisibility,storyVisibility,
+        isBanned,banUntil,banReason,restrictTextUntil,restrictImageUntil,restrictVideoUntil,restrictAudioUntil)
        VALUES (?, ?, ?, '', '', ?, '', 'all', 'all', 0, 0, '', 0, 0, 0, 0)`,
       [username, pinHash, username, Date.now()]
     );
@@ -548,36 +461,17 @@ app.post("/api/auth/login", async (req, res) => {
     const username = normalizeUsername(req.body.username);
     const pin = String(req.body.pin || "").trim();
 
-    if (!username || !pin) {
-      return res.status(400).json({ success: false, error: "Заполните все поля" });
-    }
+    if (!username || !pin) return res.status(400).json({ success: false, error: "Заполните все поля" });
 
     const user = await getFullUser(username);
-    if (!user) {
-      return res.status(401).json({ success: false, error: "Пользователь не найден" });
-    }
-
-    if (!user.pinHash) {
-      return res.status(400).json({
-        success: false,
-        error: "Для этого аккаунта не настроен PIN-код"
-      });
-    }
+    if (!user) return res.status(401).json({ success: false, error: "Пользователь не найден" });
 
     if (Number(user.isBanned) === 1 && isActiveUntil(user.banUntil)) {
-      return res.status(403).json({
-        success: false,
-        error: "Аккаунт временно заблокирован"
-      });
+      return res.status(403).json({ success: false, error: "Аккаунт временно заблокирован" });
     }
 
-    const pinOk = await bcrypt.compare(pin, user.pinHash);
-    if (!pinOk) {
-      return res.status(401).json({
-        success: false,
-        error: "Неверный цифровой код"
-      });
-    }
+    const ok = await bcrypt.compare(pin, user.pinHash || "");
+    if (!ok) return res.status(401).json({ success: false, error: "Неверный цифровой код" });
 
     res.json({ success: true });
   } catch {
@@ -585,29 +479,24 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-/* -------------------- users / profile -------------------- */
+/* -------------------- users/profile -------------------- */
 
 app.get("/api/search", requireUser, async (req, res) => {
   try {
-    const query = normalizeUsername(req.query.q || "");
-    if (!query) return res.json([]);
+    const q = normalizeUsername(req.query.q || "");
+    if (!q) return res.json([]);
 
     const rows = await all(
-      `SELECT username
-       FROM users
-       WHERE username LIKE ?
-       ORDER BY username ASC
-       LIMIT 20`,
-      [`%${query}%`]
+      `SELECT username FROM users WHERE username LIKE ? ORDER BY username ASC LIMIT 20`,
+      [`%${q}%`]
     );
 
     const result = [];
-    for (const row of rows) {
-      if (row.username === req.currentUser) continue;
-      const profile = await sanitizeProfileForViewer(row.username, req.currentUser);
+    for (const r of rows) {
+      if (r.username === req.currentUser) continue;
+      const profile = await sanitizeProfileForViewer(r.username, req.currentUser);
       if (profile) result.push(profile);
     }
-
     res.json(result);
   } catch {
     res.status(500).json([]);
@@ -618,18 +507,10 @@ app.get("/api/profile/:username", requireUser, async (req, res) => {
   try {
     const username = normalizeUsername(req.params.username);
     const profile = await sanitizeProfileForViewer(username, req.currentUser);
+    if (!profile) return res.status(404).json({ success: false, error: "Профиль не найден" });
 
-    if (!profile) {
-      return res.status(404).json({ success: false, error: "Профиль не найден" });
-    }
-
-    const connected = await areConnected(req.currentUser, username);
-
-    res.json({
-      success: true,
-      profile,
-      isContact: connected
-    });
+    const isContact = await areConnected(req.currentUser, username);
+    res.json({ success: true, profile, isContact });
   } catch {
     res.status(500).json({ success: false, error: "Ошибка загрузки профиля" });
   }
@@ -638,9 +519,7 @@ app.get("/api/profile/:username", requireUser, async (req, res) => {
 app.get("/api/me", requireUser, async (req, res) => {
   try {
     const user = await getFullUser(req.currentUser);
-    if (!user) {
-      return res.status(404).json({ success: false, error: "Пользователь не найден" });
-    }
+    if (!user) return res.status(404).json({ success: false, error: "Пользователь не найден" });
 
     res.json({
       success: true,
@@ -666,12 +545,8 @@ app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
     const displayName = String(req.body.displayName || "").trim().slice(0, 40);
     const bio = String(req.body.bio || "").trim().slice(0, 160);
     const birthday = String(req.body.birthday || "").trim().slice(0, 20);
-    const profileVisibility = ["all", "contacts"].includes(req.body.profileVisibility)
-      ? req.body.profileVisibility
-      : "all";
-    const storyVisibility = ["all", "contacts"].includes(req.body.storyVisibility)
-      ? req.body.storyVisibility
-      : "all";
+    const profileVisibility = ["all", "contacts"].includes(req.body.profileVisibility) ? req.body.profileVisibility : "all";
+    const storyVisibility = ["all", "contacts"].includes(req.body.storyVisibility) ? req.body.storyVisibility : "all";
 
     const newUsername = normalizeUsername(req.body.username || req.currentUser);
     const newPin = String(req.body.newPin || "").trim();
@@ -679,7 +554,6 @@ app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
     if (!/^[a-z0-9_]{4,20}$/.test(newUsername)) {
       return res.status(400).json({ success: false, error: "Некорректный юзернейм" });
     }
-
     if (newPin && !/^\d{6}$/.test(newPin)) {
       return res.status(400).json({ success: false, error: "Новый PIN должен быть из 6 цифр" });
     }
@@ -689,40 +563,26 @@ app.post("/api/me", requireUser, upload.single("avatar"), async (req, res) => {
 
     if (newUsername !== req.currentUser) {
       const existing = await getFullUser(newUsername);
-      if (existing) {
-        return res.status(400).json({ success: false, error: "Этот юзернейм уже занят" });
-      }
+      if (existing) return res.status(400).json({ success: false, error: "Этот юзернейм уже занят" });
     }
 
-    const currentUserRow = await getFullUser(req.currentUser);
-    let pinHash = currentUserRow?.pinHash || "";
-    if (newPin) {
-      pinHash = await bcrypt.hash(newPin, 10);
-    }
+    const currentRow = await getFullUser(req.currentUser);
+    let pinHash = currentRow?.pinHash || "";
+    if (newPin) pinHash = await bcrypt.hash(newPin, 10);
 
     await run(
       `UPDATE users
-       SET username = ?, pinHash = ?, displayName = ?, bio = ?, avatar = ?, birthday = ?, profileVisibility = ?, storyVisibility = ?
-       WHERE username = ?`,
-      [
-        newUsername,
-        pinHash,
-        displayName || newUsername,
-        bio,
-        avatar,
-        birthday,
-        profileVisibility,
-        storyVisibility,
-        req.currentUser
-      ]
+       SET username=?, pinHash=?, displayName=?, bio=?, avatar=?, birthday=?, profileVisibility=?, storyVisibility=?
+       WHERE username=?`,
+      [newUsername, pinHash, displayName || newUsername, bio, avatar, birthday, profileVisibility, storyVisibility, req.currentUser]
     );
 
     if (newUsername !== req.currentUser) {
-      await run(`UPDATE messages SET sender = ? WHERE sender = ?`, [newUsername, req.currentUser]);
-      await run(`UPDATE messages SET receiver = ? WHERE receiver = ?`, [newUsername, req.currentUser]);
-      await run(`UPDATE contacts SET owner = ? WHERE owner = ?`, [newUsername, req.currentUser]);
-      await run(`UPDATE contacts SET contact = ? WHERE contact = ?`, [newUsername, req.currentUser]);
-      await run(`UPDATE stories SET owner = ? WHERE owner = ?`, [newUsername, req.currentUser]);
+      await run(`UPDATE messages SET sender=? WHERE sender=?`, [newUsername, req.currentUser]);
+      await run(`UPDATE messages SET receiver=? WHERE receiver=?`, [newUsername, req.currentUser]);
+      await run(`UPDATE contacts SET owner=? WHERE owner=?`, [newUsername, req.currentUser]);
+      await run(`UPDATE contacts SET contact=? WHERE contact=?`, [newUsername, req.currentUser]);
+      await run(`UPDATE stories SET owner=? WHERE owner=?`, [newUsername, req.currentUser]);
 
       const oldSocket = onlineUsers.get(req.currentUser);
       if (oldSocket) {
@@ -759,51 +619,19 @@ app.post("/api/contacts/add", requireUser, async (req, res) => {
     const contact = normalizeUsername(req.body.username);
     const savedName = String(req.body.savedName || "").trim().slice(0, 40);
 
-    if (!contact || contact === req.currentUser) {
-      return res.status(400).json({ success: false, error: "Некорректный контакт" });
-    }
+    if (!contact || contact === req.currentUser) return res.status(400).json({ success: false, error: "Некорректный контакт" });
 
     const target = await getFullUser(contact);
-    if (!target) {
-      return res.status(404).json({ success: false, error: "Пользователь не найден" });
-    }
+    if (!target) return res.status(404).json({ success: false, error: "Пользователь не найден" });
 
     await run(
-      `INSERT OR IGNORE INTO contacts (owner, contact, savedName, createdAt)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO contacts (owner, contact, savedName, createdAt) VALUES (?, ?, ?, ?)`,
       [req.currentUser, contact, savedName, Date.now()]
     );
 
     res.json({ success: true });
   } catch {
     res.status(500).json({ success: false, error: "Ошибка добавления контакта" });
-  }
-});
-
-app.get("/api/contacts", requireUser, async (req, res) => {
-  try {
-    const rows = await all(
-      `SELECT c.contact, c.savedName
-       FROM contacts c
-       WHERE c.owner = ?
-       ORDER BY c.createdAt DESC`,
-      [req.currentUser]
-    );
-
-    const result = [];
-    for (const row of rows) {
-      const profile = await sanitizeProfileForViewer(row.contact, req.currentUser);
-      if (profile) {
-        result.push({
-          ...profile,
-          savedName: row.savedName || ""
-        });
-      }
-    }
-
-    res.json(result);
-  } catch {
-    res.status(500).json([]);
   }
 });
 
@@ -821,19 +649,13 @@ app.post("/api/stories", requireUser, upload.single("story"), async (req, res) =
       else if (req.file.mimetype.startsWith("video/")) mediaType = "video";
     }
 
-    if (!text && !mediaUrl) {
-      return res.status(400).json({
-        success: false,
-        error: "Добавьте текст или файл для сторис"
-      });
-    }
+    if (!text && !mediaUrl) return res.status(400).json({ success: false, error: "Добавьте текст или файл для сторис" });
 
     const createdAt = Date.now();
     const expiresAt = createdAt + 24 * 60 * 60 * 1000;
 
     await run(
-      `INSERT INTO stories (owner, mediaType, mediaUrl, text, createdAt, expiresAt)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO stories (owner, mediaType, mediaUrl, text, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)`,
       [req.currentUser, mediaType, mediaUrl, text, createdAt, expiresAt]
     );
 
@@ -848,10 +670,7 @@ app.get("/api/stories", requireUser, async (req, res) => {
     const now = Date.now();
     await run(`DELETE FROM stories WHERE expiresAt < ?`, [now]);
 
-    const rows = await all(
-      `SELECT * FROM stories
-       ORDER BY createdAt DESC`
-    );
+    const rows = await all(`SELECT * FROM stories ORDER BY createdAt DESC`);
 
     const result = [];
     for (const row of rows) {
@@ -859,11 +678,7 @@ app.get("/api/stories", requireUser, async (req, res) => {
       if (!owner) continue;
 
       const connected = await areConnected(req.currentUser, row.owner);
-      const canSee =
-        owner.storyVisibility === "all" ||
-        connected ||
-        row.owner === req.currentUser;
-
+      const canSee = owner.storyVisibility === "all" || connected || row.owner === req.currentUser;
       if (!canSee) continue;
 
       const profile = await sanitizeProfileForViewer(row.owner, req.currentUser);
@@ -895,9 +710,7 @@ app.get("/api/birthdays/today", requireUser, async (req, res) => {
 
     for (const row of users) {
       const profile = await sanitizeProfileForViewer(row.username, req.currentUser);
-      if (profile?.todayBirthday) {
-        result.push(profile);
-      }
+      if (profile?.todayBirthday) result.push(profile);
     }
 
     res.json(result);
@@ -913,10 +726,7 @@ app.post("/api/admin/login", async (req, res) => {
   const pin = String(req.body.pin || "").trim();
 
   if (username !== ADMIN_USER || pin !== ADMIN_PIN) {
-    return res.status(401).json({
-      success: false,
-      error: "Неверные данные администратора"
-    });
+    return res.status(401).json({ success: false, error: "Неверные данные администратора" });
   }
 
   const token = createAdminToken();
@@ -944,10 +754,7 @@ app.get("/api/admin/users", requireAdmin, async (req, res) => {
 
     res.json({ success: true, users: result });
   } catch {
-    res.status(500).json({
-      success: false,
-      error: "Ошибка загрузки пользователей"
-    });
+    res.status(500).json({ success: false, error: "Ошибка загрузки пользователей" });
   }
 });
 
@@ -956,24 +763,15 @@ app.post("/api/admin/ban", requireAdmin, async (req, res) => {
     const username = normalizeUsername(req.body.username);
     const durationMs = Number(req.body.durationMs || 0);
 
-    if (!username) {
-      return res.status(400).json({ success: false, error: "Нет username" });
-    }
+    if (!username) return res.status(400).json({ success: false, error: "Нет username" });
 
     if (durationMs <= 0) {
-      await run(
-        `UPDATE users
-         SET isBanned = 0, banUntil = 0, banReason = ''
-         WHERE username = ?`,
-        [username]
-      );
+      await run(`UPDATE users SET isBanned=0, banUntil=0, banReason='' WHERE username=?`, [username]);
       return res.json({ success: true });
     }
 
     await run(
-      `UPDATE users
-       SET isBanned = 1, banUntil = ?, banReason = 'admin restriction'
-       WHERE username = ?`,
+      `UPDATE users SET isBanned=1, banUntil=?, banReason='admin restriction' WHERE username=?`,
       [Date.now() + durationMs, username]
     );
 
@@ -990,20 +788,9 @@ app.post("/api/admin/restrict", requireAdmin, async (req, res) => {
     const durationMs = Number(req.body.durationMs || 0);
 
     const field = getRestrictionField(type);
-    if (!field) {
-      return res.status(400).json({
-        success: false,
-        error: "Неверный тип ограничения"
-      });
-    }
+    if (!field) return res.status(400).json({ success: false, error: "Неверный тип ограничения" });
 
-    await run(
-      `UPDATE users
-       SET ${field} = ?
-       WHERE username = ?`,
-      [Date.now() + durationMs, username]
-    );
-
+    await run(`UPDATE users SET ${field}=? WHERE username=?`, [Date.now() + durationMs, username]);
     res.json({ success: true });
   } catch {
     res.status(500).json({ success: false, error: "Ошибка ограничения" });
@@ -1013,27 +800,16 @@ app.post("/api/admin/restrict", requireAdmin, async (req, res) => {
 app.post("/api/admin/clear", requireAdmin, async (req, res) => {
   try {
     const username = normalizeUsername(req.body.username);
-
     await run(
-      `UPDATE users
-       SET
-         isBanned = 0,
-         banUntil = 0,
-         banReason = '',
-         restrictTextUntil = 0,
-         restrictImageUntil = 0,
-         restrictVideoUntil = 0,
-         restrictAudioUntil = 0
-       WHERE username = ?`,
+      `UPDATE users SET
+        isBanned=0, banUntil=0, banReason='',
+        restrictTextUntil=0, restrictImageUntil=0, restrictVideoUntil=0, restrictAudioUntil=0
+       WHERE username=?`,
       [username]
     );
-
     res.json({ success: true });
   } catch {
-    res.status(500).json({
-      success: false,
-      error: "Ошибка снятия ограничений"
-    });
+    res.status(500).json({ success: false, error: "Ошибка снятия ограничений" });
   }
 });
 
@@ -1047,16 +823,10 @@ app.get("/api/chats", requireUser, async (req, res) => {
       `
       SELECT * FROM (
         SELECT
-          CASE
-            WHEN sender = ? THEN receiver
-            ELSE sender
-          END AS username,
-          text,
-          mediaType,
-          createdAt
+          CASE WHEN sender=? THEN receiver ELSE sender END AS username,
+          text, mediaType, createdAt
         FROM messages
-        WHERE receiver != 'global'
-          AND (sender = ? OR receiver = ?)
+        WHERE receiver != 'global' AND (sender=? OR receiver=?)
         ORDER BY createdAt DESC
       )
       GROUP BY username
@@ -1091,8 +861,8 @@ app.get("/api/messages", requireUser, async (req, res) => {
   try {
     const chat = normalizeUsername(req.query.chat || "global");
     const me = req.currentUser;
-    let rows = [];
 
+    let rows = [];
     if (chat === "global") {
       rows = await all(
         `SELECT m.*, u.displayName
@@ -1107,10 +877,7 @@ app.get("/api/messages", requireUser, async (req, res) => {
         `SELECT m.*, u.displayName
          FROM messages m
          LEFT JOIN users u ON u.username = m.sender
-         WHERE
-           (m.sender = ? AND m.receiver = ?)
-           OR
-           (m.sender = ? AND m.receiver = ?)
+         WHERE (m.sender=? AND m.receiver=?) OR (m.sender=? AND m.receiver=?)
          ORDER BY m.createdAt ASC
          LIMIT 300`,
         [me, chat, chat, me]
@@ -1126,35 +893,20 @@ app.get("/api/messages", requireUser, async (req, res) => {
 app.delete("/api/messages/:id", requireUser, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    if (!id) {
-      return res.status(400).json({ success: false, error: "Некорректный id сообщения" });
-    }
+    if (!id) return res.status(400).json({ success: false, error: "Некорректный id" });
 
-    const message = await get(`SELECT * FROM messages WHERE id = ?`, [id]);
-    if (!message) {
-      return res.status(404).json({ success: false, error: "Сообщение не найдено" });
-    }
+    const message = await get(`SELECT * FROM messages WHERE id=?`, [id]);
+    if (!message) return res.status(404).json({ success: false, error: "Сообщение не найдено" });
+    if (message.sender !== req.currentUser) return res.status(403).json({ success: false, error: "Можно удалять только свои сообщения" });
 
-    if (message.sender !== req.currentUser) {
-      return res.status(403).json({ success: false, error: "Можно удалять только свои сообщения" });
-    }
+    await run(`DELETE FROM messages WHERE id=?`, [id]);
+    if (message.mediaUrl) cleanupLocalUpload(message.mediaUrl);
 
-    await run(`DELETE FROM messages WHERE id = ?`, [id]);
-
-    if (message.mediaUrl) {
-      cleanupLocalUpload(message.mediaUrl);
-    }
-
-    const payload = {
-      type: "messageDeleted",
-      id
-    };
+    const payload = { type: "messageDeleted", id };
 
     if (message.receiver === "global") {
       for (const [, client] of onlineUsers) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(payload));
-        }
+        if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(payload));
       }
     } else {
       sendToUser(message.sender, payload);
@@ -1163,7 +915,7 @@ app.delete("/api/messages/:id", requireUser, async (req, res) => {
 
     res.json({ success: true });
   } catch {
-    res.status(500).json({ success: false, error: "Ошибка удаления сообщения" });
+    res.status(500).json({ success: false, error: "Ошибка удаления" });
   }
 });
 
@@ -1174,9 +926,7 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
     const text = String(req.body.text || "").trim();
     const file = req.file;
 
-    if (!file) {
-      return res.status(400).json({ success: false, error: "Файл не загружен" });
-    }
+    if (!file) return res.status(400).json({ success: false, error: "Файл не загружен" });
 
     let mediaType = "file";
     if (file.mimetype.startsWith("image/")) mediaType = "image";
@@ -1184,9 +934,7 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
     else if (file.mimetype.startsWith("audio/")) mediaType = "audio";
 
     const mediaCheck = await ensureCanSend(sender, mediaType);
-    if (!mediaCheck.ok) {
-      return res.status(403).json({ success: false, error: mediaCheck.error });
-    }
+    if (!mediaCheck.ok) return res.status(403).json({ success: false, error: mediaCheck.error });
 
     const mediaUrl = `/uploads/${file.filename}`;
     const createdAt = Date.now();
@@ -1214,9 +962,7 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
 
     if (receiver === "global") {
       for (const [, client] of onlineUsers) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(payload));
-        }
+        if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(payload));
       }
     } else {
       sendToUser(sender, payload);
@@ -1234,9 +980,7 @@ app.post("/api/upload", requireUser, upload.single("file"), async (req, res) => 
 initDb()
   .then(() => {
     const PORT = process.env.PORT || 3000;
-    server.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
+    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch((err) => {
     console.error("DB init error:", err);
