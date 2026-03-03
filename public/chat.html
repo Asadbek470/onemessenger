@@ -51,6 +51,9 @@
           </div>
         </div>
         <div class="header-right">
+          <button class="header-action-btn" id="callBtn" onclick="startAudioCall()" title="Аудиозвонок">
+            <i class="fa-solid fa-phone"></i>
+          </button>
           <i class="fa-solid fa-user" onclick="openCurrentProfile()"></i>
         </div>
       </header>
@@ -80,6 +83,8 @@
       </footer>
     </main>
   </div>
+
+  <audio id="remoteAudio" autoplay playsinline></audio>
 
   <div id="settingsModal" class="modal-backdrop" style="display:none;">
     <div class="settings-card glass">
@@ -179,6 +184,30 @@
       </header>
 
       <div class="settings-body" id="storyModalBody"></div>
+    </div>
+  </div>
+
+  <div id="incomingCallModal" class="modal-backdrop" style="display:none;">
+    <div class="call-card">
+      <div class="call-icon">📞</div>
+      <h3>Входящий звонок</h3>
+      <p id="incomingCallText">@someone звонит тебе</p>
+      <div class="call-actions">
+        <button class="accept-call-btn" onclick="acceptIncomingCall()">Принять</button>
+        <button class="decline-call-btn" onclick="rejectIncomingCall()">Отклонить</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="activeCallModal" class="modal-backdrop" style="display:none;">
+    <div class="call-card">
+      <div class="call-icon">🎙️</div>
+      <h3 id="activeCallTitle">Звонок</h3>
+      <p id="activeCallStatus">Соединение...</p>
+      <div class="call-actions">
+        <button class="secondary-btn small-btn" id="muteBtn" onclick="toggleMuteCall()">Выключить микрофон</button>
+        <button class="decline-call-btn" onclick="endCurrentCall()">Завершить</button>
+      </div>
     </div>
   </div>
 
