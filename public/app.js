@@ -7,6 +7,17 @@ let isRecording = false;
 let avatarFile = null;
 let openedProfileUsername = null;
 
+let peerConnection = null;
+let localCallStream = null;
+let currentCallPeer = null;
+let pendingIncomingOffer = null;
+let pendingIncomingFrom = null;
+let isMuted = false;
+
+const rtcConfig = {
+  iceServers: []
+};
+
 if (!currentUser) {
   window.location.href = "index.html";
 }
@@ -31,6 +42,7 @@ function initChat() {
   loadMessages("global");
   loadStories();
   checkBirthdays();
+  updateCallButtonState();
 
   const input = document.getElementById("messageInput");
   input.addEventListener("keydown", (e) => {
@@ -46,11 +58,60 @@ function connectWS() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   socket = new WebSocket(`${protocol}://${window.location.host}?user=${encodeURIComponent(currentUser)}`);
 
-  socket.onmessage = (e) => {
+  socket.onmessage = async (e) => {
     const msg = JSON.parse(e.data);
+
+    if (msg.type === "system") {
+      alert(msg.text || "Системное сообщение");
+      return;
+    }
+
+    if (msg.type === "messageDeleted") {
+      removeMessageFromDom(msg.id);
+      return;
+    }
+
+    if (msg.type === "call-offer") {
+      handleIncomingCallOffer(msg);
+      return;
+    }
+
+    if (msg.type === "call-answer") {
+      if (peerConnection && msg.answer) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.answer));
+        setCallStatus("Разговор начался");
+      }
+      return;
+    }
+
+    if (msg.type === "ice-candidate") {
+      if (peerConnection && msg.candidate) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
+        } catch (err) {
+          console.log("ICE add skipped:", err.message);
+        }
+      }
+      return;
+    }
+
+    if (msg.type === "call-reject") {
+      alert(`Пользователь @${msg.from} отклонил звонок`);
+      cleanupCall();
+      return;
+    }
+
+    if (msg.type === "call-end") {
+      alert(`Звонок с @${msg.from} завершён`);
+      cleanupCall();
+      return;
+    }
+
     if (msg.type !== "message") return;
 
-    if (msg.receiver === "global" && currentChat === "global") renderMessage(msg);
+    if (msg.receiver === "global" && currentChat === "global") {
+      renderMessage(msg);
+    }
 
     if (
       msg.receiver !== "global" &&
@@ -68,7 +129,9 @@ async function loadMessages(chatName) {
   const container = document.getElementById("messagesContainer");
   container.innerHTML = "";
 
-  const res = await fetch(`/api/messages?chat=${encodeURIComponent(chatName)}`, { headers: headers() });
+  const res = await fetch(`/api/messages?chat=${encodeURIComponent(chatName)}`, {
+    headers: headers()
+  });
   const messages = await res.json();
 
   messages.forEach(renderMessage);
@@ -97,13 +160,21 @@ function renderMessage(msg) {
     content = `<div class="msg-text">${escapeHtml(msg.text || "")}</div>`;
   }
 
+  const deleteBtn = mine && msg.id
+    ? `<button class="delete-msg-btn" onclick="deleteMessage(${msg.id})" title="Удалить сообщение"><i class="fa-solid fa-trash"></i></button>`
+    : "";
+
   const bubble = document.createElement("div");
   bubble.className = `message-row ${mine ? "mine" : "other"}`;
+  bubble.dataset.messageId = msg.id || "";
   bubble.innerHTML = `
     <div class="bubble">
       <div class="bubble-top">
         <span class="sender-name">${escapeHtml(displayName)}</span>
-        ${msg.sender !== "global" ? `<button class="mini-profile-btn" onclick="openUserProfile('${msg.sender}')">Профиль</button>` : ""}
+        <div class="bubble-actions">
+          ${msg.sender !== "global" ? `<button class="mini-profile-btn" onclick="openUserProfile('${msg.sender}')">Профиль</button>` : ""}
+          ${deleteBtn}
+        </div>
       </div>
       ${content}
     </div>
@@ -111,6 +182,30 @@ function renderMessage(msg) {
 
   container.appendChild(bubble);
   scrollBottom();
+}
+
+function removeMessageFromDom(id) {
+  if (!id) return;
+  const el = document.querySelector(`[data-message-id="${id}"]`);
+  if (el) el.remove();
+}
+
+async function deleteMessage(id) {
+  if (!confirm("Удалить это сообщение?")) return;
+
+  const res = await fetch(`/api/messages/${id}`, {
+    method: "DELETE",
+    headers: headers()
+  });
+
+  const data = await res.json();
+  if (!data.success) {
+    alert(data.error || "Ошибка удаления");
+    return;
+  }
+
+  removeMessageFromDom(id);
+  loadChatList();
 }
 
 function scrollBottom() {
@@ -179,10 +274,17 @@ function switchChat(name) {
   document.getElementById("chatStatus").textContent = name === "global" ? "общение со всеми" : "личный чат";
 
   loadMessages(name);
+  updateCallButtonState();
 
   if (window.innerWidth <= 768) {
     document.getElementById("sidebar").classList.remove("active-mobile");
   }
+}
+
+function updateCallButtonState() {
+  const btn = document.getElementById("callBtn");
+  if (!btn) return;
+  btn.style.display = currentChat === "global" ? "none" : "inline-flex";
 }
 
 function sendText() {
@@ -527,5 +629,219 @@ function toggleSidebarMobile() {
   const sidebar = document.getElementById("sidebar");
   if (window.innerWidth <= 768) {
     sidebar.classList.toggle("active-mobile");
+  }
+}
+
+/* -------------------- calls -------------------- */
+
+function setCallStatus(text) {
+  const el = document.getElementById("activeCallStatus");
+  if (el) el.textContent = text;
+}
+
+function showActiveCallModal(name, status = "Соединение...") {
+  document.getElementById("activeCallTitle").textContent = `Звонок с @${name}`;
+  document.getElementById("activeCallStatus").textContent = status;
+  document.getElementById("activeCallModal").style.display = "flex";
+}
+
+function hideActiveCallModal() {
+  document.getElementById("activeCallModal").style.display = "none";
+}
+
+function showIncomingCallModal(from) {
+  document.getElementById("incomingCallText").textContent = `@${from} звонит тебе`;
+  document.getElementById("incomingCallModal").style.display = "flex";
+}
+
+function hideIncomingCallModal() {
+  document.getElementById("incomingCallModal").style.display = "none";
+}
+
+async function createPeerConnection(targetUser) {
+  currentCallPeer = targetUser;
+  peerConnection = new RTCPeerConnection(rtcConfig);
+
+  if (!localCallStream) {
+    localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  }
+
+  localCallStream.getTracks().forEach((track) => {
+    peerConnection.addTrack(track, localCallStream);
+  });
+
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate && socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: "ice-candidate",
+        from: currentUser,
+        to: targetUser,
+        candidate: event.candidate
+      }));
+    }
+  };
+
+  peerConnection.ontrack = (event) => {
+    const remoteAudio = document.getElementById("remoteAudio");
+    if (remoteAudio) {
+      remoteAudio.srcObject = event.streams[0];
+    }
+    setCallStatus("Разговор начался");
+  };
+
+  peerConnection.onconnectionstatechange = () => {
+    const state = peerConnection?.connectionState;
+    if (state === "connected") setCallStatus("Разговор начался");
+    if (state === "connecting") setCallStatus("Подключение...");
+    if (["disconnected", "failed", "closed"].includes(state)) {
+      cleanupCall(false);
+    }
+  };
+}
+
+async function startAudioCall() {
+  if (currentChat === "global") {
+    alert("Звонок доступен только в личном чате");
+    return;
+  }
+
+  if (currentCallPeer) {
+    alert("У тебя уже есть активный звонок");
+    return;
+  }
+
+  try {
+    showActiveCallModal(currentChat, "Звоним...");
+    await createPeerConnection(currentChat);
+
+    const offer = await peerConnection.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: false
+    });
+
+    await peerConnection.setLocalDescription(offer);
+
+    socket.send(JSON.stringify({
+      type: "call-offer",
+      from: currentUser,
+      to: currentChat,
+      offer
+    }));
+  } catch (err) {
+    alert("Не удалось начать звонок");
+    cleanupCall();
+  }
+}
+
+function handleIncomingCallOffer(msg) {
+  if (currentCallPeer) {
+    socket.send(JSON.stringify({
+      type: "call-reject",
+      from: currentUser,
+      to: msg.from
+    }));
+    return;
+  }
+
+  pendingIncomingFrom = msg.from;
+  pendingIncomingOffer = msg.offer;
+  showIncomingCallModal(msg.from);
+}
+
+async function acceptIncomingCall() {
+  if (!pendingIncomingFrom || !pendingIncomingOffer) return;
+
+  try {
+    hideIncomingCallModal();
+    showActiveCallModal(pendingIncomingFrom, "Подключение...");
+
+    await createPeerConnection(pendingIncomingFrom);
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(pendingIncomingOffer));
+
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+
+    socket.send(JSON.stringify({
+      type: "call-answer",
+      from: currentUser,
+      to: pendingIncomingFrom,
+      answer
+    }));
+
+    pendingIncomingFrom = null;
+    pendingIncomingOffer = null;
+  } catch (err) {
+    alert("Не удалось принять звонок");
+    cleanupCall();
+  }
+}
+
+function rejectIncomingCall() {
+  if (pendingIncomingFrom) {
+    socket.send(JSON.stringify({
+      type: "call-reject",
+      from: currentUser,
+      to: pendingIncomingFrom
+    }));
+  }
+
+  pendingIncomingFrom = null;
+  pendingIncomingOffer = null;
+  hideIncomingCallModal();
+}
+
+function toggleMuteCall() {
+  if (!localCallStream) return;
+
+  isMuted = !isMuted;
+  localCallStream.getAudioTracks().forEach((track) => {
+    track.enabled = !isMuted;
+  });
+
+  document.getElementById("muteBtn").textContent = isMuted
+    ? "Включить микрофон"
+    : "Выключить микрофон";
+}
+
+function endCurrentCall() {
+  if (currentCallPeer && socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: "call-end",
+      from: currentUser,
+      to: currentCallPeer
+    }));
+  }
+  cleanupCall();
+}
+
+function cleanupCall(resetPeer = true) {
+  hideIncomingCallModal();
+  hideActiveCallModal();
+
+  if (peerConnection) {
+    try { peerConnection.close(); } catch {}
+  }
+  peerConnection = null;
+
+  if (localCallStream) {
+    localCallStream.getTracks().forEach((track) => track.stop());
+  }
+  localCallStream = null;
+
+  const remoteAudio = document.getElementById("remoteAudio");
+  if (remoteAudio) {
+    remoteAudio.srcObject = null;
+  }
+
+  currentCallPeer = null;
+  pendingIncomingFrom = null;
+  pendingIncomingOffer = null;
+  isMuted = false;
+
+  const muteBtn = document.getElementById("muteBtn");
+  if (muteBtn) muteBtn.textContent = "Выключить микрофон";
+
+  if (!resetPeer) {
+    currentCallPeer = null;
   }
 }
