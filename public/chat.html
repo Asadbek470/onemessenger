@@ -17,7 +17,13 @@
         </div>
       </div>
 
-      <div class="stories-strip" id="storiesStrip"></div>
+      <!-- STORIES STRIP -->
+      <div class="stories-strip" id="storiesStrip">
+        <button class="story-add" onclick="openStoryComposer()" title="Добавить сторис">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+        <div class="stories-list" id="storiesList"></div>
+      </div>
 
       <div class="chats-list" id="chatsList">
         <div class="chat-item active" data-chat="global" onclick="switchChat('global')">
@@ -47,24 +53,28 @@
           <button class="back-btn" onclick="toggleSidebarMobile()"><i class="fa-solid fa-chevron-left"></i></button>
           <div class="current-chat-info" onclick="openCurrentProfile()" style="cursor:pointer;">
             <h2 id="chatTitle">Общий чат</h2>
-            <span class="status" id="chatStatus">в сети</span>
+            <span class="status" id="chatStatus">общение со всеми</span>
           </div>
         </div>
         <div class="header-right">
-          <button class="header-action-btn" id="callBtn" onclick="startAudioCall()" title="Аудиозвонок">
+          <button class="header-action-btn" id="callBtn" onclick="startCall()" title="Звонок">
             <i class="fa-solid fa-phone"></i>
           </button>
-          <i class="fa-solid fa-user" onclick="openCurrentProfile()"></i>
+          <i class="fa-solid fa-user" onclick="openCurrentProfile()" title="Профиль"></i>
         </div>
       </header>
 
+      <!-- Birthday banner (поздравление внутри приложения) -->
       <section class="birthday-banner hidden" id="birthdayBanner"></section>
+
       <section class="messages-area" id="messagesContainer"></section>
 
       <footer class="input-panel">
-        <button class="icon-btn attach-btn" onclick="document.getElementById('fileInput').click()">
+        <button class="icon-btn attach-btn" onclick="document.getElementById('fileInput').click()" title="Фото/Видео">
           <i class="fa-solid fa-paperclip"></i>
         </button>
+
+        <!-- accept включает image/video -->
         <input type="file" id="fileInput" hidden accept="image/*,video/*" onchange="uploadMedia(this)" />
 
         <div class="text-input-wrapper">
@@ -73,10 +83,12 @@
         </div>
 
         <div class="actions-group">
-          <button class="icon-btn voice-btn" id="voiceBtn" onclick="toggleAudioRec()">
+          <!-- Голосовые: записываем и отправляем -->
+          <button class="icon-btn voice-btn" id="voiceBtn" onclick="toggleAudioRec()" title="Голосовое">
             <i class="fa-solid fa-microphone"></i>
           </button>
-          <button class="send-btn" onclick="sendText()">
+
+          <button class="send-btn" onclick="sendText()" title="Отправить">
             <i class="fa-solid fa-arrow-up"></i>
           </button>
         </div>
@@ -84,109 +96,10 @@
     </main>
   </div>
 
+  <!-- Remote audio -->
   <audio id="remoteAudio" autoplay playsinline></audio>
 
-  <div id="settingsModal" class="modal-backdrop" style="display:none;">
-    <div class="settings-card glass">
-      <header class="modal-header">
-        <h3>Настройки профиля</h3>
-        <button class="close-btn" onclick="closeSettings()">✕</button>
-      </header>
-
-      <div class="settings-body">
-        <div class="profile-avatar-edit">
-          <div class="avatar-large" id="profilePreview"></div>
-          <button onclick="document.getElementById('avatarInput').click()">Изменить фото</button>
-          <input type="file" id="avatarInput" hidden accept="image/*" onchange="previewAvatar(this)" />
-        </div>
-
-        <div class="input-field">
-          <label>Юзернейм</label>
-          <input type="text" id="editUsername" placeholder="username" />
-        </div>
-
-        <div class="input-field">
-          <label>Ваше имя</label>
-          <input type="text" id="editName" placeholder="Введите имя" />
-        </div>
-
-        <div class="input-field">
-          <label>О себе (Bio)</label>
-          <input type="text" id="editBio" placeholder="Расскажите о себе" />
-        </div>
-
-        <div class="input-field">
-          <label>День рождения</label>
-          <input type="date" id="editBirthday" />
-        </div>
-
-        <div class="input-field">
-          <label>Новый PIN-код (6 цифр)</label>
-          <input type="password" id="editPin" maxlength="6" placeholder="Оставьте пустым, если не меняете" />
-        </div>
-
-        <div class="input-field">
-          <label>Кто видит мой профиль</label>
-          <select id="editProfileVisibility">
-            <option value="all">Все</option>
-            <option value="contacts">Только контакты</option>
-          </select>
-        </div>
-
-        <div class="input-field">
-          <label>Кто видит мои сторис</label>
-          <select id="editStoryVisibility">
-            <option value="all">Все</option>
-            <option value="contacts">Только контакты</option>
-          </select>
-        </div>
-
-        <div class="story-editor">
-          <div class="story-title">Сторис профиля</div>
-          <input type="text" id="storyText" placeholder="Текст сторис..." />
-          <input type="file" id="storyInput" accept="image/*,video/*" />
-          <button class="secondary-btn" onclick="publishStory()">Опубликовать сторис</button>
-        </div>
-
-        <button class="save-profile-btn" onclick="saveProfile()">Сохранить изменения</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="profileModal" class="modal-backdrop" style="display:none;">
-    <div class="settings-card glass">
-      <header class="modal-header">
-        <h3>Профиль</h3>
-        <button class="close-btn" onclick="closeProfile()">✕</button>
-      </header>
-
-      <div class="settings-body">
-        <div class="profile-avatar-edit">
-          <div class="avatar-large" id="viewProfileAvatar"></div>
-        </div>
-
-        <div class="profile-view-line"><b>Юзернейм:</b> <span id="viewProfileUsername"></span></div>
-        <div class="profile-view-line"><b>Имя:</b> <span id="viewProfileName"></span></div>
-        <div class="profile-view-line"><b>Bio:</b> <span id="viewProfileBio"></span></div>
-        <div class="profile-view-line"><b>День рождения:</b> <span id="viewProfileBirthday"></span></div>
-        <div class="profile-view-line" id="todayBirthdayLine" style="display:none;"><b>🎉 Сегодня день рождения!</b></div>
-
-        <button class="secondary-btn" id="addContactBtn" onclick="addCurrentProfileToContacts()">Добавить в контакты</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="storyModal" class="modal-backdrop" style="display:none;">
-    <div class="settings-card glass">
-      <header class="modal-header">
-        <h3>Сторис</h3>
-        <button class="close-btn" onclick="closeStoryModal()">✕</button>
-      </header>
-
-      <div class="settings-body" id="storyModalBody"></div>
-    </div>
-  </div>
-
+  <!-- Incoming call -->
   <div id="incomingCallModal" class="modal-backdrop" style="display:none;">
     <div class="call-card">
       <div class="call-icon">📞</div>
@@ -199,15 +112,55 @@
     </div>
   </div>
 
+  <!-- Active call -->
   <div id="activeCallModal" class="modal-backdrop" style="display:none;">
-    <div class="call-card">
-      <div class="call-icon">🎙️</div>
-      <h3 id="activeCallTitle">Звонок</h3>
-      <p id="activeCallStatus">Соединение...</p>
+    <div class="call-card call-card-wide">
+      <div class="call-top">
+        <div>
+          <div class="call-title" id="activeCallTitle">Звонок</div>
+          <div class="call-status" id="activeCallStatus">Соединение...</div>
+        </div>
+        <button class="call-close-x" onclick="endCurrentCall()" title="Завершить">✕</button>
+      </div>
+
+      <div class="call-videos">
+        <video id="remoteVideo" class="call-video" autoplay playsinline></video>
+        <video id="localVideo" class="call-video local" autoplay playsinline muted></video>
+      </div>
+
       <div class="call-actions">
         <button class="secondary-btn small-btn" id="muteBtn" onclick="toggleMuteCall()">Выключить микрофон</button>
+        <button class="secondary-btn small-btn" id="camBtn" onclick="toggleCamera()">Включить камеру</button>
         <button class="decline-call-btn" onclick="endCurrentCall()">Завершить</button>
       </div>
+    </div>
+  </div>
+
+  <!-- STORY COMPOSER -->
+  <div id="storyComposerModal" class="modal-backdrop" style="display:none;">
+    <div class="story-card">
+      <div class="story-head">
+        <div class="story-title">Новая сторис</div>
+        <button class="call-close-x" onclick="closeStoryComposer()">✕</button>
+      </div>
+
+      <div class="story-body">
+        <input type="file" id="storyFile" accept="image/*,video/*" />
+        <input type="text" id="storyText" placeholder="Текст (не обязательно)" maxlength="120" />
+        <button class="settings-btn" onclick="publishStory()">Опубликовать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STORY VIEW -->
+  <div id="storyViewModal" class="modal-backdrop" style="display:none;">
+    <div class="story-view-card">
+      <div class="story-head">
+        <div id="storyViewTitle" class="story-title">Сторис</div>
+        <button class="call-close-x" onclick="closeStoryView()">✕</button>
+      </div>
+      <div id="storyViewContent" class="story-view-content"></div>
+      <div id="storyViewText" class="story-view-text"></div>
     </div>
   </div>
 
