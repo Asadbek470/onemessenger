@@ -427,3 +427,55 @@ function endCall() {
   }));
 
 }
+
+// ===== FIX FUNCTIONS FOR CHAT.HTML =====
+
+// открыть чат
+function openChat(chat){
+  currentChat = chat;
+  loadMessages(chat);
+  updateHeader();
+}
+
+// отправка фото / видео
+function sendMedia(input){
+  uploadMedia(input);
+}
+
+// голосовое
+function toggleVoice(){
+  toggleAudioRec();
+}
+
+// enter отправка
+function onEnter(e){
+  if(e.key === "Enter"){
+    sendText();
+  }
+}
+
+// sidebar mobile
+function toggleSidebar(){
+  const s = document.getElementById("sidebar");
+  s.classList.toggle("open");
+}
+
+// отклонить входящий звонок
+function declineIncomingCall(){
+  rejectIncomingCall();
+}
+
+// mute
+function toggleMute(){
+  toggleMuteCall();
+}
+
+// камера
+function toggleCamera(){
+  enableCamera();
+}
+
+// перевернуть камеру
+function flipCamera(){
+  switchCamera();
+}
