@@ -160,6 +160,24 @@
   <!-- AUDIO CALL -->
   <audio id="remoteAudio" autoplay playsinline></audio>
 
+  <!-- INCOMING CALL MODAL (вместо confirm) -->
+  <div id="incomingCallModal" class="modal hidden">
+    <div class="card callcard">
+      <div class="cardtop">
+        <div class="cardtitle">Входящий звонок</div>
+        <button class="iconbtn" onclick="declineIncomingCall()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="callbody">
+        <div id="incomingCallText" class="callstatus">Кто-то звонит…</div>
+        <div class="row">
+          <button class="btn primary" onclick="acceptIncomingCall()">Принять</button>
+          <button class="btn danger" onclick="declineIncomingCall()">Отклонить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACTIVE CALL MODAL -->
   <div id="callModal" class="modal hidden">
     <div class="card callcard">
       <div class="cardtop">
