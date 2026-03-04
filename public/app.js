@@ -4,6 +4,8 @@ if (!token) location.href = "index.html";
 let me = null;
 let currentChat = "global";
 let ws = null;
+let wsReady = false;
+let wsQueue = []; // если WS еще не открылся
 
 // voice recorder
 let mediaRecorder = null;
@@ -16,6 +18,10 @@ let localStream = null;
 let remoteStream = null;
 let callPeer = null;
 let isMuted = false;
+
+// incoming call state (замена confirm)
+let pendingOffer = null;
+let pendingFrom = null;
 
 const rtcCfg = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
@@ -63,9 +69,36 @@ function toggleSidebar() {
 }
 
 // ---------------- WS ----------------
+function wsSend(obj) {
+  const payload = JSON.stringify(obj);
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    wsQueue.push(payload);
+    return;
+  }
+  ws.send(payload);
+}
+
+function flushWsQueue() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  while (wsQueue.length) ws.send(wsQueue.shift());
+}
+
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}?token=${encodeURIComponent(token)}`);
+
+  ws.onopen = () => {
+    wsReady = true;
+    flushWsQueue();
+  };
+
+  ws.onclose = () => {
+    wsReady = false;
+    // мягкая попытка переподключиться (без фанатизма)
+    setTimeout(() => {
+      if (!wsReady) connectWS();
+    }, 1200);
+  };
 
   ws.onmessage = async (e) => {
     const data = JSON.parse(e.data);
@@ -194,11 +227,11 @@ function sendText() {
   const text = input.value.trim();
   if (!text) return;
 
-  ws.send(JSON.stringify({
+  wsSend({
     type: "text-message",
     receiver: currentChat,
     text
-  }));
+  });
 
   input.value = "";
 }
@@ -352,14 +385,12 @@ async function saveProfile() {
   const birthDate = document.getElementById("setBirthDate").value.trim();
   let avatarUrl = document.getElementById("setAvatarUrl").value.trim();
 
-  // optional avatar upload -> we keep URL method simple:
   const file = document.getElementById("avatarFile").files[0];
   if (file) {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("receiver", "global");
     fd.append("text", "");
-    // загружаем как обычное медиа, а url берем из ответа
     const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
     const d = await r.json();
     if (d.ok && d.message && d.message.mediaUrl) {
@@ -428,7 +459,6 @@ async function loadStories() {
   const d = await r.json();
   if (!d.ok) return;
 
-  // покажем 1 “последнюю” сторис на каждого владельца
   const map = new Map();
   d.stories.forEach(s => { if (!map.has(s.owner)) map.set(s.owner, s); });
 
@@ -476,10 +506,7 @@ async function publishStory() {
 }
 
 function viewStory(s) {
-  // простая “просмотрка” через alert (быстро, чтобы не ломать UI)
-  if (s.mediaUrl) {
-    window.open(s.mediaUrl, "_blank");
-  }
+  if (s.mediaUrl) window.open(s.mediaUrl, "_blank");
   if (s.text) alert(`Сторис @${s.owner}:\n\n${s.text}`);
 }
 
@@ -521,6 +548,15 @@ function closeCallModal() {
   document.getElementById("callModal").classList.add("hidden");
 }
 
+function showIncomingModal(from) {
+  document.getElementById("incomingCallText").textContent = `@${from} звонит тебе`;
+  document.getElementById("incomingCallModal").classList.remove("hidden");
+}
+
+function hideIncomingModal() {
+  document.getElementById("incomingCallModal").classList.add("hidden");
+}
+
 async function startAudioCall() {
   if (currentChat === "global") return alert("Звонок только в личном чате");
   if (callPeer) return alert("Звонок уже идет");
@@ -534,35 +570,56 @@ async function startAudioCall() {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    ws.send(JSON.stringify({ type: "call-offer", to: callPeer, offer }));
-  } catch (e) {
+    wsSend({ type: "call-offer", to: callPeer, offer });
+  } catch {
     alert("Не удалось начать звонок");
     cleanupCall();
   }
 }
 
 async function onIncomingOffer(data) {
+  // если уже в звонке, отклоняем
   if (callPeer) {
-    ws.send(JSON.stringify({ type: "call-reject", to: data.from }));
+    wsSend({ type: "call-reject", to: data.from });
     return;
   }
 
-  const ok = confirm(`Входящий аудиозвонок от @${data.from}. Принять?`);
-  if (!ok) {
-    ws.send(JSON.stringify({ type: "call-reject", to: data.from }));
-    return;
+  pendingFrom = data.from;
+  pendingOffer = data.offer;
+
+  showIncomingModal(pendingFrom);
+}
+
+async function acceptIncomingCall() {
+  if (!pendingFrom || !pendingOffer) return;
+
+  try {
+    hideIncomingModal();
+
+    callPeer = pendingFrom;
+    openCallModal(`Аудиозвонок с @${callPeer}`, "Подключение...");
+
+    await createPeer(callPeer);
+    await pc.setRemoteDescription(new RTCSessionDescription(pendingOffer));
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    wsSend({ type: "call-answer", to: callPeer, answer });
+
+    pendingFrom = null;
+    pendingOffer = null;
+  } catch {
+    alert("Не удалось принять звонок");
+    cleanupCall();
   }
+}
 
-  callPeer = data.from;
-  openCallModal(`Аудиозвонок с @${callPeer}`, "Подключение...");
-
-  await createPeer(callPeer);
-  await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-
-  ws.send(JSON.stringify({ type: "call-answer", to: callPeer, answer }));
+function declineIncomingCall() {
+  if (pendingFrom) wsSend({ type: "call-reject", to: pendingFrom });
+  pendingFrom = null;
+  pendingOffer = null;
+  hideIncomingModal();
 }
 
 async function onAnswer(data) {
@@ -576,7 +633,7 @@ async function onIce(data) {
   try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
 }
 
-function onCallEnd(data) {
+function onCallEnd() {
   alert(`Звонок завершён`);
   cleanupCall();
 }
@@ -588,14 +645,16 @@ function onCallReject(data) {
 
 async function createPeer(peer) {
   pc = new RTCPeerConnection(rtcCfg);
+
   remoteStream = new MediaStream();
   document.getElementById("remoteAudio").srcObject = remoteStream;
 
+  // На телефонах важно: playsinline уже есть в HTML, это ок
   localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
   pc.onicecandidate = (ev) => {
-    if (ev.candidate) ws.send(JSON.stringify({ type: "ice", to: peer, candidate: ev.candidate }));
+    if (ev.candidate) wsSend({ type: "ice", to: peer, candidate: ev.candidate });
   };
 
   pc.ontrack = (ev) => {
@@ -620,11 +679,12 @@ function toggleMute() {
 }
 
 function endCall() {
-  if (callPeer) ws.send(JSON.stringify({ type: "call-end", to: callPeer }));
+  if (callPeer) wsSend({ type: "call-end", to: callPeer });
   cleanupCall();
 }
 
 function cleanupCall() {
+  hideIncomingModal();
   closeCallModal();
 
   try { pc && pc.close(); } catch {}
@@ -641,4 +701,7 @@ function cleanupCall() {
 
   document.getElementById("muteBtn").textContent = "Выключить микрофон";
   document.getElementById("remoteAudio").srcObject = null;
+
+  pendingFrom = null;
+  pendingOffer = null;
 }
