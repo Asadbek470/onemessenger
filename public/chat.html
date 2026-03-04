@@ -92,8 +92,7 @@
     </main>
   </div>
 
-  <!-- Modals (как в предыдущей версии, но классы обновлены) -->
-  <!-- Profile Modal -->
+  <!-- Modals (без изменений, но для полноты приведу) -->
   <div id="profileModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
@@ -113,7 +112,6 @@
     </div>
   </div>
 
-  <!-- Settings Modal -->
   <div id="settingsModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
@@ -123,25 +121,19 @@
       <div class="formgrid">
         <label>Display name</label>
         <input id="setDisplayName" placeholder="Имя">
-
         <label>Bio</label>
         <input id="setBio" placeholder="О себе">
-
         <label>Дата рождения (YYYY-MM-DD)</label>
         <input id="setBirthDate" placeholder="2009-01-31">
-
         <label>Аватар (URL)</label>
         <input id="setAvatarUrl" placeholder="https://...">
-
         <label>Загрузить аватар</label>
         <input id="avatarFile" type="file" accept="image/*">
-
         <button class="btn primary full" onclick="saveProfile()">Сохранить</button>
       </div>
     </div>
   </div>
 
-  <!-- Story Composer -->
   <div id="storyModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
@@ -151,19 +143,15 @@
       <div class="formgrid">
         <label>Файл (не обязательно)</label>
         <input id="storyFile" type="file" accept="image/*,video/*">
-
         <label>Текст (не обязательно)</label>
         <input id="storyText" maxlength="120" placeholder="Текст...">
-
         <button class="btn primary full" onclick="publishStory()">Опубликовать</button>
       </div>
     </div>
   </div>
 
-  <!-- Remote Audio -->
   <audio id="remoteAudio" autoplay playsinline></audio>
 
-  <!-- Incoming Call Modal -->
   <div id="incomingCallModal" class="modal hidden">
     <div class="card callcard">
       <div class="cardtop">
@@ -178,7 +166,6 @@
     </div>
   </div>
 
-  <!-- Active Call Modal -->
   <div id="callModal" class="modal hidden">
     <div class="card callcard">
       <div class="cardtop">
