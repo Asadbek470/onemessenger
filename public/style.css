@@ -1002,3 +1002,14 @@ body {
 .story-prev { left: 10px; }
 .story-next { right: 10px; }
 .story-close { top: 10px; right: 10px; transform: none; }
+
+/* Добавить в конец файла */
+.auth-button.ghost {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+}
+
+.auth-button.ghost:hover {
+  background: var(--secondary-bg);
+}
