@@ -28,7 +28,7 @@ app.use("/uploads", express.static(uploadsDir));
 const upload = multer({ dest: uploadsDir });
 const db = new sqlite3.Database("database.db");
 
-// ---- DB init / migrations ----
+// ---- DB init ----
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -40,7 +40,7 @@ db.serialize(() => {
       avatarUrl TEXT DEFAULT '',
       birthDate TEXT DEFAULT '',
       createdAt INTEGER NOT NULL DEFAULT 0,
-
+      lastSeen INTEGER DEFAULT 0,
       blockedUntil INTEGER DEFAULT 0,
       canSendText INTEGER DEFAULT 1,
       canSendMedia INTEGER DEFAULT 1,
@@ -134,7 +134,8 @@ function safePublicUser(u) {
     displayName: u.displayName || u.username,
     bio: u.bio || "",
     avatarUrl: u.avatarUrl || "",
-    birthDate: u.birthDate || ""
+    birthDate: u.birthDate || "",
+    lastSeen: u.lastSeen || 0
   };
 }
 
@@ -160,8 +161,8 @@ app.post("/api/auth/register", async (req, res) => {
   const createdAt = now();
 
   db.run(
-    `INSERT INTO users (username, passwordHash, displayName, createdAt) VALUES (?,?,?,?)`,
-    [username, hash, username, createdAt],
+    `INSERT INTO users (username, passwordHash, displayName, createdAt, lastSeen) VALUES (?,?,?,?,?)`,
+    [username, hash, username, createdAt, createdAt],
     function (err) {
       if (err) return res.status(400).json({ ok: false, error: "Юзернейм занят" });
 
@@ -187,6 +188,9 @@ app.post("/api/auth/login", (req, res) => {
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(400).json({ ok: false, error: "Неверный пароль" });
+
+    // Обновляем lastSeen при входе
+    db.run(`UPDATE users SET lastSeen=? WHERE username=?`, [now(), username]);
 
     res.json({ ok: true, token: signToken(user), user: safePublicUser(user) });
   });
@@ -220,7 +224,7 @@ app.get("/api/users/search", verifyAuth, (req, res) => {
   if (!q) return res.json({ ok: true, users: [] });
 
   db.all(
-    `SELECT username, displayName, bio, avatarUrl, birthDate
+    `SELECT username, displayName, bio, avatarUrl, birthDate, lastSeen
      FROM users
      WHERE username LIKE ?
        AND username != ?
@@ -234,7 +238,7 @@ app.get("/api/users/search", verifyAuth, (req, res) => {
 app.get("/api/users/:username", verifyAuth, (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   db.get(
-    `SELECT username, displayName, bio, avatarUrl, birthDate FROM users WHERE username=?`,
+    `SELECT username, displayName, bio, avatarUrl, birthDate, lastSeen FROM users WHERE username=?`,
     [u],
     (err, row) => {
       if (!row) return res.status(404).json({ ok: false, error: "Не найден" });
@@ -266,11 +270,11 @@ app.get("/api/chats", verifyAuth, (req, res) => {
 
       const placeholders = others.map(() => "?").join(",");
       db.all(
-        `SELECT username, displayName, avatarUrl, bio, birthDate FROM users WHERE username IN (${placeholders})`,
+        `SELECT username, displayName, avatarUrl, bio, birthDate, lastSeen FROM users WHERE username IN (${placeholders})`,
         others,
         (e2, users) => {
           const map = new Map((users || []).map(u => [u.username, u]));
-          // preview
+
           db.all(
             `
             SELECT id, sender, receiver, text, mediaType, createdAt
@@ -293,7 +297,7 @@ app.get("/api/chats", verifyAuth, (req, res) => {
               });
 
               const result = others.map(o => {
-                const u = map.get(o) || { username: o, displayName: o, avatarUrl: "", bio: "", birthDate: "" };
+                const u = map.get(o) || { username: o, displayName: o, avatarUrl: "", bio: "", birthDate: "", lastSeen: 0 };
                 const p = preview.get(o) || { text: "", at: 0 };
                 return {
                   username: u.username,
@@ -301,6 +305,7 @@ app.get("/api/chats", verifyAuth, (req, res) => {
                   avatarUrl: u.avatarUrl || "",
                   bio: u.bio || "",
                   birthDate: u.birthDate || "",
+                  lastSeen: u.lastSeen,
                   preview: p.text,
                   lastAt: p.at
                 };
@@ -357,7 +362,6 @@ app.delete("/api/messages/:id", verifyAuth, (req, res) => {
     db.run(`DELETE FROM messages WHERE id=?`, [id], (e2) => {
       if (e2) return res.status(500).json({ ok: false, error: "Ошибка удаления" });
 
-      // notify via ws
       broadcastToChat(row, { type: "messageDeleted", id });
       res.json({ ok: true });
     });
@@ -474,7 +478,6 @@ app.get("/api/birthdays/today", verifyAuth, (req, res) => {
   const d = new Date();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
-  // ожидаем формат birthDate: YYYY-MM-DD
   db.all(
     `SELECT username, displayName, avatarUrl, birthDate
      FROM users
@@ -484,7 +487,7 @@ app.get("/api/birthdays/today", verifyAuth, (req, res) => {
   );
 });
 
-// ---- ADMIN (без чтения переписок) ----
+// ---- ADMIN ----
 app.post("/api/admin/login", (req, res) => {
   const user = String(req.body.user || "");
   const pass = String(req.body.pass || "");
@@ -532,7 +535,7 @@ app.post("/api/admin/user/update", verifyAdmin, (req, res) => {
   );
 });
 
-// ---- WEBSOCKET: messages + audio-call signaling ----
+// ---- WEBSOCKET ----
 const online = new Map(); // username -> ws
 
 function wsSend(ws, payload) {
@@ -540,7 +543,6 @@ function wsSend(ws, payload) {
 }
 
 function broadcastToChat(messageRow, payload) {
-  // payload: {type:'message', message:{...}} or {type:'messageDeleted', id}
   if (messageRow.chatType === "global") {
     for (const ws of online.values()) wsSend(ws, payload);
     return;
@@ -549,6 +551,11 @@ function broadcastToChat(messageRow, payload) {
   const b = messageRow.receiver;
   wsSend(online.get(a), payload);
   wsSend(online.get(b), payload);
+}
+
+function broadcastStatus(username, status) {
+  const payload = { type: "status", username, status };
+  for (const ws of online.values()) wsSend(ws, payload);
 }
 
 wss.on("connection", (ws, req) => {
@@ -566,8 +573,11 @@ wss.on("connection", (ws, req) => {
         return ws.close();
       }
 
+      // Обновляем lastSeen и online
+      db.run(`UPDATE users SET lastSeen=? WHERE username=?`, [now(), username]);
       ws.username = username;
       online.set(username, ws);
+      broadcastStatus(username, "online");
 
       wsSend(ws, { type: "ws-ready", username });
 
@@ -576,10 +586,10 @@ wss.on("connection", (ws, req) => {
         try { data = JSON.parse(raw.toString()); } catch { return; }
         if (!data || !data.type) return;
 
-        // Audio call signaling (WebRTC audio only)
         const from = ws.username;
 
-        if (data.type === "call-offer" || data.type === "call-answer" || data.type === "ice" || data.type === "call-end" || data.type === "call-reject") {
+        // Сигнализация звонков (только аудио)
+        if (data.type === "call-offer" || data.type === "call-answer" || data.type === "ice" || data.type === "call-end") {
           db.get(`SELECT * FROM users WHERE username=?`, [from], (e2, fresh) => {
             if (!fresh || !canUser(fresh, "call")) {
               return wsSend(ws, { type: "call-error", message: "Тебе запрещены звонки" });
@@ -593,7 +603,7 @@ wss.on("connection", (ws, req) => {
           return;
         }
 
-        // Chat text message (через ws)
+        // Текстовое сообщение
         if (data.type === "text-message") {
           db.get(`SELECT * FROM users WHERE username=?`, [from], (e2, fresh) => {
             if (!fresh || !canUser(fresh, "text")) {
@@ -639,13 +649,25 @@ wss.on("connection", (ws, req) => {
               }
             );
           });
-
           return;
+        }
+
+        // Индикатор печатания
+        if (data.type === "typing") {
+          const to = String(data.to || "").replace(/^@+/, "").toLowerCase();
+          const target = online.get(to);
+          if (target) {
+            wsSend(target, { type: "typing", from });
+          }
         }
       });
 
       ws.on("close", () => {
-        if (ws.username) online.delete(ws.username);
+        if (ws.username) {
+          online.delete(ws.username);
+          db.run(`UPDATE users SET lastSeen=? WHERE username=?`, [now(), ws.username]);
+          broadcastStatus(ws.username, "offline");
+        }
       });
     });
   } catch {
