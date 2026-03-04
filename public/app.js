@@ -1,799 +1,429 @@
+// ===============================
+// CONFIG
+// ===============================
+
+const API = "/api";
 let token = localStorage.getItem("token");
-if (!token) location.href = "index.html";
-
-let me = null;
+let currentUser = null;
 let currentChat = "global";
+
 let ws = null;
-let wsQueue = [];
 
-// voice recorder
-let mediaRecorder = null;
-let chunks = [];
-let recording = false;
-
-// WebRTC call (audio + optional video)
 let pc = null;
 let localStream = null;
 let remoteStream = null;
-let callPeer = null;
-let isMuted = false;
 
-let pendingOffer = null;
-let pendingFrom = null;
+let currentCallUser = null;
+let videoEnabled = false;
+let usingFrontCamera = true;
 
-// video state
-let cameraOn = false;
-let facingMode = "user"; // "user" or "environment"
-let videoSender = null; // RTCRtpSender для видео
 
-const rtcCfg = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+// ===============================
+// INIT
+// ===============================
 
-function authHeaders() {
-  return { Authorization: `Bearer ${token}` };
-}
+async function init() {
 
-function esc(s="") {
-  return String(s)
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
-
-// ---------- init ----------
-async function initApp() {
-  await loadMe();
-  connectWS();
-
-  openChat("global", false);
-  await refreshChats();
-  await loadStories();
-  await showBirthdays();
-
-  document.getElementById("callBtn").style.display = "none";
-  if (window.innerWidth <= 900) document.getElementById("sidebar").classList.add("mobile-hidden");
-
-  // по умолчанию прячем видео, пока камера не включена
-  syncVideoUI();
-}
-
-async function loadMe() {
-  const r = await fetch("/api/me", { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) return logout();
-  me = d.profile;
-}
-
-function logout() {
-  localStorage.removeItem("token");
-  localStorage.removeItem("me");
-  location.href = "index.html";
-}
-
-function toggleSidebar() {
-  document.getElementById("sidebar").classList.toggle("mobile-hidden");
-}
-
-// ---------- WS ----------
-function wsSend(obj) {
-  const payload = JSON.stringify(obj);
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    wsQueue.push(payload);
+  if (!token) {
+    location.href = "/index.html";
     return;
   }
-  ws.send(payload);
+
+  await loadProfile();
+  connectWS();
+  loadChats();
+  loadMessages("global");
+
 }
 
-function flushWsQueue() {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  while (wsQueue.length) ws.send(wsQueue.shift());
+window.addEventListener("load", init);
+
+
+// ===============================
+// PROFILE
+// ===============================
+
+async function loadProfile() {
+
+  const res = await fetch(API + "/me", {
+    headers: { Authorization: "Bearer " + token }
+  });
+
+  const data = await res.json();
+
+  if (!data.ok) {
+    localStorage.removeItem("token");
+    location.href = "/index.html";
+    return;
+  }
+
+  currentUser = data.profile;
+
 }
+
+
+// ===============================
+// WEBSOCKET
+// ===============================
 
 function connectWS() {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}?token=${encodeURIComponent(token)}`);
 
-  ws.onopen = () => flushWsQueue();
+  ws = new WebSocket(`wss://${location.host}?token=${token}`);
 
-  ws.onclose = () => {
-    setTimeout(() => connectWS(), 1200);
-  };
+  ws.onmessage = (event) => {
 
-  ws.onmessage = async (e) => {
-    const data = JSON.parse(e.data);
-
-    if (data.type === "blocked") {
-      alert("Аккаунт заблокирован");
-      logout();
-      return;
-    }
+    const data = JSON.parse(event.data);
 
     if (data.type === "message") {
-      const msg = data.message;
-      if (shouldRender(msg)) renderMessage(msg);
-      await refreshChats();
-      return;
+      appendMessage(data.message);
     }
 
     if (data.type === "messageDeleted") {
-      const el = document.querySelector(`[data-mid="${data.id}"]`);
-      if (el) el.remove();
-      return;
+      removeMessage(data.id);
     }
 
-    // signaling
-    if (data.type === "call-offer") return onIncomingOffer(data);
-    if (data.type === "call-answer") return onAnswer(data);
-    if (data.type === "ice") return onIce(data);
-    if (data.type === "call-end") return onCallEnd();
-    if (data.type === "call-reject") return onCallReject(data);
-    if (data.type === "call-error") return alert(data.message || "Ошибка звонка");
+    if (data.type === "call-offer") {
+      incomingCall(data.from, data.offer);
+    }
+
+    if (data.type === "call-answer") {
+      pc.setRemoteDescription(data.answer);
+    }
+
+    if (data.type === "ice") {
+      pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    }
+
+    if (data.type === "call-end") {
+      endCall();
+    }
+
   };
+
 }
 
-function shouldRender(msg) {
-  if (msg.chatType === "global") return currentChat === "global";
-  const other = msg.sender === me.username ? msg.receiver : msg.sender;
-  return currentChat === other;
-}
 
-// ---------- CHAT ----------
-async function openChat(chat, load = true) {
-  currentChat = chat;
-  document.getElementById("chatTitle").textContent = chat === "global" ? "Общий чат" : "@" + chat;
-  document.getElementById("chatSub").textContent = chat === "global" ? "общение со всеми" : "личный чат";
+// ===============================
+// CHATS
+// ===============================
 
-  document.getElementById("callBtn").style.display = chat === "global" ? "none" : "inline-flex";
+async function loadChats() {
 
-  document.querySelectorAll(".chatitem").forEach(b => b.classList.remove("active"));
-  const btn = document.querySelector(`.chatitem[data-chat="${chat}"]`);
-  if (btn) btn.classList.add("active");
-
-  if (window.innerWidth <= 900) document.getElementById("sidebar").classList.add("mobile-hidden");
-
-  if (load) await loadMessages();
-}
-
-async function loadMessages() {
-  const box = document.getElementById("messages");
-  box.innerHTML = "";
-
-  const r = await fetch(`/api/messages?chat=${encodeURIComponent(currentChat)}`, { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) return;
-
-  d.messages.forEach(renderMessage);
-  scrollBottom();
-}
-
-function scrollBottom() {
-  const box = document.getElementById("messages");
-  box.scrollTop = box.scrollHeight;
-}
-
-function renderMessage(m) {
-  const box = document.getElementById("messages");
-  const mine = m.sender === me.username;
-
-  let body = "";
-  if (m.mediaType === "image") body = `<img class="mimg" src="${m.mediaUrl}" alt="">`;
-  else if (m.mediaType === "video") body = `<video class="mvid" controls playsinline src="${m.mediaUrl}"></video>`;
-  else if (m.mediaType === "audio") body = `<audio class="maud" controls src="${m.mediaUrl}"></audio>`;
-  else body = `<div class="mtext">${esc(m.text || "")}</div>`;
-
-  const del = mine ? `<button class="trash" onclick="deleteMsg(${m.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>` : "";
-
-  const row = document.createElement("div");
-  row.className = "mrow " + (mine ? "mine" : "other");
-  row.dataset.mid = String(m.id);
-
-  row.innerHTML = `
-    <div class="bubble">
-      <div class="btop">
-        <div class="who">${esc(m.sender)}</div>
-        ${del}
-      </div>
-      ${body}
-    </div>
-  `;
-
-  box.appendChild(row);
-  scrollBottom();
-}
-
-async function deleteMsg(id) {
-  if (!confirm("Удалить сообщение?")) return;
-  const r = await fetch(`/api/messages/${id}`, { method: "DELETE", headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) alert(d.error || "Ошибка удаления");
-}
-
-function onEnter(e) { if (e.key === "Enter") sendText(); }
-
-function sendText() {
-  const input = document.getElementById("textInput");
-  const text = input.value.trim();
-  if (!text) return;
-
-  wsSend({ type: "text-message", receiver: currentChat, text });
-  input.value = "";
-}
-
-async function sendMedia(input) {
-  const file = input.files[0];
-  if (!file) return;
-
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("receiver", currentChat);
-  fd.append("text", "");
-
-  const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
-  const d = await r.json();
-  if (!d.ok) alert(d.error || "Ошибка медиа");
-  input.value = "";
-}
-
-async function refreshChats() {
-  const r = await fetch("/api/chats", { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) return;
-
-  const wrap = document.getElementById("privateChats");
-  wrap.innerHTML = "";
-
-  d.chats.forEach(c => {
-    const btn = document.createElement("button");
-    btn.className = "chatitem";
-    btn.dataset.chat = c.username;
-    btn.onclick = () => openChat(c.username);
-    btn.innerHTML = `
-      <div class="avatar">${c.avatarUrl ? `<img src="${c.avatarUrl}" alt="">` : `<span>${esc((c.displayName||c.username)[0].toUpperCase())}</span>`}</div>
-      <div class="meta">
-        <div class="name">${esc(c.displayName || c.username)}</div>
-        <div class="preview">${esc(c.preview || "")}</div>
-      </div>
-    `;
-    wrap.appendChild(btn);
+  const res = await fetch(API + "/chats", {
+    headers: { Authorization: "Bearer " + token }
   });
-}
 
-// ---------- SEARCH ----------
-async function searchUsers(val) {
-  const qraw = String(val || "").trim();
-  const results = document.getElementById("searchResults");
+  const data = await res.json();
 
-  if (!qraw.startsWith("@") || qraw.length < 2) { results.innerHTML = ""; return; }
-
-  const q = qraw.replace(/^@+/, "");
-  const r = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`, { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) return;
-
-  results.innerHTML = "";
-  d.users.forEach(u => {
-    const btn = document.createElement("button");
-    btn.className = "chatitem";
-    btn.onclick = () => openChat(u.username);
-    btn.innerHTML = `
-      <div class="avatar">${u.avatarUrl ? `<img src="${u.avatarUrl}" alt="">` : `<span>${esc((u.displayName||u.username)[0].toUpperCase())}</span>`}</div>
-      <div class="meta">
-        <div class="name">${esc(u.displayName || u.username)}</div>
-        <div class="preview">@${esc(u.username)}</div>
-      </div>
-    `;
-    results.appendChild(btn);
-  });
-}
-
-// ---------- PROFILE ----------
-async function openCurrentProfile() {
-  if (currentChat === "global") await openProfile(me.username, true);
-  else await openProfile(currentChat, false);
-}
-
-async function openProfile(username, isMe) {
-  const modal = document.getElementById("profileModal");
-  modal.classList.remove("hidden");
-
-  const title = document.getElementById("profileTitle");
-  const avatar = document.getElementById("profileAvatar");
-  const name = document.getElementById("profileName");
-  const user = document.getElementById("profileUser");
-  const bio = document.getElementById("profileBio");
-  const birth = document.getElementById("profileBirth");
-  const actions = document.getElementById("profileActions");
-
-  title.textContent = isMe ? "Мой профиль" : "Профиль";
-  actions.innerHTML = "";
-
-  let p = null;
-  if (isMe) p = me;
-  else {
-    const r = await fetch(`/api/users/${encodeURIComponent(username)}`, { headers: authHeaders() });
-    const d = await r.json();
-    if (!d.ok) { alert("Не найден"); return closeProfile(); }
-    p = d.user;
-  }
-
-  avatar.innerHTML = p.avatarUrl ? `<img src="${p.avatarUrl}" alt="">` : `<span>${esc((p.displayName||p.username)[0].toUpperCase())}</span>`;
-  name.textContent = p.displayName || p.username;
-  user.textContent = "@" + p.username;
-  bio.textContent = p.bio || "";
-  birth.textContent = p.birthDate ? ("🎂 " + p.birthDate) : "";
-
-  if (!isMe) {
-    const b = document.createElement("button");
-    b.className = "btn primary full";
-    b.textContent = "Открыть чат";
-    b.onclick = () => { closeProfile(); openChat(p.username); };
-    actions.appendChild(b);
-  } else {
-    const b = document.createElement("button");
-    b.className = "btn ghost full";
-    b.textContent = "Настройки профиля";
-    b.onclick = () => { closeProfile(); openSettings(); };
-    actions.appendChild(b);
-  }
-}
-
-function closeProfile() { document.getElementById("profileModal").classList.add("hidden"); }
-
-// ---------- SETTINGS ----------
-function openSettings() {
-  document.getElementById("settingsModal").classList.remove("hidden");
-  document.getElementById("setDisplayName").value = me.displayName || "";
-  document.getElementById("setBio").value = me.bio || "";
-  document.getElementById("setBirthDate").value = me.birthDate || "";
-  document.getElementById("setAvatarUrl").value = me.avatarUrl || "";
-}
-
-function closeSettings() { document.getElementById("settingsModal").classList.add("hidden"); }
-
-async function saveProfile() {
-  const displayName = document.getElementById("setDisplayName").value.trim();
-  const bio = document.getElementById("setBio").value.trim();
-  const birthDate = document.getElementById("setBirthDate").value.trim();
-  let avatarUrl = document.getElementById("setAvatarUrl").value.trim();
-
-  const file = document.getElementById("avatarFile").files[0];
-  if (file) {
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("receiver", "global");
-    fd.append("text", "");
-    const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
-    const d = await r.json();
-    if (d.ok && d.message && d.message.mediaUrl) avatarUrl = d.message.mediaUrl;
-  }
-
-  const r2 = await fetch("/api/me", {
-    method: "PUT",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ displayName, bio, birthDate, avatarUrl })
-  });
-  const d2 = await r2.json();
-  if (!d2.ok) return alert(d2.error || "Ошибка сохранения");
-
-  me = d2.profile;
-  closeSettings();
-  alert("Профиль обновлён ✅");
-}
-
-// ---------- VOICE MESSAGE ----------
-async function toggleVoice() {
-  const btn = document.getElementById("voiceBtn");
-
-  if (recording && mediaRecorder) {
-    mediaRecorder.stop();
-    recording = false;
-    btn.innerHTML = `<i class="fa-solid fa-microphone"></i>`;
-    return;
-  }
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    chunks = [];
-    mediaRecorder = new MediaRecorder(stream);
-
-    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-
-    mediaRecorder.onstop = async () => {
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      const file = new File([blob], `voice-${Date.now()}.webm`, { type: "audio/webm" });
-
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("receiver", currentChat);
-      fd.append("text", "");
-
-      const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
-      const d = await r.json();
-      if (!d.ok) alert(d.error || "Ошибка голосового");
-
-      stream.getTracks().forEach(t => t.stop());
-    };
-
-    mediaRecorder.start();
-    recording = true;
-    btn.innerHTML = `<i class="fa-solid fa-stop"></i>`;
-  } catch {
-    alert("Не удалось включить микрофон");
-  }
-}
-
-// ---------- STORIES ----------
-async function loadStories() {
-  const r = await fetch("/api/stories", { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) return;
-
-  const map = new Map();
-  d.stories.forEach(s => { if (!map.has(s.owner)) map.set(s.owner, s); });
-
-  const list = document.getElementById("storiesList");
+  const list = document.getElementById("chatList");
   list.innerHTML = "";
 
-  [...map.values()].slice(0, 20).forEach(s => {
-    const b = document.createElement("button");
-    b.className = "storychip";
-    b.onclick = () => viewStory(s);
-    b.innerHTML = `
-      <div class="storyava">${s.avatarUrl ? `<img src="${s.avatarUrl}" alt="">` : `<span>${esc((s.displayName||s.owner)[0].toUpperCase())}</span>`}</div>
-      <div class="storyname">${esc((s.displayName || s.owner).split(" ")[0])}</div>
-    `;
-    list.appendChild(b);
+  data.chats.forEach(chat => {
+
+    const div = document.createElement("div");
+    div.className = "chat-item";
+    div.innerText = chat.displayName;
+
+    div.onclick = () => {
+      currentChat = chat.username;
+      loadMessages(chat.username);
+    };
+
+    list.appendChild(div);
+
   });
+
 }
 
-function openStoryComposer() {
-  document.getElementById("storyModal").classList.remove("hidden");
-  document.getElementById("storyFile").value = "";
-  document.getElementById("storyText").value = "";
+
+// ===============================
+// MESSAGES
+// ===============================
+
+async function loadMessages(chat) {
+
+  const res = await fetch(API + "/messages?chat=" + chat, {
+    headers: { Authorization: "Bearer " + token }
+  });
+
+  const data = await res.json();
+
+  const container = document.getElementById("messages");
+  container.innerHTML = "";
+
+  data.messages.forEach(m => appendMessage(m));
+
 }
 
-function closeStoryComposer() { document.getElementById("storyModal").classList.add("hidden"); }
 
-async function publishStory() {
-  const file = document.getElementById("storyFile").files[0] || null;
-  const text = document.getElementById("storyText").value.trim();
-  if (!file && !text) return alert("Добавь файл или текст");
+function appendMessage(m) {
 
-  const fd = new FormData();
-  if (file) fd.append("story", file);
-  fd.append("text", text);
+  const container = document.getElementById("messages");
 
-  const r = await fetch("/api/stories", { method: "POST", headers: authHeaders(), body: fd });
-  const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка сторис");
+  const div = document.createElement("div");
+  div.className = "msg";
 
-  closeStoryComposer();
-  await loadStories();
-  alert("Сторис опубликована ✅");
-}
-
-function viewStory(s) {
-  if (s.mediaUrl) window.open(s.mediaUrl, "_blank");
-  if (s.text) alert(`Сторис @${s.owner}:\n\n${s.text}`);
-}
-
-// ---------- BIRTHDAYS ----------
-async function showBirthdays() {
-  const banner = document.getElementById("birthdayBanner");
-  const r = await fetch("/api/birthdays/today", { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) return;
-
-  const list = d.list || [];
-  const today = new Date();
-  const mm = String(today.getMonth()+1).padStart(2,"0");
-  const dd = String(today.getDate()).padStart(2,"0");
-  const mine = (me.birthDate || "").slice(5,10) === `${mm}-${dd}`;
-
-  if (!mine && list.length === 0) {
-    banner.classList.add("hidden");
-    banner.textContent = "";
-    return;
+  if (m.mediaType === "text") {
+    div.innerText = m.sender + ": " + m.text;
   }
 
-  banner.classList.remove("hidden");
-  const names = list.map(x => x.displayName || x.username).join(", ");
-  banner.innerHTML = `
-    ${mine ? `🎉 С днём рождения, ${esc(me.displayName || me.username)}!<br>` : ""}
-    ${list.length ? `🎂 Сегодня день рождения у: ${esc(names)}` : ""}
-  `;
-}
-
-// ===================== CALLS (Audio + Optional Video) =====================
-function openCallModal(title, status) {
-  document.getElementById("callModal").classList.remove("hidden");
-  document.getElementById("callTitle").textContent = title;
-  document.getElementById("callStatus").textContent = status || "Соединение...";
-  syncVideoUI();
-}
-
-function closeCallModal() { document.getElementById("callModal").classList.add("hidden"); }
-
-function showIncomingModal(from) {
-  document.getElementById("incomingCallText").textContent = `@${from} звонит тебе`;
-  document.getElementById("incomingCallModal").classList.remove("hidden");
-}
-
-function hideIncomingModal() { document.getElementById("incomingCallModal").classList.add("hidden"); }
-
-function syncVideoUI() {
-  const localV = document.getElementById("localVideo");
-  const remoteV = document.getElementById("remoteVideo");
-  const camBtn = document.getElementById("camBtn");
-  const flipBtn = document.getElementById("flipBtn");
-
-  if (camBtn) camBtn.textContent = cameraOn ? "Выключить камеру" : "Включить камеру";
-  if (flipBtn) flipBtn.disabled = !cameraOn;
-
-  // можно оставлять remote всегда, но часто красиво прятать если нет видео
-  if (localV) localV.style.display = cameraOn ? "block" : "none";
-  if (remoteV) remoteV.style.display = "block";
-}
-
-async function startCall() {
-  if (currentChat === "global") return alert("Звонок только в личном чате");
-  if (callPeer) return alert("Звонок уже идет");
-
-  callPeer = currentChat;
-  openCallModal(`Звонок с @${callPeer}`, "Звоним...");
-
-  try {
-    await createPeer(callPeer);
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    wsSend({ type: "call-offer", to: callPeer, offer });
-  } catch {
-    alert("Не удалось начать звонок");
-    cleanupCall();
+  if (m.mediaType === "image") {
+    div.innerHTML = `<img src="${m.mediaUrl}" width="200">`;
   }
-}
 
-async function onIncomingOffer(data) {
-  if (callPeer) {
-    wsSend({ type: "call-reject", to: data.from });
-    return;
+  if (m.mediaType === "video") {
+    div.innerHTML = `<video src="${m.mediaUrl}" controls width="200"></video>`;
   }
-  pendingFrom = data.from;
-  pendingOffer = data.offer;
-  showIncomingModal(pendingFrom);
-}
 
-async function acceptIncomingCall() {
-  if (!pendingFrom || !pendingOffer) return;
-
-  try {
-    hideIncomingModal();
-    callPeer = pendingFrom;
-    openCallModal(`Звонок с @${callPeer}`, "Подключение...");
-
-    await createPeer(callPeer);
-    await pc.setRemoteDescription(new RTCSessionDescription(pendingOffer));
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    wsSend({ type: "call-answer", to: callPeer, answer });
-
-    pendingFrom = null;
-    pendingOffer = null;
-  } catch {
-    alert("Не удалось принять звонок");
-    cleanupCall();
+  if (m.mediaType === "audio") {
+    div.innerHTML = `<audio src="${m.mediaUrl}" controls></audio>`;
   }
+
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+
 }
 
-function declineIncomingCall() {
-  if (pendingFrom) wsSend({ type: "call-reject", to: pendingFrom });
-  pendingFrom = null;
-  pendingOffer = null;
-  hideIncomingModal();
+
+// ===============================
+// SEND TEXT
+// ===============================
+
+function sendText() {
+
+  const input = document.getElementById("textInput");
+  const text = input.value.trim();
+
+  if (!text) return;
+
+  ws.send(JSON.stringify({
+    type: "text-message",
+    receiver: currentChat,
+    text
+  }));
+
+  input.value = "";
+
 }
 
-async function onAnswer(data) {
-  if (!pc) return;
-  await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-  document.getElementById("callStatus").textContent = "Разговор начался ✅";
+
+// ===============================
+// UPLOAD MEDIA
+// ===============================
+
+async function uploadFile(file) {
+
+  const form = new FormData();
+  form.append("file", file);
+  form.append("receiver", currentChat);
+
+  await fetch(API + "/upload", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token },
+    body: form
+  });
+
 }
 
-async function onIce(data) {
-  if (!pc || !data.candidate) return;
-  try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
-}
 
-function onCallEnd() {
-  alert("Звонок завершён");
-  cleanupCall();
-}
+// ===============================
+// AUDIO MESSAGE
+// ===============================
 
-function onCallReject(data) {
-  alert(`@${data.from} отклонил звонок`);
-  cleanupCall();
-}
+let recorder;
+let audioChunks = [];
 
-async function createPeer(peer) {
-  pc = new RTCPeerConnection(rtcCfg);
+async function startRecording() {
 
-  remoteStream = new MediaStream();
-  document.getElementById("remoteAudio").srcObject = remoteStream;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-  const remoteVideo = document.getElementById("remoteVideo");
-  if (remoteVideo) remoteVideo.srcObject = remoteStream;
+  recorder = new MediaRecorder(stream);
 
-  // аудио обязательно
-  localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  recorder.ondataavailable = e => audioChunks.push(e.data);
 
-  // ВАЖНО: создаём video-трансивер сразу, чтобы потом включать камеру без пересборки SDP
-  const vt = pc.addTransceiver("video", { direction: "sendrecv" });
-  videoSender = vt.sender;
+  recorder.onstop = async () => {
 
-  pc.onicecandidate = (ev) => {
-    if (ev.candidate) wsSend({ type: "ice", to: peer, candidate: ev.candidate });
+    const blob = new Blob(audioChunks, { type: "audio/webm" });
+    audioChunks = [];
+
+    uploadFile(blob);
+
   };
 
-  pc.ontrack = (ev) => {
-    ev.streams[0].getTracks().forEach(t => {
-      if (!remoteStream.getTracks().some(x => x.id === t.id)) remoteStream.addTrack(t);
-    });
-    document.getElementById("callStatus").textContent = "Разговор начался ✅";
+  recorder.start();
+
+}
+
+function stopRecording() {
+  recorder.stop();
+}
+
+
+// ===============================
+// CALL
+// ===============================
+
+async function startCall(user) {
+
+  currentCallUser = user;
+
+  pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
+
+  localStream = await navigator.mediaDevices.getUserMedia({
+    audio: true,
+    video: false
+  });
+
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  pc.ontrack = (event) => {
+
+    remoteStream = event.streams[0];
+    document.getElementById("remoteVideo").srcObject = remoteStream;
+
   };
 
-  pc.onconnectionstatechange = () => {
-    const st = pc.connectionState;
-    if (st === "connected") document.getElementById("callStatus").textContent = "Разговор начался ✅";
-    if (st === "failed" || st === "disconnected" || st === "closed") cleanupCall();
-  };
+  pc.onicecandidate = (event) => {
 
-  cameraOn = false;
-  facingMode = "user";
-  syncVideoUI();
-}
-
-// ----- mic mute -----
-function toggleMute() {
-  if (!localStream) return;
-  isMuted = !isMuted;
-  localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
-  document.getElementById("muteBtn").textContent = isMuted ? "Включить микрофон" : "Выключить микрофон";
-}
-
-// ----- camera toggle -----
-async function toggleCamera() {
-  if (!pc || !videoSender) return;
-
-  if (!cameraOn) {
-    try {
-      const vStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: facingMode } },
-        audio: false
-      });
-
-      const vTrack = vStream.getVideoTracks()[0];
-
-      // replaceTrack на videoSender
-      await videoSender.replaceTrack(vTrack);
-
-      // показываем local video
-      const localVideo = document.getElementById("localVideo");
-      if (localVideo) {
-        // делаем отдельный stream только с видео (чтобы не мешать аудио)
-        const s = new MediaStream([vTrack]);
-        localVideo.srcObject = s;
-      }
-
-      cameraOn = true;
-      syncVideoUI();
-      document.getElementById("callStatus").textContent = "Камера включена 📷";
-    } catch {
-      alert("Не удалось включить камеру (разрешение/браузер)");
-    }
-    return;
-  }
-
-  // выключаем камеру
-  try {
-    // остановить текущий трек
-    const localVideo = document.getElementById("localVideo");
-    const s = localVideo?.srcObject;
-    if (s && s.getTracks) s.getTracks().forEach(t => t.stop());
-    if (localVideo) localVideo.srcObject = null;
-
-    await videoSender.replaceTrack(null);
-
-    cameraOn = false;
-    syncVideoUI();
-    document.getElementById("callStatus").textContent = "Аудио режим 🎧";
-  } catch {
-    cameraOn = false;
-    syncVideoUI();
-  }
-}
-
-// ----- flip front/back -----
-async function flipCamera() {
-  if (!cameraOn) return;
-  facingMode = (facingMode === "user") ? "environment" : "user";
-
-  // просто берём новый трек и replaceTrack
-  try {
-    const vStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: facingMode } },
-      audio: false
-    });
-    const vTrack = vStream.getVideoTracks()[0];
-
-    // остановить старый трек localVideo
-    const localVideo = document.getElementById("localVideo");
-    const old = localVideo?.srcObject;
-    if (old && old.getTracks) old.getTracks().forEach(t => t.stop());
-
-    await videoSender.replaceTrack(vTrack);
-
-    if (localVideo) {
-      localVideo.srcObject = new MediaStream([vTrack]);
+    if (event.candidate) {
+      ws.send(JSON.stringify({
+        type: "ice",
+        to: user,
+        candidate: event.candidate
+      }));
     }
 
-    document.getElementById("callStatus").textContent = (facingMode === "user") ? "Фронтальная камера" : "Задняя камера";
-  } catch {
-    alert("Не удалось переключить камеру");
-  }
+  };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  ws.send(JSON.stringify({
+    type: "call-offer",
+    to: user,
+    offer
+  }));
+
 }
 
-// ----- end call -----
+
+// ===============================
+// INCOMING CALL
+// ===============================
+
+async function incomingCall(from, offer) {
+
+  currentCallUser = from;
+
+  pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
+
+  localStream = await navigator.mediaDevices.getUserMedia({
+    audio: true,
+    video: false
+  });
+
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  pc.ontrack = (event) => {
+
+    remoteStream = event.streams[0];
+    document.getElementById("remoteVideo").srcObject = remoteStream;
+
+  };
+
+  pc.onicecandidate = (event) => {
+
+    if (event.candidate) {
+      ws.send(JSON.stringify({
+        type: "ice",
+        to: from,
+        candidate: event.candidate
+      }));
+    }
+
+  };
+
+  await pc.setRemoteDescription(offer);
+
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+
+  ws.send(JSON.stringify({
+    type: "call-answer",
+    to: from,
+    answer
+  }));
+
+}
+
+
+// ===============================
+// CAMERA ON
+// ===============================
+
+async function enableCamera() {
+
+  if (videoEnabled) return;
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: usingFrontCamera ? "user" : "environment" }
+  });
+
+  const videoTrack = stream.getVideoTracks()[0];
+
+  pc.addTrack(videoTrack, stream);
+
+  document.getElementById("localVideo").srcObject = stream;
+
+  videoEnabled = true;
+
+}
+
+
+// ===============================
+// SWITCH CAMERA
+// ===============================
+
+async function switchCamera() {
+
+  usingFrontCamera = !usingFrontCamera;
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: usingFrontCamera ? "user" : "environment" }
+  });
+
+  const track = stream.getVideoTracks()[0];
+
+  const sender = pc.getSenders().find(s => s.track.kind === "video");
+
+  sender.replaceTrack(track);
+
+  document.getElementById("localVideo").srcObject = stream;
+
+}
+
+
+// ===============================
+// END CALL
+// ===============================
+
 function endCall() {
-  if (callPeer) wsSend({ type: "call-end", to: callPeer });
-  cleanupCall();
-}
 
-function cleanupCall() {
-  hideIncomingModal();
-  closeCallModal();
+  if (pc) pc.close();
 
-  try { pc && pc.close(); } catch {}
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+  }
+
   pc = null;
 
-  // остановка local tracks (audio)
-  if (localStream) localStream.getTracks().forEach(t => t.stop());
-  localStream = null;
+  ws.send(JSON.stringify({
+    type: "call-end",
+    to: currentCallUser
+  }));
 
-  // остановка local video element tracks
-  const localVideo = document.getElementById("localVideo");
-  if (localVideo?.srcObject && localVideo.srcObject.getTracks) {
-    localVideo.srcObject.getTracks().forEach(t => t.stop());
-  }
-  if (localVideo) localVideo.srcObject = null;
-
-  // remote stream
-  if (remoteStream) remoteStream.getTracks().forEach(t => t.stop());
-  remoteStream = null;
-
-  callPeer = null;
-  isMuted = false;
-
-  // video reset
-  cameraOn = false;
-  facingMode = "user";
-  videoSender = null;
-
-  document.getElementById("muteBtn").textContent = "Выключить микрофон";
-  document.getElementById("camBtn").textContent = "Включить камеру";
-  document.getElementById("flipBtn").disabled = true;
-
-  const remoteAudio = document.getElementById("remoteAudio");
-  if (remoteAudio) remoteAudio.srcObject = null;
-
-  const remoteVideo = document.getElementById("remoteVideo");
-  if (remoteVideo) remoteVideo.srcObject = null;
-
-  pendingFrom = null;
-  pendingOffer = null;
-  syncVideoUI();
 }
