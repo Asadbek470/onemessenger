@@ -9,45 +9,39 @@
 </head>
 <body class="auth-body">
   <div class="auth-container">
-    <div class="auth-card">
+    <!-- Основная карточка входа -->
+    <div id="loginCard" class="auth-card">
+      <!-- ... (та же шапка, табы, форма) ... -->
+    </div>
+
+    <!-- Карточка подтверждения кода (изначально скрыта) -->
+    <div id="confirmCard" class="auth-card hidden">
       <div class="auth-header">
-        <i class="fa-brands fa-telegram auth-logo"></i>
-        <h1>One Messenger</h1>
-        <p class="auth-subtitle">Вход без номера телефона</p>
+        <i class="fa-regular fa-shield-halved auth-logo"></i>
+        <h1>Подтверждение</h1>
+        <p class="auth-subtitle">Введите код из личных сообщений</p>
       </div>
-
-      <div class="auth-tabs">
-        <button id="tabLogin" class="auth-tab active" onclick="setTab('login')">Вход</button>
-        <button id="tabReg" class="auth-tab" onclick="setTab('reg')">Регистрация</button>
-      </div>
-
       <div class="auth-form">
         <div class="input-group">
-          <i class="fa-regular fa-user input-icon"></i>
-          <input type="text" id="identifier" placeholder="Username" autocomplete="username">
+          <i class="fa-regular fa-key input-icon"></i>
+          <input type="text" id="confirmCode" placeholder="6-значный код" maxlength="6">
         </div>
-        <div class="input-group">
-          <i class="fa-regular fa-lock input-icon"></i>
-          <input type="password" id="password" placeholder="Пароль" autocomplete="current-password">
-        </div>
-
-        <button class="auth-button" onclick="submitAuth()">
-          <span>Продолжить</span>
+        <button class="auth-button" onclick="submitConfirm()">
+          <span>Подтвердить</span>
           <i class="fa-regular fa-arrow-right"></i>
         </button>
-
-        <div id="authError" class="auth-error"></div>
-      </div>
-
-      <div class="auth-hint">
-        <i class="fa-regular fa-circle-info"></i>
-        <span>4–20 символов: a-z, 0-9, _</span>
+        <div id="confirmError" class="auth-error"></div>
+        <button class="auth-button ghost" onclick="cancelConfirm()" style="margin-top: 8px;">
+          <span>Назад</span>
+        </button>
       </div>
     </div>
   </div>
 
   <script>
     let mode = "login";
+    let pendingUsername = ""; // для хранения имени при подтверждении
+
     function setTab(m) {
       mode = m;
       document.getElementById("tabLogin").classList.toggle("active", m === "login");
@@ -80,6 +74,15 @@
 
         const data = await res.json();
         if (!data.ok) {
+          if (data.requireConfirm) {
+            // Показываем окно ввода кода
+            pendingUsername = identifier.replace(/^@+/, "").toLowerCase();
+            document.getElementById("loginCard").classList.add("hidden");
+            document.getElementById("confirmCard").classList.remove("hidden");
+            document.getElementById("confirmCode").value = "";
+            document.getElementById("confirmError").textContent = "";
+            return;
+          }
           errEl.textContent = data.error || "Ошибка";
           return;
         }
@@ -90,6 +93,42 @@
       } catch (e) {
         errEl.textContent = "Сервер недоступен";
       }
+    }
+
+    async function submitConfirm() {
+      const code = document.getElementById("confirmCode").value.trim();
+      const errEl = document.getElementById("confirmError");
+      errEl.textContent = "";
+
+      if (!code || code.length !== 6) {
+        errEl.textContent = "Введите 6-значный код";
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/auth/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: pendingUsername, code })
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          errEl.textContent = data.error || "Ошибка подтверждения";
+          return;
+        }
+
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("me", JSON.stringify(data.user));
+        location.href = "chat.html";
+      } catch (e) {
+        errEl.textContent = "Ошибка сети";
+      }
+    }
+
+    function cancelConfirm() {
+      document.getElementById("confirmCard").classList.add("hidden");
+      document.getElementById("loginCard").classList.remove("hidden");
+      pendingUsername = "";
     }
   </script>
 </body>
