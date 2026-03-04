@@ -1,34 +1,48 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>One Messenger — Вход</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 </head>
 <body class="auth-body">
-  <div class="auth-card">
-    <h1>One Messenger</h1>
-    <p>Вход без номера телефона</p>
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <i class="fa-brands fa-telegram auth-logo"></i>
+        <h1>One Messenger</h1>
+        <p class="auth-subtitle">Вход без номера телефона</p>
+      </div>
 
-    <div class="tabs">
-      <button id="tabLogin" class="tab active" onclick="setTab('login')">Войти</button>
-      <button id="tabReg" class="tab" onclick="setTab('reg')">Регистрация</button>
-    </div>
+      <div class="auth-tabs">
+        <button id="tabLogin" class="auth-tab active" onclick="setTab('login')">Вход</button>
+        <button id="tabReg" class="auth-tab" onclick="setTab('reg')">Регистрация</button>
+      </div>
 
-    <div class="form">
-      <label>@username</label>
-      <input id="identifier" placeholder="asadbек000" autocomplete="username" />
+      <div class="auth-form">
+        <div class="input-group">
+          <i class="fa-regular fa-user input-icon"></i>
+          <input type="text" id="identifier" placeholder="Username" autocomplete="username">
+        </div>
+        <div class="input-group">
+          <i class="fa-regular fa-lock input-icon"></i>
+          <input type="password" id="password" placeholder="Пароль" autocomplete="current-password">
+        </div>
 
-      <label>Пароль</label>
-      <input id="password" type="password" placeholder="••••" autocomplete="current-password" />
+        <button class="auth-button" onclick="submitAuth()">
+          <span>Продолжить</span>
+          <i class="fa-regular fa-arrow-right"></i>
+        </button>
 
-      <button class="btn primary" onclick="submitAuth()">Продолжить</button>
-      <div id="authError" class="error"></div>
-    </div>
+        <div id="authError" class="auth-error"></div>
+      </div>
 
-    <div class="hint">
-      Юзернейм: 4-20 символов (a-z, 0-9, _)
+      <div class="auth-hint">
+        <i class="fa-regular fa-circle-info"></i>
+        <span>4–20 символов: a-z, 0-9, _</span>
+      </div>
     </div>
   </div>
 
@@ -48,30 +62,34 @@
       errEl.textContent = "";
 
       if (!identifier || !password) {
-        errEl.textContent = "Заполни все поля";
+        errEl.textContent = "Заполните все поля";
         return;
       }
 
       const url = mode === "reg" ? "/api/auth/register" : "/api/auth/login";
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mode === "reg"
-          ? { username: identifier, password }
-          : { identifier, password }
-        )
-      });
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(mode === "reg"
+            ? { username: identifier, password }
+            : { identifier, password }
+          )
+        });
 
-      const data = await res.json();
-      if (!data.ok) {
-        errEl.textContent = data.error || "Ошибка";
-        return;
+        const data = await res.json();
+        if (!data.ok) {
+          errEl.textContent = data.error || "Ошибка";
+          return;
+        }
+
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("me", JSON.stringify(data.user));
+        location.href = "chat.html";
+      } catch (e) {
+        errEl.textContent = "Сервер недоступен";
       }
-
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("me", JSON.stringify(data.user));
-      location.href = "chat.html";
     }
   </script>
 </body>
