@@ -1,107 +1,181 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FGS Messenger</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>One Messenger</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
 </head>
+<body onload="initApp()">
+  <div class="app">
+    <aside id="sidebar" class="sidebar">
+      <div class="side-top">
+        <div class="search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input id="searchInput" placeholder="Поиск @username..." oninput="searchUsers(this.value)" />
+        </div>
 
-<body onload="initChat()">
-
-<div class="app">
-
-  <!-- ===== SIDEBAR ===== -->
-  <aside class="sidebar">
-
-    <!-- SEARCH -->
-    <div class="search-block">
-      <input 
-        type="text" 
-        id="userSearch"
-        placeholder="Поиск @username..."
-        oninput="searchUsers(this.value)"
-      >
-      <div id="searchResults" class="search-results"></div>
-    </div>
-
-    <!-- CHAT LIST -->
-    <div class="chat-list" id="chatList">
-
-      <div class="chat-item active" onclick="switchChat('global')">
-        🌍 Общий чат
+        <div class="stories">
+          <button class="story-add" onclick="openStoryComposer()" title="Добавить сторис">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+          <div id="storiesList" class="stories-list"></div>
+        </div>
       </div>
 
-    </div>
+      <div class="chatlist" id="chatList">
+        <button class="chatitem active" data-chat="global" onclick="openChat('global')">
+          <div class="avatar circle"><i class="fa-solid fa-earth-americas"></i></div>
+          <div class="meta">
+            <div class="name">Общий чат</div>
+            <div class="preview">общение со всеми</div>
+          </div>
+        </button>
 
-    <div class="sidebar-footer">
-      <button onclick="openProfile()">Настройки профиля</button>
-      <button onclick="logout()">Выйти</button>
-    </div>
+        <div id="privateChats"></div>
+        <div id="searchResults"></div>
+      </div>
 
-  </aside>
+      <div class="side-bottom">
+        <button class="btn ghost full" onclick="openSettings()">
+          <i class="fa-solid fa-circle-user"></i>
+          Настройки профиля
+        </button>
+      </div>
+    </aside>
 
-  <!-- ===== MAIN CHAT ===== -->
-  <main class="chat">
+    <main class="main">
+      <header class="topbar">
+        <button class="iconbtn mobile" onclick="toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
+        <div class="title" onclick="openCurrentProfile()" title="Открыть профиль" style="cursor:pointer;">
+          <div id="chatTitle" class="h">Общий чат</div>
+          <div id="chatSub" class="s">общение со всеми</div>
+        </div>
 
-    <!-- HEADER -->
-    <header class="chat-header">
-      <h2 id="chatTitle">Общий чат</h2>
-      <button onclick="startCall()">📞</button>
-    </header>
+        <div class="actions">
+          <button id="callBtn" class="iconbtn" onclick="startAudioCall()" title="Аудиозвонок">
+            <i class="fa-solid fa-phone"></i>
+          </button>
+          <button class="iconbtn" onclick="logout()" title="Выйти">
+            <i class="fa-solid fa-right-from-bracket"></i>
+          </button>
+        </div>
+      </header>
 
-    <!-- MESSAGES -->
-    <section class="messages" id="messagesContainer">
-    </section>
+      <div id="birthdayBanner" class="banner hidden"></div>
 
-    <!-- INPUT PANEL -->
-    <footer class="chat-input">
+      <section id="messages" class="messages"></section>
 
-      <input 
-        type="file" 
-        id="fileInput" 
-        hidden 
-        accept="image/*,video/*"
-        onchange="uploadMedia(this)"
-      >
+      <footer class="composer">
+        <button class="iconbtn" onclick="document.getElementById('fileInput').click()" title="Фото/Видео">
+          <i class="fa-solid fa-paperclip"></i>
+        </button>
+        <input id="fileInput" type="file" hidden accept="image/*,video/*" onchange="sendMedia(this)" />
 
-      <button onclick="document.getElementById('fileInput').click()">📎</button>
+        <input id="textInput" class="text" placeholder="Сообщение..." onkeydown="onEnter(event)" />
 
-      <input 
-        type="text" 
-        id="messageInput"
-        placeholder="Сообщение..."
-        onkeydown="if(event.key==='Enter') sendText()"
-      >
+        <button id="voiceBtn" class="iconbtn" onclick="toggleVoice()" title="Голосовое">
+          <i class="fa-solid fa-microphone"></i>
+        </button>
 
-      <button onclick="toggleAudioRec()">🎤</button>
+        <button class="iconbtn send" onclick="sendText()" title="Отправить">
+          <i class="fa-solid fa-arrow-up"></i>
+        </button>
+      </footer>
+    </main>
+  </div>
 
-      <button onclick="sendText()">➤</button>
+  <!-- PROFILE MODAL -->
+  <div id="profileModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle" id="profileTitle">Профиль</div>
+        <button class="iconbtn" onclick="closeProfile()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
 
-    </footer>
+      <div class="profile">
+        <div class="avatar big" id="profileAvatar"></div>
+        <div class="profiletext">
+          <div class="pname" id="profileName"></div>
+          <div class="puser" id="profileUser"></div>
+          <div class="pbio" id="profileBio"></div>
+          <div class="pbirth" id="profileBirth"></div>
+        </div>
+      </div>
 
-  </main>
-
-</div>
-
-<!-- ===== CALL MODAL ===== -->
-
-<div id="callModal" class="call-modal hidden">
-  <div class="call-box">
-    <h3>Звонок</h3>
-
-    <video id="remoteVideo" autoplay playsinline></video>
-    <video id="localVideo" autoplay playsinline muted></video>
-
-    <div class="call-buttons">
-      <button onclick="toggleMuteCall()">Микрофон</button>
-      <button onclick="toggleCamera()">Камера</button>
-      <button onclick="endCurrentCall()">Завершить</button>
+      <div id="profileActions" class="row"></div>
     </div>
   </div>
-</div>
 
-<script src="app.js"></script>
+  <!-- SETTINGS MODAL -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">Настройки профиля</div>
+        <button class="iconbtn" onclick="closeSettings()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
 
+      <div class="formgrid">
+        <label>Display name</label>
+        <input id="setDisplayName" placeholder="Имя" />
+
+        <label>Bio</label>
+        <input id="setBio" placeholder="О себе" />
+
+        <label>Дата рождения (YYYY-MM-DD)</label>
+        <input id="setBirthDate" placeholder="2009-01-31" />
+
+        <label>Аватар (URL или загрузка ниже)</label>
+        <input id="setAvatarUrl" placeholder="https://..." />
+
+        <label>Загрузить аватар (jpg/png)</label>
+        <input id="avatarFile" type="file" accept="image/*" />
+
+        <button class="btn primary full" onclick="saveProfile()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STORY COMPOSER -->
+  <div id="storyModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">Новая сторис</div>
+        <button class="iconbtn" onclick="closeStoryComposer()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="formgrid">
+        <label>Файл (не обязательно)</label>
+        <input id="storyFile" type="file" accept="image/*,video/*" />
+
+        <label>Текст (не обязательно)</label>
+        <input id="storyText" maxlength="120" placeholder="Текст..." />
+
+        <button class="btn primary full" onclick="publishStory()">Опубликовать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUDIO CALL -->
+  <audio id="remoteAudio" autoplay playsinline></audio>
+
+  <div id="callModal" class="modal hidden">
+    <div class="card callcard">
+      <div class="cardtop">
+        <div class="cardtitle" id="callTitle">Аудиозвонок</div>
+        <button class="iconbtn" onclick="endCall()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="callbody">
+        <div id="callStatus" class="callstatus">Соединение...</div>
+        <div class="row">
+          <button id="muteBtn" class="btn ghost" onclick="toggleMute()">Выключить микрофон</button>
+          <button class="btn danger" onclick="endCall()">Завершить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
 </body>
 </html>
