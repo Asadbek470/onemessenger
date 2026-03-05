@@ -5,27 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin — One Messenger</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 </head>
 <body class="admin-body">
   <div id="loginPanel" class="admin-login">
     <div class="admin-card">
       <div class="admin-header">
-        <i class="fa-regular fa-shield-halved"></i>
+        <span>🛡️</span>
         <h2>Admin Panel</h2>
         <p>Управление пользователями</p>
       </div>
       <div class="input-group">
-        <i class="fa-regular fa-user input-icon"></i>
+        <span class="input-icon">👤</span>
         <input type="text" id="adminUser" placeholder="Логин" value="admin">
       </div>
       <div class="input-group">
-        <i class="fa-regular fa-lock input-icon"></i>
+        <span class="input-icon">🔒</span>
         <input type="password" id="adminPass" placeholder="Пароль" value="090909">
       </div>
       <button class="auth-button" onclick="adminLogin()">
         <span>Войти</span>
-        <i class="fa-regular fa-arrow-right"></i>
+        <span>➡️</span>
       </button>
       <div id="aerr" class="auth-error"></div>
     </div>
@@ -33,10 +32,9 @@
 
   <div id="adminPanel" class="admin-panel hidden">
     <div class="admin-header-bar">
-      <h2><i class="fa-regular fa-users"></i> Пользователи</h2>
+      <h2><span>👥</span> Пользователи</h2>
       <button class="admin-logout" onclick="adminLogout()">
-        <i class="fa-regular fa-arrow-right-from-bracket"></i>
-        Выйти
+        <span>🚪</span> Выйти
       </button>
     </div>
     <div id="usersTable" class="admin-users"></div>
