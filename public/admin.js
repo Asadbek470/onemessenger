@@ -69,7 +69,7 @@ async function loadUsers() {
       row.innerHTML = `
         <div class="admin-user-info">
           <div class="admin-user-name">
-            <i class="fa-regular fa-circle-user"></i>
+            <span>👤</span>
             <div>
               <div><strong>@${u.username}</strong> ${u.displayName ? `(${u.displayName})` : ""}</div>
               <div class="admin-user-status ${blocked ? 'blocked' : 'ok'}">
