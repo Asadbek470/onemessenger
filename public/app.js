@@ -2,6 +2,7 @@ const API = "/api";
 let token = localStorage.getItem("token");
 let currentUser = null;
 let currentChat = "global";
+let currentGroup = null;
 let ws = null;
 let pc = null;
 let localStream = null;
@@ -37,14 +38,6 @@ async function loadProfile() {
     return;
   }
   currentUser = data.profile;
-  updateHeader();
-}
-
-function updateHeader() {
-  if (currentChat === "global") {
-    document.getElementById("chatTitle").innerText = "Общий чат";
-    document.getElementById("chatSub").innerText = "общение со всеми";
-  }
 }
 
 function connectWS() {
@@ -105,7 +98,7 @@ function updateUserStatus(username, status) {
 }
 
 function showTypingIndicator(from) {
-  if (from !== currentChat) return;
+  if (from !== currentChat && !currentChat.startsWith('group:')) return;
   const sub = document.getElementById("chatSub");
   const original = sub.dataset.original || sub.innerText;
   sub.dataset.original = original;
@@ -128,23 +121,42 @@ async function loadChats() {
     headers: { Authorization: "Bearer " + token }
   });
   const data = await res.json();
-  const list = document.getElementById("privateChats");
-  list.innerHTML = "";
+  const privateContainer = document.getElementById("privateChats");
+  privateContainer.innerHTML = "";
+  const resultsContainer = document.getElementById("searchResults");
+  resultsContainer.innerHTML = ""; // очищаем поиск
+
   data.chats.forEach(chat => {
-    const div = document.createElement("button");
-    div.className = "chatitem";
-    div.setAttribute("data-username", chat.username);
-    div.onclick = () => openChat(chat.username);
-    const avatarHtml = chat.avatarUrl ? `<img src="${chat.avatarUrl}">` : '<span>👤</span>';
-    const statusClass = (chat.lastSeen > Date.now() - 60000) ? "online" : "offline";
-    div.innerHTML = `
-      <div class="avatar">${avatarHtml}</div>
-      <div class="meta">
-        <div class="name">${chat.displayName} <span class="status-dot ${statusClass}"></span></div>
-        <div class="preview">${chat.preview || ""}</div>
-      </div>
-    `;
-    list.appendChild(div);
+    if (chat.type === 'private') {
+      const div = document.createElement("button");
+      div.className = "chatitem";
+      div.setAttribute("data-username", chat.username);
+      div.onclick = () => openChat(chat.username);
+      const avatarHtml = chat.avatarUrl ? `<img src="${chat.avatarUrl}">` : '<span>👤</span>';
+      const statusClass = (chat.lastSeen > Date.now() - 60000) ? "online" : "offline";
+      div.innerHTML = `
+        <div class="avatar">${avatarHtml}</div>
+        <div class="meta">
+          <div class="name">${chat.displayName} <span class="status-dot ${statusClass}"></span></div>
+          <div class="preview">${chat.preview || ""}</div>
+        </div>
+      `;
+      privateContainer.appendChild(div);
+    } else if (chat.type === 'group') {
+      const div = document.createElement("button");
+      div.className = "chatitem";
+      div.setAttribute("data-groupid", chat.id);
+      div.onclick = () => openGroup(chat.id);
+      const avatarHtml = chat.avatarUrl ? `<img src="${chat.avatarUrl}">` : '<span>👥</span>';
+      div.innerHTML = `
+        <div class="avatar">${avatarHtml}</div>
+        <div class="meta">
+          <div class="name">${chat.name}</div>
+          <div class="preview">${chat.preview || ""}</div>
+        </div>
+      `;
+      privateContainer.appendChild(div);
+    }
   });
 }
 
@@ -363,49 +375,240 @@ function toggleTopPanel() {
   }
 }
 
-// ==================== ОСНОВНАЯ ФУНКЦИЯ ОТКРЫТИЯ ЧАТА ====================
+// ==================== ОСНОВНАЯ ФУНКЦИЯ ОТКРЫТИЯ ЛИЧНОГО ЧАТА ====================
 
-async function openChat(chat) {
+async function openChat(username) {
   // Сворачиваем поиск
   closeSearch();
 
-  // Загружаем сообщения
-  currentChat = chat;
-  loadMessages(chat);
+  currentChat = username;
+  currentGroup = null;
+  loadMessages(username);
 
-  // Обновляем заголовок
-  if (chat === "global") {
-    document.getElementById("chatTitle").innerText = "Общий чат";
-    document.getElementById("chatSub").innerText = "общение со всеми";
-    document.getElementById("callBtn").disabled = true;
-  } else {
-    try {
-      const res = await fetch(API + "/users/" + chat, {
-        headers: { Authorization: "Bearer " + token }
-      });
-      const data = await res.json();
-      if (data.ok) {
-        document.getElementById("chatTitle").innerText = data.user.displayName || data.user.username;
-        document.getElementById("chatSub").innerText = data.user.bio || "";
-        document.getElementById("callBtn").disabled = false;
-      }
-    } catch (e) {
-      console.error("Ошибка загрузки пользователя", e);
+  // Загружаем информацию о пользователе для шапки
+  try {
+    const res = await fetch(API + "/users/" + username, {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("chatTitle").innerText = data.user.displayName || data.user.username;
+      document.getElementById("chatSub").innerText = data.user.bio || "";
+      document.getElementById("callBtn").disabled = false;
     }
+  } catch (e) {
+    console.error(e);
   }
 
   // Обновляем активный класс
   document.querySelectorAll(".chatitem").forEach(el => el.classList.remove("active"));
-  const active = document.querySelector(`.chatitem[data-username="${chat}"]`);
+  const active = document.querySelector(`.chatitem[data-username="${username}"]`);
   if (active) active.classList.add("active");
-  else if (chat === "global") {
-    document.querySelector('.chatitem[data-chat="global"]')?.classList.add("active");
-  }
 
-  // ========== ГЛАВНОЕ: ЗАКРЫВАЕМ САЙДБАР НА МОБИЛЬНЫХ ==========
+  // Закрываем сайдбар на мобильных
   if (window.innerWidth <= 768) {
     forceCloseSidebar();
   }
+}
+
+// ==================== ФУНКЦИИ ДЛЯ ГРУПП ====================
+
+async function openGroup(groupId) {
+  closeSearch();
+
+  currentChat = `group:${groupId}`;
+  currentGroup = groupId;
+  loadMessages(currentChat);
+
+  try {
+    const res = await fetch(API + "/groups/" + groupId, {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("chatTitle").innerText = data.group.name;
+      document.getElementById("chatSub").innerText = data.group.description || "Группа";
+      document.getElementById("callBtn").disabled = true; // звонки в группах пока не поддерживаем
+    }
+  } catch (e) {
+    console.error(e);
+  }
+
+  document.querySelectorAll(".chatitem").forEach(el => el.classList.remove("active"));
+  const active = document.querySelector(`.chatitem[data-groupid="${groupId}"]`);
+  if (active) active.classList.add("active");
+
+  if (window.innerWidth <= 768) {
+    forceCloseSidebar();
+  }
+}
+
+function openCreateGroupModal() {
+  document.getElementById("createGroupModal").classList.remove("hidden");
+}
+
+function closeCreateGroupModal() {
+  document.getElementById("createGroupModal").classList.add("hidden");
+  document.getElementById("groupNameInput").value = "";
+  document.getElementById("groupDescInput").value = "";
+  document.getElementById("groupMembersInput").value = "";
+}
+
+async function createGroup() {
+  const name = document.getElementById("groupNameInput").value.trim();
+  const description = document.getElementById("groupDescInput").value.trim();
+  const membersInput = document.getElementById("groupMembersInput").value.trim();
+  if (!name) {
+    alert("Введите название группы");
+    return;
+  }
+
+  let members = [];
+  if (membersInput) {
+    members = membersInput.split(',').map(s => s.trim().replace(/^@+/, '').toLowerCase()).filter(Boolean);
+  }
+
+  try {
+    const res = await fetch(API + "/groups", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({ name, description, members })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      alert("Группа создана");
+      closeCreateGroupModal();
+      loadChats();
+      openGroup(data.groupId);
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  } catch (e) {
+    alert("Ошибка сети");
+  }
+}
+
+async function openGroupInfo() {
+  if (!currentGroup) return;
+  try {
+    const res = await fetch(API + "/groups/" + currentGroup, {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showGroupInfoModal(data.group);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function showGroupInfoModal(group) {
+  document.getElementById("groupInfoName").innerText = group.name;
+  document.getElementById("groupInfoDesc").innerText = group.description || "Нет описания";
+  const avatar = document.getElementById("groupInfoAvatar");
+  avatar.innerHTML = group.avatarUrl ? `<img src="${group.avatarUrl}">` : '<span>👥</span>';
+
+  const membersList = document.getElementById("groupMembersList");
+  membersList.innerHTML = "";
+  group.members.forEach(m => {
+    const div = document.createElement("div");
+    div.className = "member-item";
+    div.innerHTML = `
+      <div class="avatar small">${m.avatarUrl ? `<img src="${m.avatarUrl}">` : '<span>👤</span>'}</div>
+      <div class="member-info">
+        <div>${m.displayName} (${m.role})</div>
+        <div class="small">@${m.username}</div>
+      </div>
+    `;
+    membersList.appendChild(div);
+  });
+
+  document.getElementById("groupInfoModal").classList.remove("hidden");
+}
+
+function closeGroupInfoModal() {
+  document.getElementById("groupInfoModal").classList.add("hidden");
+}
+
+async function addMembersToGroup() {
+  const membersInput = document.getElementById("addMembersInput").value.trim();
+  if (!membersInput) return;
+  const members = membersInput.split(',').map(s => s.trim().replace(/^@+/, '').toLowerCase()).filter(Boolean);
+  if (members.length === 0) return;
+
+  try {
+    const res = await fetch(API + "/groups/" + currentGroup + "/members", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({ members })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      alert("Участники добавлены");
+      document.getElementById("addMembersInput").value = "";
+      openGroupInfo(); // обновить информацию
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  } catch (e) {
+    alert("Ошибка сети");
+  }
+}
+
+// ==================== ОБРАБОТЧИК КЛИКА ПО ЗАГОЛОВКУ ====================
+
+function openCurrentProfileOrGroup() {
+  if (currentChat === "global") return;
+  if (currentGroup) {
+    openGroupInfo();
+  } else {
+    openCurrentProfile();
+  }
+}
+
+async function openCurrentProfile() {
+  if (currentChat === "global") return;
+  try {
+    const res = await fetch(API + "/users/" + currentChat, {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const data = await res.json();
+    if (!data.ok) return;
+    showProfileModal(data.user);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function showProfileModal(user) {
+  document.getElementById("profileName").innerText = user.displayName || user.username;
+  document.getElementById("profileUser").innerText = "@" + user.username;
+  document.getElementById("profileBio").innerText = user.bio || "";
+  document.getElementById("profileBirth").innerText = user.birthDate ? `ДР: ${user.birthDate}` : "";
+  const avatar = document.getElementById("profileAvatar");
+  avatar.innerHTML = user.avatarUrl ? `<img src="${user.avatarUrl}">` : '<span>👤</span>';
+  document.getElementById("profileActions").innerHTML = `
+    <button class="btn primary" onclick="openChat('${user.username}')">Написать</button>
+    <button class="btn ghost" onclick="startCallWith('${user.username}')">Позвонить</button>
+  `;
+  document.getElementById("profileModal").classList.remove("hidden");
+}
+
+function startCallWith(username) {
+  closeProfile();
+  openChat(username);
+  startCall();
+}
+
+function closeProfile() {
+  document.getElementById("profileModal").classList.add("hidden");
 }
 
 // ==================== ПОИСК ПОЛЬЗОВАТЕЛЕЙ ====================
@@ -563,8 +766,8 @@ function openStoryViewer(owner) {
 // ==================== АУДИОЗВОНКИ ====================
 
 async function startCall() {
-  if (currentChat === "global") {
-    alert("Нельзя позвонить в общий чат");
+  if (currentChat === "global" || currentGroup) {
+    alert("Нельзя позвонить в общий чат или группу");
     return;
   }
   currentCallUser = currentChat;
@@ -681,45 +884,7 @@ function toggleMute() {
   }
 }
 
-// ==================== ПРОФИЛЬ И НАСТРОЙКИ ====================
-
-async function openCurrentProfile() {
-  if (currentChat === "global") return;
-  try {
-    const res = await fetch(API + "/users/" + currentChat, {
-      headers: { Authorization: "Bearer " + token }
-    });
-    const data = await res.json();
-    if (!data.ok) return;
-    showProfileModal(data.user);
-  } catch (e) {
-    console.error("Ошибка загрузки профиля", e);
-  }
-}
-
-function showProfileModal(user) {
-  document.getElementById("profileName").innerText = user.displayName || user.username;
-  document.getElementById("profileUser").innerText = "@" + user.username;
-  document.getElementById("profileBio").innerText = user.bio || "";
-  document.getElementById("profileBirth").innerText = user.birthDate ? `ДР: ${user.birthDate}` : "";
-  const avatar = document.getElementById("profileAvatar");
-  avatar.innerHTML = user.avatarUrl ? `<img src="${user.avatarUrl}">` : '<span>👤</span>';
-  document.getElementById("profileActions").innerHTML = `
-    <button class="btn primary" onclick="openChat('${user.username}')">Написать</button>
-    <button class="btn ghost" onclick="startCallWith('${user.username}')">Позвонить</button>
-  `;
-  document.getElementById("profileModal").classList.remove("hidden");
-}
-
-function startCallWith(username) {
-  closeProfile();
-  openChat(username);
-  startCall();
-}
-
-function closeProfile() {
-  document.getElementById("profileModal").classList.add("hidden");
-}
+// ==================== НАСТРОЙКИ ПРОФИЛЯ ====================
 
 function openSettings() {
   document.getElementById("setDisplayName").value = currentUser.displayName || "";
