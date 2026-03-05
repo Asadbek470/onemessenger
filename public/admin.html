@@ -1,45 +1,33 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin — One Messenger</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin</title>
+  <link rel="stylesheet" href="style.css"/>
 </head>
 <body class="admin-body">
-  <div id="loginPanel" class="admin-login">
-    <div class="admin-card">
-      <div class="admin-header">
-        <span>🛡️</span>
-        <h2>Admin Panel</h2>
-        <p>Управление пользователями</p>
+  <div class="admin-card">
+    <div class="auth-title">🛡️ Admin Panel</div>
+
+    <div id="adminLogin">
+      <label>👤 Admin user</label>
+      <input id="aUser" placeholder="admin"/>
+      <label>🔒 Admin pass</label>
+      <input id="aPass" type="password" placeholder="******"/>
+      <button id="aLoginBtn" class="primary">➡️ Войти</button>
+      <div id="aMsg" class="msg"></div>
+    </div>
+
+    <div id="adminApp" class="hidden">
+      <div class="row space">
+        <div class="muted">Пользователи</div>
+        <button id="aRefresh" class="pill">🔄 Обновить</button>
       </div>
-      <div class="input-group">
-        <span class="input-icon">👤</span>
-        <input type="text" id="adminUser" placeholder="Логин" value="admin">
-      </div>
-      <div class="input-group">
-        <span class="input-icon">🔒</span>
-        <input type="password" id="adminPass" placeholder="Пароль" value="090909">
-      </div>
-      <button class="auth-button" onclick="adminLogin()">
-        <span>Войти</span>
-        <span>➡️</span>
-      </button>
-      <div id="aerr" class="auth-error"></div>
+      <div id="usersTable" class="table"></div>
     </div>
   </div>
 
-  <div id="adminPanel" class="admin-panel hidden">
-    <div class="admin-header-bar">
-      <h2><span>👥</span> Пользователи</h2>
-      <button class="admin-logout" onclick="adminLogout()">
-        <span>🚪</span> Выйти
-      </button>
-    </div>
-    <div id="usersTable" class="admin-users"></div>
-  </div>
-
-  <script src="admin.js"></script>
+<script src="admin.js"></script>
 </body>
 </html>
