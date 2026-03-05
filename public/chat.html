@@ -5,11 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>One Messenger</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Иконки заменены на эмодзи, поэтому Font Awesome не нужен -->
 </head>
 <body>
   <div class="app">
-    <!-- Боковая панель (сайдбар) -->
+    <!-- Sidebar -->
     <aside id="sidebar" class="sidebar mobile-hidden">
       <div class="side-top">
         <div class="search">
@@ -47,7 +46,7 @@
       </div>
     </aside>
 
-    <!-- Основная область чата -->
+    <!-- Main chat area -->
     <main class="main">
       <header class="topbar">
         <button class="iconbtn mobile" onclick="toggleSidebar()">
@@ -72,7 +71,7 @@
 
       <section id="messages" class="messages"></section>
 
-      <!-- Панель ввода сообщения -->
+      <!-- Composer -->
       <footer class="composer">
         <button class="iconbtn" onclick="document.getElementById('fileInput').click()" title="Фото/Видео">
           <span>📎</span>
@@ -92,7 +91,7 @@
     </main>
   </div>
 
-  <!-- Модальное окно профиля -->
+  <!-- Modals (с эмодзи) -->
   <div id="profileModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
@@ -112,7 +111,6 @@
     </div>
   </div>
 
-  <!-- Модальное окно настроек -->
   <div id="settingsModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
@@ -122,23 +120,17 @@
       <div class="formgrid">
         <label>Display name</label>
         <input id="setDisplayName" placeholder="Имя">
-
         <label>Bio</label>
         <input id="setBio" placeholder="О себе">
-
         <label>Дата рождения (YYYY-MM-DD)</label>
         <input id="setBirthDate" placeholder="2009-01-31">
-
         <label>Аватар (URL)</label>
         <input id="setAvatarUrl" placeholder="https://...">
-
         <label>Загрузить аватар</label>
         <input id="avatarFile" type="file" accept="image/*">
-
         <button class="btn primary full" onclick="saveProfile()">
           <span>💾</span> Сохранить
         </button>
-
         <button class="btn danger full" onclick="confirmDeleteAccount()" style="margin-top: 16px;">
           <span>🗑️</span> Удалить аккаунт
         </button>
@@ -146,7 +138,6 @@
     </div>
   </div>
 
-  <!-- Модальное окно создания сторис -->
   <div id="storyModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
@@ -156,19 +147,15 @@
       <div class="formgrid">
         <label>Файл (не обязательно)</label>
         <input id="storyFile" type="file" accept="image/*,video/*">
-
         <label>Текст (не обязательно)</label>
         <input id="storyText" maxlength="120" placeholder="Текст...">
-
         <button class="btn primary full" onclick="publishStory()">Опубликовать</button>
       </div>
     </div>
   </div>
 
-  <!-- Аудио для удалённого потока при звонке -->
   <audio id="remoteAudio" autoplay playsinline></audio>
 
-  <!-- Модальное окно входящего звонка -->
   <div id="incomingCallModal" class="modal hidden">
     <div class="card callcard">
       <div class="cardtop">
@@ -183,7 +170,6 @@
     </div>
   </div>
 
-  <!-- Модальное окно активного звонка -->
   <div id="callModal" class="modal hidden">
     <div class="card callcard">
       <div class="cardtop">
