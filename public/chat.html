@@ -14,29 +14,36 @@
     <!-- Сайдбар (левый) -->
     <aside id="sidebar" class="sidebar mobile-hidden">
       <div class="side-top">
-        <!-- Сворачиваемый поиск -->
-        <div class="search-container">
-          <div class="search-toggle" onclick="toggleSearch()">
-            <span>🔍</span>
-            <span>Поиск...</span>
-          </div>
-          <div id="searchExpanded" class="search-expanded hidden">
-            <span>🔍</span>
-            <input id="searchInput" placeholder="Поиск @username..." oninput="searchUsers(this.value)">
-            <span class="close-search" onclick="closeSearch()">✕</span>
-          </div>
+        <!-- Кнопка сворачивания всей верхней панели -->
+        <div class="top-panel-header">
+          <span></span>
+          <button class="toggle-top-panel" onclick="toggleTopPanel()" title="Свернуть/развернуть">▼</button>
         </div>
+        <div id="topPanelContent" class="top-panel-content">
+          <!-- Сворачиваемый поиск -->
+          <div class="search-container">
+            <div class="search-toggle" onclick="toggleSearch()">
+              <span>🔍</span>
+              <span>Поиск...</span>
+            </div>
+            <div id="searchExpanded" class="search-expanded hidden">
+              <span>🔍</span>
+              <input id="searchInput" placeholder="Поиск @username..." oninput="searchUsers(this.value)">
+              <span class="close-search" onclick="closeSearch()">✕</span>
+            </div>
+          </div>
 
-        <!-- Истории с кнопкой сворачивания -->
-        <div class="stories-header">
-          <span>Истории</span>
-          <span class="toggle-stories" onclick="toggleStories()">▼</span>
-        </div>
-        <div id="storiesContainer" class="stories">
-          <button class="story-add" onclick="openStoryComposer()" title="Добавить сторис">
-            <span>➕</span>
-          </button>
-          <div id="storiesList" class="stories-list"></div>
+          <!-- Истории с кнопкой сворачивания -->
+          <div class="stories-header">
+            <span>Истории</span>
+            <span class="toggle-stories" onclick="toggleStories()">▼</span>
+          </div>
+          <div id="storiesContainer" class="stories">
+            <button class="story-add" onclick="openStoryComposer()" title="Добавить сторис">
+              <span>➕</span>
+            </button>
+            <div id="storiesList" class="stories-list"></div>
+          </div>
         </div>
       </div>
 
@@ -205,21 +212,5 @@
   </div>
 
   <script src="app.js"></script>
-  <script>
-  // Принудительное закрытие сайдбара при клике на любой chatitem
-  document.addEventListener('click', function(e) {
-    const item = e.target.closest('.chatitem');
-    if (item) {
-      setTimeout(function() {
-        const sidebar = document.getElementById('sidebar');
-        const overlay = document.getElementById('sidebarOverlay');
-        if (sidebar && overlay) {
-          sidebar.classList.add('mobile-hidden');
-          overlay.classList.remove('active');
-        }
-      }, 100);
-    }
-  });
-</script>
 </body>
 </html>
