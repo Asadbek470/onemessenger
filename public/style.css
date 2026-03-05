@@ -31,7 +31,7 @@ body {
   display: none !important;
 }
 
-/* Затемнение фона при открытом сайдбаре на мобильных */
+/* Затемнение фона при открытом сайдбаре */
 .sidebar-overlay {
   display: none;
   position: fixed;
@@ -228,70 +228,129 @@ body {
 }
 
 .side-top {
-  padding: 12px 12px 8px 12px;
+  padding: 12px 12px 4px 12px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
-/* КОМПАКТНЫЙ ПОИСК */
-.search {
+/* ===== СВОРАЧИВАЕМЫЙ ПОИСК ===== */
+.search-container {
+  margin-bottom: 8px;
+}
+
+.search-toggle {
+  width: 100%;
+  background: var(--secondary-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.search-toggle:hover {
+  background: var(--panel-bg);
+}
+
+.search-toggle span {
+  font-size: 16px;
+}
+
+.search-expanded {
   background: var(--secondary-bg);
   border-radius: 24px;
-  padding: 6px 12px;
-  margin-bottom: 12px;
+  padding: 4px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
 }
 
-.search span {
-  color: var(--text-secondary);
-  margin-right: 8px;
-  font-size: 14px;
+.search-expanded.hidden {
+  display: none;
 }
 
-.search input {
+.search-expanded input {
   background: transparent;
   border: none;
   color: #fff;
   width: 100%;
   outline: none;
   font-size: 14px;
-  padding: 4px 0;
+  padding: 8px 0;
 }
 
-.search input::placeholder {
+.search-expanded .close-search {
+  cursor: pointer;
+  font-size: 16px;
   color: var(--text-secondary);
-  font-size: 14px;
+  padding: 4px;
 }
 
-/* СТОРИС */
+.search-expanded .close-search:hover {
+  color: #fff;
+}
+
+/* СТОРИС - тоже можно скрывать */
+.stories-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  padding: 0 4px;
+}
+
+.stories-header span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.toggle-stories {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 12px;
+  background: var(--secondary-bg);
+}
+
 .stories {
   display: flex;
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 4px;
   scrollbar-width: thin;
-  min-height: 70px;
+  min-height: 60px;
+  transition: min-height 0.2s;
+}
+
+.stories.collapsed {
+  min-height: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  padding: 0;
+  margin: 0;
 }
 
 .story-add {
-  min-width: 48px;
-  height: 48px;
-  border-radius: 24px;
+  min-width: 44px;
+  height: 44px;
+  border-radius: 22px;
   background: var(--secondary-bg);
   border: 1px solid var(--border-color);
   color: var(--accent);
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-}
-
-.story-add:hover {
-  background: var(--accent);
-  color: #fff;
 }
 
 .stories-list {
@@ -308,21 +367,21 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 52px;
+  min-width: 48px;
   cursor: pointer;
 }
 
 .storyava {
-  width: 44px;
-  height: 44px;
-  border-radius: 22px;
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
   background: var(--secondary-bg);
   border: 2px solid var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  font-size: 22px;
+  font-size: 20px;
 }
 
 .storyava img {
@@ -332,16 +391,16 @@ body {
 }
 
 .storyname {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-secondary);
   margin-top: 2px;
-  max-width: 60px;
+  max-width: 50px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* СПИСОК ЧАТОВ - теперь занимает больше места */
+/* СПИСОК ЧАТОВ - занимает максимум места */
 .chatlist {
   flex: 1;
   overflow-y: auto;
@@ -355,9 +414,9 @@ body {
   color: #fff;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 12px;
-  border-radius: 12px;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 10px;
   cursor: pointer;
   text-align: left;
   transition: background 0.2s;
@@ -373,8 +432,8 @@ body {
 }
 
 .avatar {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--secondary-bg);
   display: flex;
@@ -382,7 +441,7 @@ body {
   justify-content: center;
   overflow: hidden;
   flex-shrink: 0;
-  font-size: 24px;
+  font-size: 22px;
 }
 
 .avatar img {
@@ -392,9 +451,9 @@ body {
 }
 
 .avatar.big {
-  width: 80px;
-  height: 80px;
-  font-size: 40px;
+  width: 70px;
+  height: 70px;
+  font-size: 35px;
 }
 
 .meta {
@@ -406,9 +465,9 @@ body {
   font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .status-dot {
@@ -428,7 +487,7 @@ body {
 }
 
 .preview {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -437,7 +496,7 @@ body {
 }
 
 .side-bottom {
-  padding: 12px;
+  padding: 10px;
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -455,20 +514,20 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 10px 12px;
   background: var(--panel-bg);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .iconbtn {
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   background: var(--secondary-bg);
   border: none;
   color: #fff;
-  font-size: 20px;
+  font-size: 18px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -487,21 +546,21 @@ body {
 
 .title {
   flex: 1;
-  margin: 0 12px;
+  margin: 0 10px;
   cursor: pointer;
   min-width: 0;
 }
 
 .title .h {
   font-weight: 600;
-  font-size: 16px;
+  font-size: 15px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .title .s {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -510,15 +569,15 @@ body {
 
 .actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
 .banner {
   background: rgba(42, 158, 244, 0.1);
-  padding: 8px 16px;
+  padding: 6px 12px;
   color: var(--accent);
-  font-size: 14px;
+  font-size: 13px;
   border-bottom: 1px solid var(--border-color);
   white-space: nowrap;
   overflow: hidden;
@@ -529,10 +588,10 @@ body {
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .mrow {
@@ -549,10 +608,10 @@ body {
 }
 
 .bubble {
-  max-width: 70%;
+  max-width: 80%;
   background: var(--secondary-bg);
-  border-radius: 18px;
-  padding: 10px 14px;
+  border-radius: 16px;
+  padding: 8px 12px;
   position: relative;
   word-wrap: break-word;
 }
@@ -566,10 +625,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
-  font-size: 12px;
+  margin-bottom: 2px;
+  font-size: 11px;
   color: var(--text-secondary);
-  gap: 10px;
+  gap: 8px;
 }
 
 .mrow.mine .btop {
@@ -583,15 +642,11 @@ body {
   cursor: pointer;
   opacity: 0.7;
   padding: 2px;
-  font-size: 16px;
-}
-
-.trash:hover {
-  opacity: 1;
+  font-size: 14px;
 }
 
 .mtext {
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;
@@ -599,17 +654,17 @@ body {
 
 .mimg {
   max-width: 100%;
-  border-radius: 12px;
+  border-radius: 10px;
   margin-top: 4px;
   cursor: pointer;
-  max-height: 300px;
+  max-height: 250px;
   object-fit: contain;
 }
 
 .mvid {
   max-width: 100%;
-  border-radius: 12px;
-  max-height: 300px;
+  border-radius: 10px;
+  max-height: 250px;
 }
 
 .maud {
@@ -618,11 +673,10 @@ body {
 }
 
 .btime {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-secondary);
   text-align: right;
   margin-top: 4px;
-  white-space: nowrap;
 }
 
 .mrow.mine .btime {
@@ -632,8 +686,8 @@ body {
 .composer {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: 6px;
+  padding: 8px 12px;
   background: var(--panel-bg);
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
@@ -644,9 +698,9 @@ body {
   background: var(--secondary-bg);
   border: none;
   border-radius: 30px;
-  padding: 10px 16px;
+  padding: 8px 14px;
   color: #fff;
-  font-size: 15px;
+  font-size: 14px;
   outline: none;
   min-width: 0;
 }
@@ -676,10 +730,10 @@ body {
 
 .card {
   background: var(--panel-bg);
-  border-radius: 24px;
-  padding: 24px;
+  border-radius: 20px;
+  padding: 20px;
   width: 100%;
-  max-width: 480px;
+  max-width: 440px;
   max-height: 90vh;
   overflow-y: auto;
 }
@@ -688,55 +742,55 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .cardtitle {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
 }
 
 .profile {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
   flex-wrap: wrap;
 }
 
 .profiletext {
   flex: 1;
-  min-width: 200px;
+  min-width: 180px;
 }
 
 .profiletext .pname {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   word-break: break-word;
 }
 
 .profiletext .puser {
   color: var(--text-secondary);
-  font-size: 14px;
-  margin-bottom: 8px;
+  font-size: 13px;
+  margin-bottom: 6px;
   word-break: break-word;
 }
 
 .profiletext .pbio {
-  font-size: 15px;
+  font-size: 14px;
   margin-bottom: 4px;
   word-break: break-word;
 }
 
 .profiletext .pbirth {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .row {
   display: flex;
-  gap: 12px;
-  margin-top: 20px;
+  gap: 10px;
+  margin-top: 16px;
   flex-wrap: wrap;
 }
 
@@ -744,15 +798,16 @@ body {
   background: var(--secondary-bg);
   border: 1px solid var(--border-color);
   border-radius: 30px;
-  padding: 10px 20px;
+  padding: 8px 16px;
   color: #fff;
   font-weight: 500;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   transition: 0.2s;
   white-space: nowrap;
+  font-size: 14px;
 }
 
 .btn.primary {
@@ -781,32 +836,33 @@ body {
 .formgrid {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .formgrid label {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .formgrid input {
   background: var(--secondary-bg);
   border: 1px solid var(--border-color);
   border-radius: 30px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   color: #fff;
   width: 100%;
+  font-size: 14px;
 }
 
 .callcard {
-  max-width: 360px;
+  max-width: 320px;
   text-align: center;
 }
 
 .callstatus {
   color: var(--text-secondary);
-  margin: 20px 0;
+  margin: 16px 0;
 }
 
 .story-viewer-card {
@@ -814,7 +870,7 @@ body {
   max-width: 600px;
   width: 100%;
   height: 80vh;
-  border-radius: 24px;
+  border-radius: 20px;
   position: relative;
   overflow: hidden;
 }
@@ -840,15 +896,16 @@ body {
 
 .story-text {
   position: absolute;
-  bottom: 20px;
-  left: 20px;
-  right: 20px;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
   background: rgba(0,0,0,0.6);
   color: #fff;
-  padding: 12px;
-  border-radius: 20px;
+  padding: 10px;
+  border-radius: 16px;
   text-align: center;
   word-break: break-word;
+  font-size: 14px;
 }
 
 .story-prev, .story-next, .story-close {
@@ -856,10 +913,10 @@ body {
   background: rgba(255,255,255,0.2);
   border: none;
   color: #fff;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  font-size: 24px;
+  font-size: 20px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -869,11 +926,11 @@ body {
   z-index: 10;
 }
 
-.story-prev { left: 10px; }
-.story-next { right: 10px; }
-.story-close { top: 10px; right: 10px; transform: none; }
+.story-prev { left: 8px; }
+.story-next { right: 8px; }
+.story-close { top: 8px; right: 8px; transform: none; }
 
-/* ===== МОБИЛЬНАЯ АДАПТАЦИЯ (УЛУЧШЕННАЯ) ===== */
+/* ===== МОБИЛЬНАЯ АДАПТАЦИЯ ===== */
 @media (max-width: 768px) {
   .sidebar {
     position: absolute;
@@ -881,10 +938,9 @@ body {
     top: 0;
     bottom: 0;
     width: 85%;
-    max-width: 320px;
+    max-width: 300px;
     transform: translateX(-100%);
-    box-shadow: 2px 0 20px rgba(0,0,0,0.5);
-    transition: transform 0.3s ease;
+    box-shadow: 2px 0 15px rgba(0,0,0,0.5);
   }
 
   .sidebar.mobile-hidden {
@@ -899,173 +955,18 @@ body {
     display: block;
   }
 
-  /* Компактная верхняя панель сайдбара */
+  /* Компактная верхняя панель */
   .side-top {
-    padding: 8px 8px 4px 8px;
+    padding: 8px 8px 2px 8px;
   }
 
-  /* Очень компактный поиск */
-  .search {
-    padding: 4px 10px;
-    margin-bottom: 8px;
-  }
-
-  .search span {
-    font-size: 13px;
-    margin-right: 6px;
-  }
-
-  .search input {
-    font-size: 13px;
-    padding: 3px 0;
-  }
-
-  /* Компактные сторис */
-  .stories {
-    min-height: 60px;
-    gap: 6px;
-  }
-
-  .story-add {
-    min-width: 42px;
-    height: 42px;
-    font-size: 16px;
-  }
-
-  .storyava {
-    width: 38px;
-    height: 38px;
-    font-size: 18px;
-    border-width: 1.5px;
-  }
-
-  .storyname {
-    font-size: 9px;
-    max-width: 50px;
-  }
-
-  /* Список чатов занимает максимум места */
+  /* Список чатов занимает почти всё место */
   .chatlist {
     padding: 2px 6px;
   }
 
   .chatitem {
-    padding: 10px 10px;
-    gap: 10px;
-  }
-
-  .avatar {
-    width: 44px;
-    height: 44px;
-    font-size: 22px;
-  }
-
-  .name {
-    font-size: 14px;
-  }
-
-  .preview {
-    font-size: 12px;
-  }
-
-  /* Нижняя кнопка */
-  .side-bottom {
-    padding: 8px;
-  }
-
-  .btn {
-    padding: 8px 16px;
-    font-size: 14px;
-  }
-
-  /* Шапка основного окна */
-  .topbar {
-    padding: 10px 12px;
-  }
-
-  .title .h {
-    font-size: 15px;
-  }
-
-  .title .s {
-    font-size: 12px;
-  }
-
-  .actions .iconbtn {
-    width: 38px;
-    height: 38px;
-    font-size: 18px;
-  }
-
-  /* Композер */
-  .composer {
-    padding: 8px 12px;
-    gap: 6px;
-  }
-
-  .text {
-    padding: 8px 14px;
-    font-size: 14px;
-  }
-
-  .iconbtn {
-    width: 38px;
-    height: 38px;
-    font-size: 18px;
-  }
-
-  /* Сообщения */
-  .bubble {
-    max-width: 85%;
-    font-size: 14px;
-    padding: 8px 12px;
-  }
-
-  .mtext {
-    font-size: 14px;
-  }
-
-  .btop {
-    font-size: 11px;
-  }
-
-  .btime {
-    font-size: 9px;
-  }
-
-  /* Модалки */
-  .modal .card {
-    max-width: 95%;
-    padding: 16px;
-  }
-
-  .avatar.big {
-    width: 70px;
-    height: 70px;
-    font-size: 35px;
-  }
-
-  .profile {
-    gap: 12px;
-  }
-
-  .profiletext .pname {
-    font-size: 18px;
-  }
-
-  .profiletext .puser {
-    font-size: 13px;
-  }
-
-  .profiletext .pbio {
-    font-size: 14px;
-  }
-}
-
-/* Очень маленькие экраны (до 400px) */
-@media (max-width: 400px) {
-  .sidebar {
-    width: 90%;
+    padding: 8px 8px;
   }
 
   .avatar {
@@ -1074,10 +975,6 @@ body {
     font-size: 20px;
   }
 
-  .chatitem {
-    padding: 8px 8px;
-  }
-
   .name {
     font-size: 13px;
   }
@@ -1087,18 +984,114 @@ body {
   }
 
   .storyava {
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
   }
 
   .story-add {
-    min-width: 38px;
-    height: 38px;
+    min-width: 40px;
+    height: 40px;
+  }
+
+  .storyname {
+    font-size: 8px;
+    max-width: 45px;
+  }
+
+  .side-bottom {
+    padding: 8px;
+  }
+
+  .btn {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  /* Основная область */
+  .topbar {
+    padding: 8px 10px;
+  }
+
+  .title .h {
+    font-size: 14px;
+  }
+
+  .title .s {
+    font-size: 11px;
   }
 
   .actions .iconbtn {
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+  }
+
+  .composer {
+    padding: 6px 10px;
+    gap: 4px;
+  }
+
+  .text {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  .iconbtn {
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+  }
+
+  .bubble {
+    max-width: 85%;
+    font-size: 13px;
+    padding: 6px 10px;
+  }
+
+  .mtext {
+    font-size: 13px;
+  }
+
+  .btop {
+    font-size: 10px;
+  }
+
+  .btime {
+    font-size: 8px;
+  }
+}
+
+@media (max-width: 400px) {
+  .sidebar {
+    width: 90%;
+  }
+
+  .avatar {
     width: 36px;
     height: 36px;
-    font-size: 16px;
+    font-size: 18px;
+  }
+
+  .chatitem {
+    padding: 6px 6px;
+  }
+
+  .name {
+    font-size: 12px;
+  }
+
+  .preview {
+    font-size: 10px;
+  }
+
+  .storyava {
+    width: 32px;
+    height: 32px;
+  }
+
+  .story-add {
+    min-width: 36px;
+    height: 36px;
   }
 }
