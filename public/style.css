@@ -31,6 +31,26 @@ body {
   display: none !important;
 }
 
+/* Затемнение фона при открытом сайдбаре на мобильных */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 90;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay.active {
+  display: block;
+  opacity: 1;
+}
+
+/* Auth styles (без изменений) */
 .auth-body {
   display: flex;
   align-items: center;
@@ -186,13 +206,16 @@ body {
   border-radius: 30px;
 }
 
+/* Основной лейаут */
 .app {
   display: flex;
   height: 100vh;
   background: var(--bg-color);
   overflow: hidden;
+  position: relative;
 }
 
+/* Сайдбар */
 .sidebar {
   width: 360px;
   background: var(--panel-bg);
@@ -201,6 +224,7 @@ body {
   flex-direction: column;
   transition: transform 0.3s ease;
   z-index: 100;
+  height: 100%;
 }
 
 .side-top {
@@ -232,11 +256,16 @@ body {
   font-size: 15px;
 }
 
+.search input::placeholder {
+  color: var(--text-secondary);
+}
+
 .stories {
   display: flex;
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 4px;
+  scrollbar-width: thin;
 }
 
 .story-add {
@@ -319,7 +348,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 12px 12px;
   border-radius: 12px;
   cursor: pointer;
   text-align: left;
@@ -371,6 +400,7 @@ body {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  font-size: 15px;
 }
 
 .status-dot {
@@ -395,6 +425,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-top: 2px;
 }
 
 .side-bottom {
@@ -402,6 +433,7 @@ body {
   border-top: 1px solid var(--border-color);
 }
 
+/* Основная область */
 .main {
   flex: 1;
   display: flex;
@@ -432,6 +464,7 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: background 0.2s;
 }
 
 .iconbtn:hover {
@@ -614,6 +647,7 @@ body {
   background: var(--accent);
 }
 
+/* Модальные окна */
 .modal {
   position: fixed;
   top: 0;
@@ -827,7 +861,8 @@ body {
 .story-next { right: 10px; }
 .story-close { top: 10px; right: 10px; transform: none; }
 
-@media (max-width: 600px) {
+/* ===== Мобильная адаптация (улучшенная) ===== */
+@media (max-width: 768px) {
   .sidebar {
     position: absolute;
     left: 0;
@@ -836,37 +871,178 @@ body {
     width: 85%;
     max-width: 320px;
     transform: translateX(-100%);
-    box-shadow: 2px 0 10px rgba(0,0,0,0.3);
+    box-shadow: 2px 0 20px rgba(0,0,0,0.5);
+    transition: transform 0.3s ease;
   }
+
   .sidebar.mobile-hidden {
     transform: translateX(0);
   }
+
   .iconbtn.mobile {
     display: flex !important;
   }
+
+  /* Затемнение фона при открытом сайдбаре */
+  .sidebar-overlay.active {
+    display: block;
+  }
+
+  /* Увеличиваем область нажатия для элементов списка чатов */
+  .chatitem {
+    padding: 14px 12px;
+  }
+
+  .chatitem .avatar {
+    width: 52px;
+    height: 52px;
+    font-size: 26px;
+  }
+
+  .chatitem .name {
+    font-size: 16px;
+  }
+
+  .chatitem .preview {
+    font-size: 14px;
+  }
+
+  /* Улучшаем шапку */
   .topbar {
     padding: 10px 12px;
   }
+
   .title .h {
-    font-size: 15px;
+    font-size: 16px;
   }
+
   .title .s {
-    font-size: 12px;
+    font-size: 13px;
   }
+
   .actions .iconbtn {
-    width: 36px;
-    height: 36px;
-    font-size: 18px;
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
   }
+
+  /* Композер */
   .composer {
-    padding: 8px 12px;
-    gap: 6px;
+    padding: 10px 12px;
+    gap: 8px;
   }
+
   .text {
-    padding: 10px 14px;
-    font-size: 14px;
+    padding: 12px 16px;
+    font-size: 16px;
   }
+
+  .iconbtn {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+
+  /* Пузырьки сообщений */
   .bubble {
     max-width: 85%;
+    font-size: 15px;
+    padding: 12px 16px;
+  }
+
+  .mtext {
+    font-size: 15px;
+  }
+
+  .btop {
+    font-size: 12px;
+  }
+
+  .btime {
+    font-size: 11px;
+  }
+
+  /* Модальные окна на весь экран */
+  .modal .card {
+    max-width: 95%;
+    padding: 20px;
+    border-radius: 20px;
+  }
+
+  .profile {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .avatar.big {
+    width: 90px;
+    height: 90px;
+    font-size: 45px;
+  }
+
+  .row {
+    justify-content: center;
+  }
+
+  /* Кнопки в модалках */
+  .btn {
+    padding: 12px 20px;
+    font-size: 16px;
+  }
+
+  /* Поле поиска */
+  .search {
+    padding: 10px 16px;
+  }
+
+  .search input {
+    font-size: 16px;
+  }
+
+  /* Истории */
+  .story-add {
+    min-width: 56px;
+    height: 56px;
+    font-size: 24px;
+  }
+
+  .storyava {
+    width: 56px;
+    height: 56px;
+  }
+
+  .storyname {
+    font-size: 12px;
+  }
+}
+
+/* Очень маленькие экраны (до 400px) */
+@media (max-width: 400px) {
+  .sidebar {
+    width: 90%;
+  }
+
+  .avatar {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+
+  .chatitem {
+    padding: 12px 10px;
+  }
+
+  .name {
+    font-size: 15px;
+  }
+
+  .preview {
+    font-size: 13px;
+  }
+
+  .actions .iconbtn {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
   }
 }
