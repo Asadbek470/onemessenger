@@ -50,7 +50,7 @@ body {
   opacity: 1;
 }
 
-/* АВТОРИЗАЦИЯ */
+/* АВТОРИЗАЦИЯ (без изменений) */
 .auth-body {
   display: flex;
   align-items: center;
@@ -231,6 +231,37 @@ body {
   padding: 12px 12px 4px 12px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+}
+
+/* Кнопка сворачивания всей верхней панели */
+.top-panel-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.toggle-top-panel {
+  background: var(--secondary-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.toggle-top-panel:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.top-panel-content.collapsed {
+  display: none;
 }
 
 /* Сворачиваемый поиск */
