@@ -5,13 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>One Messenger — Вход</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 </head>
 <body class="auth-body">
   <div class="auth-container">
     <div id="loginCard" class="auth-card">
       <div class="auth-header">
-        <i class="fa-brands fa-telegram auth-logo"></i>
+        <span class="auth-logo">📱</span>
         <h1>One Messenger</h1>
         <p class="auth-subtitle">Вход без номера телефона</p>
       </div>
@@ -23,46 +22,46 @@
 
       <div class="auth-form">
         <div class="input-group">
-          <i class="fa-regular fa-user input-icon"></i>
+          <span class="input-icon">👤</span>
           <input type="text" id="identifier" placeholder="Username" autocomplete="username">
         </div>
         <div class="input-group">
-          <i class="fa-regular fa-lock input-icon"></i>
+          <span class="input-icon">🔒</span>
           <input type="password" id="password" placeholder="Пароль" autocomplete="current-password">
         </div>
 
         <button class="auth-button" onclick="submitAuth()">
           <span>Продолжить</span>
-          <i class="fa-regular fa-arrow-right"></i>
+          <span>➡️</span>
         </button>
 
         <div id="authError" class="auth-error"></div>
       </div>
 
       <div class="auth-hint">
-        <i class="fa-regular fa-circle-info"></i>
+        <span>ℹ️</span>
         <span>4–20 символов: a-z, 0-9, _</span>
       </div>
     </div>
 
     <div id="confirmCard" class="auth-card hidden">
       <div class="auth-header">
-        <i class="fa-regular fa-shield-halved auth-logo"></i>
+        <span class="auth-logo">🔐</span>
         <h1>Подтверждение</h1>
         <p class="auth-subtitle">Введите код из личных сообщений</p>
       </div>
       <div class="auth-form">
         <div class="input-group">
-          <i class="fa-regular fa-key input-icon"></i>
+          <span class="input-icon">🔑</span>
           <input type="text" id="confirmCode" placeholder="6-значный код" maxlength="6">
         </div>
         <button class="auth-button" onclick="submitConfirm()">
           <span>Подтвердить</span>
-          <i class="fa-regular fa-arrow-right"></i>
+          <span>➡️</span>
         </button>
         <div id="confirmError" class="auth-error"></div>
         <button class="auth-button ghost" onclick="cancelConfirm()" style="margin-top: 8px;">
-          <span>Назад</span>
+          <span>⬅️ Назад</span>
         </button>
       </div>
     </div>
