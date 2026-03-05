@@ -296,7 +296,33 @@ function stopRecording() {
 
 // ==================== УЛУЧШЕННАЯ МОБИЛЬНАЯ ВЕРСИЯ ====================
 
+// Функция закрытия сайдбара (работает всегда)
+function closeSidebar() {
+  const sidebar = document.getElementById("sidebar");
+  const overlay = document.getElementById("sidebarOverlay");
+  if (sidebar && overlay) {
+    sidebar.classList.add("mobile-hidden");
+    overlay.classList.remove("active");
+  }
+}
+
+// Функция сворачивания поиска
+function closeSearch() {
+  const toggle = document.querySelector('.search-toggle');
+  const expanded = document.getElementById('searchExpanded');
+  if (toggle && expanded) {
+    toggle.classList.remove('hidden');
+    expanded.classList.add('hidden');
+    document.getElementById('searchResults').innerHTML = ''; // очищаем результаты
+  }
+}
+
+// ОСНОВНАЯ ФУНКЦИЯ ОТКРЫТИЯ ЧАТА
 async function openChat(chat) {
+  // Сворачиваем поиск, чтобы не мешал
+  closeSearch();
+
+  // Загружаем сообщения и обновляем заголовок
   currentChat = chat;
   loadMessages(chat);
 
@@ -324,7 +350,7 @@ async function openChat(chat) {
     document.querySelector('.chatitem[data-chat="global"]').classList.add("active");
   }
 
-  // На мобильных устройствах закрываем сайдбар после выбора чата
+  // На мобильных устройствах закрываем сайдбар
   if (window.innerWidth <= 768) {
     closeSidebar();
   }
@@ -339,15 +365,6 @@ function toggleSidebar() {
   }
 }
 
-function closeSidebar() {
-  const sidebar = document.getElementById("sidebar");
-  const overlay = document.getElementById("sidebarOverlay");
-  if (sidebar && overlay) {
-    sidebar.classList.add("mobile-hidden");
-    overlay.classList.remove("active");
-  }
-}
-
 // Новые функции для сворачивания поиска и историй
 function toggleSearch() {
   const toggle = document.querySelector('.search-toggle');
@@ -356,16 +373,6 @@ function toggleSearch() {
     toggle.classList.add('hidden');
     expanded.classList.remove('hidden');
     document.getElementById('searchInput').focus();
-  }
-}
-
-function closeSearch() {
-  const toggle = document.querySelector('.search-toggle');
-  const expanded = document.getElementById('searchExpanded');
-  if (toggle && expanded) {
-    toggle.classList.remove('hidden');
-    expanded.classList.add('hidden');
-    document.getElementById('searchResults').innerHTML = ''; // очищаем результаты
   }
 }
 
