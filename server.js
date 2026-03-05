@@ -14,6 +14,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0'; // обязательно для Render
 const JWT_SECRET = process.env.JWT_SECRET || "CHANGE_ME_SECRET";
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "090909";
@@ -30,7 +31,7 @@ app.use("/uploads", express.static(uploadsDir));
 const upload = multer({ dest: uploadsDir });
 const db = new sqlite3.Database("database.db");
 
-// Инициализация БД
+// ==================== ИНИЦИАЛИЗАЦИЯ БД ====================
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -133,7 +134,7 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_auth_codes ON auth_codes(username, deviceId)`);
 });
 
-// Создание системного пользователя
+// ==================== СИСТЕМНЫЙ ПОЛЬЗОВАТЕЛЬ ====================
 function ensureSystemUser() {
   const now = Date.now();
   db.get(`SELECT * FROM users WHERE username = ?`, [SYSTEM_USERNAME], (err, user) => {
@@ -149,7 +150,7 @@ function ensureSystemUser() {
 }
 ensureSystemUser();
 
-// helpers
+// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 function now() { return Date.now(); }
 
 function signToken(user, deviceId) {
@@ -248,7 +249,6 @@ function sendSystemMessage(toUsername, text) {
   );
 }
 
-// Device helpers
 function getDeviceId(req) {
   const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
   const ua = req.headers['user-agent'] || 'unknown';
@@ -260,7 +260,7 @@ function getDeviceName(req) {
   return ua.substring(0, 50);
 }
 
-// ---- AUTH ----
+// ==================== АУТЕНТИФИКАЦИЯ ====================
 app.post("/api/auth/register", async (req, res) => {
   const usernameRaw = String(req.body.username || "").trim();
   const password = String(req.body.password || "").trim();
@@ -401,7 +401,7 @@ app.post("/api/auth/confirm", (req, res) => {
   );
 });
 
-// ---- PROFILE ----
+// ==================== ПРОФИЛЬ ====================
 app.get("/api/me", verifyAuth, (req, res) => {
   res.json({ ok: true, profile: safePublicUser(req.user) });
 });
@@ -424,7 +424,7 @@ app.put("/api/me", verifyAuth, (req, res) => {
   );
 });
 
-// ---- Удаление аккаунта ----
+// Удаление аккаунта
 app.delete("/api/me", verifyAuth, (req, res) => {
   const username = req.user.username;
 
@@ -452,7 +452,7 @@ app.delete("/api/me", verifyAuth, (req, res) => {
   });
 });
 
-// ---- USER SEARCH ----
+// ==================== ПОИСК ПОЛЬЗОВАТЕЛЕЙ ====================
 app.get("/api/users/search", verifyAuth, (req, res) => {
   const q = String(req.query.q || "").trim().replace(/^@+/, "").toLowerCase();
   if (!q) return res.json({ ok: true, users: [] });
@@ -481,11 +481,11 @@ app.get("/api/users/:username", verifyAuth, (req, res) => {
   );
 });
 
-// ---- CHATS (личные + группы) ----
+// ==================== СПИСОК ЧАТОВ (личные + группы) ====================
 app.get("/api/chats", verifyAuth, (req, res) => {
   const me = req.user.username;
 
-  // Получаем личные чаты
+  // Личные чаты
   db.all(
     `
     SELECT other, MAX(createdAt) AS lastAt
@@ -500,7 +500,7 @@ app.get("/api/chats", verifyAuth, (req, res) => {
     `,
     [me, me, me],
     (err, privateRows) => {
-      // Получаем группы пользователя
+      // Группы пользователя
       db.all(
         `SELECT g.*, gm.role FROM groups g
          JOIN group_members gm ON g.id = gm.groupId
@@ -562,7 +562,7 @@ app.get("/api/chats", verifyAuth, (req, res) => {
                         avatarUrl: g.avatarUrl || '',
                         description: g.description || '',
                         role: g.role,
-                        preview: '', // можно позже добавить последнее сообщение
+                        preview: '',
                         lastAt: g.updatedAt
                       });
                     });
@@ -595,7 +595,7 @@ app.get("/api/chats", verifyAuth, (req, res) => {
   );
 });
 
-// ---- MESSAGES (личные, глобальный, группы) ----
+// ==================== СООБЩЕНИЯ ====================
 app.get("/api/messages", verifyAuth, (req, res) => {
   const chat = String(req.query.chat || "global");
   const me = req.user.username;
@@ -661,7 +661,7 @@ app.delete("/api/messages/:id", verifyAuth, (req, res) => {
   });
 });
 
-// ---- UPLOAD ----
+// ==================== ЗАГРУЗКА ФАЙЛОВ ====================
 app.post("/api/upload", verifyAuth, upload.single("file"), (req, res) => {
   const me = req.user.username;
   if (!canUser(req.user, "media")) return res.status(403).json({ ok: false, error: "Тебе запрещены медиа" });
@@ -738,7 +738,7 @@ app.post("/api/upload", verifyAuth, upload.single("file"), (req, res) => {
   proceed();
 });
 
-// ---- STORIES ----
+// ==================== СТОРИС ====================
 app.get("/api/stories", verifyAuth, (req, res) => {
   cleanupExpiredStories();
   db.all(
@@ -788,7 +788,7 @@ app.post("/api/stories", verifyAuth, upload.single("story"), (req, res) => {
   );
 });
 
-// ---- BIRTHDAYS ----
+// ==================== ДНИ РОЖДЕНИЯ ====================
 app.get("/api/birthdays/today", verifyAuth, (req, res) => {
   const d = new Date();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -802,7 +802,7 @@ app.get("/api/birthdays/today", verifyAuth, (req, res) => {
   );
 });
 
-// ---- GROUPS ----
+// ==================== ГРУППЫ ====================
 app.post("/api/groups", verifyAuth, (req, res) => {
   const { name, description, members } = req.body;
   const owner = req.user.username;
@@ -1050,7 +1050,7 @@ app.put("/api/groups/:groupId/members/:username/role", verifyAuth, (req, res) =>
   );
 });
 
-// ---- ADMIN ----
+// ==================== АДМИН-ПАНЕЛЬ ====================
 app.post("/api/admin/login", (req, res) => {
   const user = String(req.body.user || "");
   const pass = String(req.body.pass || "");
@@ -1098,7 +1098,7 @@ app.post("/api/admin/user/update", verifyAdmin, (req, res) => {
   );
 });
 
-// ---- WEBSOCKET ----
+// ==================== WEBSOCKET ====================
 const online = new Map();
 
 function wsSend(ws, payload) {
@@ -1113,7 +1113,6 @@ function broadcastToChat(messageRow, payload) {
     return;
   }
   if (messageRow.chatType === "group") {
-    // Рассылаем всем участникам группы
     db.all(`SELECT username FROM group_members WHERE groupId = ?`, [messageRow.groupId], (err, members) => {
       if (err) return;
       members.forEach(m => wsSend(online.get(m.username), payload));
@@ -1161,6 +1160,7 @@ wss.on("connection", (ws, req) => {
 
         const from = ws.username;
 
+        // Сигнализация звонков (WebRTC)
         if (data.type === "call-offer" || data.type === "call-answer" || data.type === "ice" || data.type === "call-end") {
           db.get(`SELECT * FROM users WHERE username=?`, [from], (e2, fresh) => {
             if (!fresh || !canUser(fresh, "call")) {
@@ -1176,6 +1176,7 @@ wss.on("connection", (ws, req) => {
           return;
         }
 
+        // Текстовое сообщение
         if (data.type === "text-message") {
           db.get(`SELECT * FROM users WHERE username=?`, [from], (e2, fresh) => {
             if (!fresh || !canUser(fresh, "text")) {
@@ -1247,6 +1248,7 @@ wss.on("connection", (ws, req) => {
           return;
         }
 
+        // Индикатор печатания
         if (data.type === "typing") {
           const to = String(data.to || "").replace(/^@+/, "").toLowerCase();
           const target = online.get(to);
@@ -1269,4 +1271,7 @@ wss.on("connection", (ws, req) => {
   }
 });
 
-server.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+// ==================== ЗАПУСК СЕРВЕРА ====================
+server.listen(PORT, HOST, () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
+});
