@@ -50,7 +50,7 @@ body {
   opacity: 1;
 }
 
-/* Auth styles (без изменений) */
+/* АВТОРИЗАЦИЯ (без изменений) */
 .auth-body {
   display: flex;
   align-items: center;
@@ -206,7 +206,7 @@ body {
   border-radius: 30px;
 }
 
-/* Основной лейаут */
+/* ОСНОВНОЙ ЛЕЙАУТ */
 .app {
   display: flex;
   height: 100vh;
@@ -215,7 +215,7 @@ body {
   position: relative;
 }
 
-/* Сайдбар */
+/* САЙДБАР */
 .sidebar {
   width: 360px;
   background: var(--panel-bg);
@@ -228,23 +228,25 @@ body {
 }
 
 .side-top {
-  padding: 16px;
+  padding: 12px 12px 8px 12px;
   border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
+/* КОМПАКТНЫЙ ПОИСК */
 .search {
   display: flex;
   align-items: center;
   background: var(--secondary-bg);
-  border-radius: 30px;
-  padding: 8px 16px;
-  margin-bottom: 16px;
+  border-radius: 24px;
+  padding: 6px 12px;
+  margin-bottom: 12px;
 }
 
 .search span {
   color: var(--text-secondary);
-  margin-right: 10px;
-  font-size: 16px;
+  margin-right: 8px;
+  font-size: 14px;
 }
 
 .search input {
@@ -253,29 +255,33 @@ body {
   color: #fff;
   width: 100%;
   outline: none;
-  font-size: 15px;
+  font-size: 14px;
+  padding: 4px 0;
 }
 
 .search input::placeholder {
   color: var(--text-secondary);
+  font-size: 14px;
 }
 
+/* СТОРИС */
 .stories {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   overflow-x: auto;
   padding-bottom: 4px;
   scrollbar-width: thin;
+  min-height: 70px;
 }
 
 .story-add {
-  min-width: 50px;
-  height: 50px;
-  border-radius: 25px;
+  min-width: 48px;
+  height: 48px;
+  border-radius: 24px;
   background: var(--secondary-bg);
   border: 1px solid var(--border-color);
   color: var(--accent);
-  font-size: 20px;
+  font-size: 18px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -290,7 +296,7 @@ body {
 
 .stories-list {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   overflow-x: auto;
   flex: 1;
 }
@@ -302,20 +308,21 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 56px;
+  min-width: 52px;
   cursor: pointer;
 }
 
 .storyava {
-  width: 50px;
-  height: 50px;
-  border-radius: 25px;
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
   background: var(--secondary-bg);
   border: 2px solid var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  font-size: 22px;
 }
 
 .storyava img {
@@ -325,19 +332,20 @@ body {
 }
 
 .storyname {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-secondary);
-  margin-top: 4px;
-  max-width: 70px;
+  margin-top: 2px;
+  max-width: 60px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* СПИСОК ЧАТОВ - теперь занимает больше места */
 .chatlist {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 4px 8px;
 }
 
 .chatitem {
@@ -429,11 +437,12 @@ body {
 }
 
 .side-bottom {
-  padding: 16px;
+  padding: 12px;
   border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
-/* Основная область */
+/* ОСНОВНАЯ ОБЛАСТЬ */
 .main {
   flex: 1;
   display: flex;
@@ -449,6 +458,7 @@ body {
   padding: 12px 16px;
   background: var(--panel-bg);
   border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .iconbtn {
@@ -506,13 +516,14 @@ body {
 
 .banner {
   background: rgba(42, 158, 244, 0.1);
-  padding: 10px 16px;
+  padding: 8px 16px;
   color: var(--accent);
   font-size: 14px;
   border-bottom: 1px solid var(--border-color);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .messages {
@@ -622,9 +633,10 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
+  padding: 10px 16px;
   background: var(--panel-bg);
   border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .text {
@@ -632,7 +644,7 @@ body {
   background: var(--secondary-bg);
   border: none;
   border-radius: 30px;
-  padding: 12px 16px;
+  padding: 10px 16px;
   color: #fff;
   font-size: 15px;
   outline: none;
@@ -647,7 +659,7 @@ body {
   background: var(--accent);
 }
 
-/* Модальные окна */
+/* МОДАЛЬНЫЕ ОКНА */
 .modal {
   position: fixed;
   top: 0;
@@ -861,7 +873,7 @@ body {
 .story-next { right: 10px; }
 .story-close { top: 10px; right: 10px; transform: none; }
 
-/* ===== Мобильная адаптация (улучшенная) ===== */
+/* ===== МОБИЛЬНАЯ АДАПТАЦИЯ (УЛУЧШЕННАЯ) ===== */
 @media (max-width: 768px) {
   .sidebar {
     position: absolute;
@@ -883,136 +895,170 @@ body {
     display: flex !important;
   }
 
-  /* Затемнение фона при открытом сайдбаре */
   .sidebar-overlay.active {
     display: block;
   }
 
-  /* Увеличиваем область нажатия для элементов списка чатов */
-  .chatitem {
-    padding: 14px 12px;
+  /* Компактная верхняя панель сайдбара */
+  .side-top {
+    padding: 8px 8px 4px 8px;
   }
 
-  .chatitem .avatar {
-    width: 52px;
-    height: 52px;
-    font-size: 26px;
+  /* Очень компактный поиск */
+  .search {
+    padding: 4px 10px;
+    margin-bottom: 8px;
   }
 
-  .chatitem .name {
+  .search span {
+    font-size: 13px;
+    margin-right: 6px;
+  }
+
+  .search input {
+    font-size: 13px;
+    padding: 3px 0;
+  }
+
+  /* Компактные сторис */
+  .stories {
+    min-height: 60px;
+    gap: 6px;
+  }
+
+  .story-add {
+    min-width: 42px;
+    height: 42px;
     font-size: 16px;
   }
 
-  .chatitem .preview {
+  .storyava {
+    width: 38px;
+    height: 38px;
+    font-size: 18px;
+    border-width: 1.5px;
+  }
+
+  .storyname {
+    font-size: 9px;
+    max-width: 50px;
+  }
+
+  /* Список чатов занимает максимум места */
+  .chatlist {
+    padding: 2px 6px;
+  }
+
+  .chatitem {
+    padding: 10px 10px;
+    gap: 10px;
+  }
+
+  .avatar {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+
+  .name {
     font-size: 14px;
   }
 
-  /* Улучшаем шапку */
+  .preview {
+    font-size: 12px;
+  }
+
+  /* Нижняя кнопка */
+  .side-bottom {
+    padding: 8px;
+  }
+
+  .btn {
+    padding: 8px 16px;
+    font-size: 14px;
+  }
+
+  /* Шапка основного окна */
   .topbar {
     padding: 10px 12px;
   }
 
   .title .h {
-    font-size: 16px;
+    font-size: 15px;
   }
 
   .title .s {
-    font-size: 13px;
+    font-size: 12px;
   }
 
   .actions .iconbtn {
-    width: 44px;
-    height: 44px;
-    font-size: 22px;
+    width: 38px;
+    height: 38px;
+    font-size: 18px;
   }
 
   /* Композер */
   .composer {
-    padding: 10px 12px;
-    gap: 8px;
+    padding: 8px 12px;
+    gap: 6px;
   }
 
   .text {
-    padding: 12px 16px;
-    font-size: 16px;
+    padding: 8px 14px;
+    font-size: 14px;
   }
 
   .iconbtn {
-    width: 44px;
-    height: 44px;
-    font-size: 22px;
+    width: 38px;
+    height: 38px;
+    font-size: 18px;
   }
 
-  /* Пузырьки сообщений */
+  /* Сообщения */
   .bubble {
     max-width: 85%;
-    font-size: 15px;
-    padding: 12px 16px;
+    font-size: 14px;
+    padding: 8px 12px;
   }
 
   .mtext {
-    font-size: 15px;
+    font-size: 14px;
   }
 
   .btop {
-    font-size: 12px;
-  }
-
-  .btime {
     font-size: 11px;
   }
 
-  /* Модальные окна на весь экран */
-  .modal .card {
-    max-width: 95%;
-    padding: 20px;
-    border-radius: 20px;
+  .btime {
+    font-size: 9px;
   }
 
-  .profile {
-    flex-direction: column;
-    text-align: center;
+  /* Модалки */
+  .modal .card {
+    max-width: 95%;
+    padding: 16px;
   }
 
   .avatar.big {
-    width: 90px;
-    height: 90px;
-    font-size: 45px;
+    width: 70px;
+    height: 70px;
+    font-size: 35px;
   }
 
-  .row {
-    justify-content: center;
+  .profile {
+    gap: 12px;
   }
 
-  /* Кнопки в модалках */
-  .btn {
-    padding: 12px 20px;
-    font-size: 16px;
+  .profiletext .pname {
+    font-size: 18px;
   }
 
-  /* Поле поиска */
-  .search {
-    padding: 10px 16px;
+  .profiletext .puser {
+    font-size: 13px;
   }
 
-  .search input {
-    font-size: 16px;
-  }
-
-  /* Истории */
-  .story-add {
-    min-width: 56px;
-    height: 56px;
-    font-size: 24px;
-  }
-
-  .storyava {
-    width: 56px;
-    height: 56px;
-  }
-
-  .storyname {
-    font-size: 12px;
+  .profiletext .pbio {
+    font-size: 14px;
   }
 }
 
@@ -1023,26 +1069,36 @@ body {
   }
 
   .avatar {
-    width: 44px;
-    height: 44px;
-    font-size: 22px;
-  }
-
-  .chatitem {
-    padding: 12px 10px;
-  }
-
-  .name {
-    font-size: 15px;
-  }
-
-  .preview {
-    font-size: 13px;
-  }
-
-  .actions .iconbtn {
     width: 40px;
     height: 40px;
     font-size: 20px;
+  }
+
+  .chatitem {
+    padding: 8px 8px;
+  }
+
+  .name {
+    font-size: 13px;
+  }
+
+  .preview {
+    font-size: 11px;
+  }
+
+  .storyava {
+    width: 34px;
+    height: 34px;
+  }
+
+  .story-add {
+    min-width: 38px;
+    height: 38px;
+  }
+
+  .actions .iconbtn {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
   }
 }
