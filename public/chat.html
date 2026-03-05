@@ -5,59 +5,65 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>One Messenger</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <!-- Иконки заменены на эмодзи, поэтому Font Awesome не нужен -->
 </head>
 <body>
   <div class="app">
+    <!-- Боковая панель (сайдбар) -->
     <aside id="sidebar" class="sidebar mobile-hidden">
       <div class="side-top">
         <div class="search">
-          <i class="fa-regular fa-magnifying-glass"></i>
+          <span class="search-emoji">🔍</span>
           <input id="searchInput" placeholder="Поиск @username..." oninput="searchUsers(this.value)">
         </div>
+
         <div class="stories">
           <button class="story-add" onclick="openStoryComposer()" title="Добавить сторис">
-            <i class="fa-regular fa-plus"></i>
+            <span>➕</span>
           </button>
           <div id="storiesList" class="stories-list"></div>
         </div>
       </div>
+
       <div class="chatlist">
         <button class="chatitem active" data-chat="global" onclick="openChat('global')">
           <div class="avatar">
-            <i class="fa-regular fa-earth-americas"></i>
+            <span>🌐</span>
           </div>
           <div class="meta">
             <div class="name">Общий чат</div>
             <div class="preview">общение со всеми</div>
           </div>
         </button>
+
         <div id="privateChats"></div>
         <div id="searchResults"></div>
       </div>
+
       <div class="side-bottom">
         <button class="btn ghost full" onclick="openSettings()">
-          <i class="fa-regular fa-circle-user"></i>
-          Настройки профиля
+          <span>👤</span> Настройки профиля
         </button>
       </div>
     </aside>
 
+    <!-- Основная область чата -->
     <main class="main">
       <header class="topbar">
         <button class="iconbtn mobile" onclick="toggleSidebar()">
-          <i class="fa-regular fa-bars"></i>
+          <span>☰</span>
         </button>
         <div class="title" onclick="openCurrentProfile()">
           <div id="chatTitle" class="h">Общий чат</div>
           <div id="chatSub" class="s">общение со всеми</div>
         </div>
+
         <div class="actions">
           <button id="callBtn" class="iconbtn" onclick="startCall()" title="Аудиозвонок">
-            <i class="fa-regular fa-phone"></i>
+            <span>📞</span>
           </button>
           <button class="iconbtn" onclick="logout()" title="Выйти">
-            <i class="fa-regular fa-arrow-right-from-bracket"></i>
+            <span>🚪</span>
           </button>
         </div>
       </header>
@@ -66,31 +72,35 @@
 
       <section id="messages" class="messages"></section>
 
+      <!-- Панель ввода сообщения -->
       <footer class="composer">
         <button class="iconbtn" onclick="document.getElementById('fileInput').click()" title="Фото/Видео">
-          <i class="fa-regular fa-paperclip"></i>
+          <span>📎</span>
         </button>
         <input id="fileInput" type="file" hidden accept="image/*,video/*" onchange="sendMedia(this)">
+
         <input id="textInput" class="text" placeholder="Сообщение..." onkeydown="onEnter(event)">
+
         <button id="voiceBtn" class="iconbtn" title="Голосовое (удерживать)">
-          <i class="fa-regular fa-microphone"></i>
+          <span>🎤</span>
         </button>
+
         <button class="iconbtn send" onclick="sendText()" title="Отправить">
-          <i class="fa-regular fa-arrow-up"></i>
+          <span>➡️</span>
         </button>
       </footer>
     </main>
   </div>
 
-  <!-- Modals -->
+  <!-- Модальное окно профиля -->
   <div id="profileModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
         <div class="cardtitle">Профиль</div>
-        <button class="iconbtn" onclick="closeProfile()"><i class="fa-regular fa-xmark"></i></button>
+        <button class="iconbtn" onclick="closeProfile()"><span>❌</span></button>
       </div>
       <div class="profile">
-        <div class="avatar big" id="profileAvatar"><i class="fa-regular fa-circle-user"></i></div>
+        <div class="avatar big" id="profileAvatar"><span>👤</span></div>
         <div class="profiletext">
           <div class="pname" id="profileName"></div>
           <div class="puser" id="profileUser"></div>
@@ -102,56 +112,68 @@
     </div>
   </div>
 
+  <!-- Модальное окно настроек -->
   <div id="settingsModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
         <div class="cardtitle">Настройки профиля</div>
-        <button class="iconbtn" onclick="closeSettings()"><i class="fa-regular fa-xmark"></i></button>
+        <button class="iconbtn" onclick="closeSettings()"><span>❌</span></button>
       </div>
       <div class="formgrid">
         <label>Display name</label>
         <input id="setDisplayName" placeholder="Имя">
+
         <label>Bio</label>
         <input id="setBio" placeholder="О себе">
+
         <label>Дата рождения (YYYY-MM-DD)</label>
         <input id="setBirthDate" placeholder="2009-01-31">
+
         <label>Аватар (URL)</label>
         <input id="setAvatarUrl" placeholder="https://...">
+
         <label>Загрузить аватар</label>
         <input id="avatarFile" type="file" accept="image/*">
+
         <button class="btn primary full" onclick="saveProfile()">
-          <i class="fa-regular fa-floppy-disk"></i> Сохранить
+          <span>💾</span> Сохранить
         </button>
+
         <button class="btn danger full" onclick="confirmDeleteAccount()" style="margin-top: 16px;">
-          <i class="fa-regular fa-trash-can"></i> Удалить аккаунт
+          <span>🗑️</span> Удалить аккаунт
         </button>
       </div>
     </div>
   </div>
 
+  <!-- Модальное окно создания сторис -->
   <div id="storyModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
         <div class="cardtitle">Новая сторис</div>
-        <button class="iconbtn" onclick="closeStoryComposer()"><i class="fa-regular fa-xmark"></i></button>
+        <button class="iconbtn" onclick="closeStoryComposer()"><span>❌</span></button>
       </div>
       <div class="formgrid">
         <label>Файл (не обязательно)</label>
         <input id="storyFile" type="file" accept="image/*,video/*">
+
         <label>Текст (не обязательно)</label>
         <input id="storyText" maxlength="120" placeholder="Текст...">
+
         <button class="btn primary full" onclick="publishStory()">Опубликовать</button>
       </div>
     </div>
   </div>
 
+  <!-- Аудио для удалённого потока при звонке -->
   <audio id="remoteAudio" autoplay playsinline></audio>
 
+  <!-- Модальное окно входящего звонка -->
   <div id="incomingCallModal" class="modal hidden">
     <div class="card callcard">
       <div class="cardtop">
         <div class="cardtitle">Входящий звонок</div>
-        <button class="iconbtn" onclick="declineIncomingCall()"><i class="fa-regular fa-xmark"></i></button>
+        <button class="iconbtn" onclick="declineIncomingCall()"><span>❌</span></button>
       </div>
       <div id="incomingCallText" class="callstatus">Кто-то звонит…</div>
       <div class="row">
@@ -161,18 +183,19 @@
     </div>
   </div>
 
+  <!-- Модальное окно активного звонка -->
   <div id="callModal" class="modal hidden">
     <div class="card callcard">
       <div class="cardtop">
         <div class="cardtitle">Звонок</div>
-        <button class="iconbtn" onclick="endCall()"><i class="fa-regular fa-xmark"></i></button>
+        <button class="iconbtn" onclick="endCall()"><span>❌</span></button>
       </div>
       <div id="callStatus" class="callstatus">Соединение...</div>
       <div class="row" style="justify-content: center;">
-        <button id="muteBtn" class="btn ghost" onclick="toggleMute()">Выключить микрофон</button>
+        <button id="muteBtn" class="btn ghost" onclick="toggleMute()">🔇 Выключить микрофон</button>
       </div>
       <div class="row">
-        <button class="btn danger full" onclick="endCall()">Завершить</button>
+        <button class="btn danger full" onclick="endCall()">🔚 Завершить</button>
       </div>
     </div>
   </div>
