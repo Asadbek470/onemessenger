@@ -294,33 +294,77 @@ function stopRecording() {
   }
 }
 
-// ==================== УЛУЧШЕННАЯ МОБИЛЬНАЯ ВЕРСИЯ ====================
+// ==================== УПРАВЛЕНИЕ САЙДБАРОМ ====================
 
-// Функция принудительного закрытия сайдбара
 function forceCloseSidebar() {
   const sidebar = document.getElementById("sidebar");
   const overlay = document.getElementById("sidebarOverlay");
-  if (sidebar) {
-    sidebar.classList.add("mobile-hidden");
-  }
-  if (overlay) {
-    overlay.classList.remove("active");
+  if (sidebar) sidebar.classList.add("mobile-hidden");
+  if (overlay) overlay.classList.remove("active");
+}
+
+function toggleSidebar() {
+  const sidebar = document.getElementById("sidebar");
+  const overlay = document.getElementById("sidebarOverlay");
+  if (sidebar && overlay) {
+    sidebar.classList.toggle("mobile-hidden");
+    overlay.classList.toggle("active");
   }
 }
 
-// Функция сворачивания поиска
+// ==================== УПРАВЛЕНИЕ ПОИСКОМ ====================
+
+function toggleSearch() {
+  const toggle = document.querySelector('.search-toggle');
+  const expanded = document.getElementById('searchExpanded');
+  if (toggle && expanded) {
+    toggle.classList.add('hidden');
+    expanded.classList.remove('hidden');
+    document.getElementById('searchInput').focus();
+  }
+}
+
 function closeSearch() {
   const toggle = document.querySelector('.search-toggle');
   const expanded = document.getElementById('searchExpanded');
   if (toggle && expanded) {
     toggle.classList.remove('hidden');
     expanded.classList.add('hidden');
-    const results = document.getElementById('searchResults');
-    if (results) results.innerHTML = '';
+    document.getElementById('searchResults').innerHTML = '';
   }
 }
 
-// ОСНОВНАЯ ФУНКЦИЯ ОТКРЫТИЯ ЧАТА
+// ==================== УПРАВЛЕНИЕ ИСТОРИЯМИ ====================
+
+let storiesCollapsed = false;
+function toggleStories() {
+  const container = document.getElementById('storiesContainer');
+  const toggleBtn = document.querySelector('.toggle-stories');
+  if (container && toggleBtn) {
+    storiesCollapsed = !storiesCollapsed;
+    if (storiesCollapsed) {
+      container.classList.add('collapsed');
+      toggleBtn.textContent = '▶';
+    } else {
+      container.classList.remove('collapsed');
+      toggleBtn.textContent = '▼';
+    }
+  }
+}
+
+// ==================== СВОРАЧИВАНИЕ ВЕРХНЕЙ ПАНЕЛИ ====================
+
+function toggleTopPanel() {
+  const content = document.getElementById('topPanelContent');
+  const btn = document.querySelector('.toggle-top-panel');
+  if (content && btn) {
+    content.classList.toggle('collapsed');
+    btn.textContent = content.classList.contains('collapsed') ? '▶' : '▼';
+  }
+}
+
+// ==================== ОСНОВНАЯ ФУНКЦИЯ ОТКРЫТИЯ ЧАТА ====================
+
 async function openChat(chat) {
   // Сворачиваем поиск
   closeSearch();
@@ -358,48 +402,13 @@ async function openChat(chat) {
     document.querySelector('.chatitem[data-chat="global"]')?.classList.add("active");
   }
 
-  // ========== ГЛАВНОЕ: ПРИНУДИТЕЛЬНО ЗАКРЫВАЕМ САЙДБАР ==========
-  forceCloseSidebar();
-  // =================================================================
-}
-
-function toggleSidebar() {
-  const sidebar = document.getElementById("sidebar");
-  const overlay = document.getElementById("sidebarOverlay");
-  if (sidebar && overlay) {
-    sidebar.classList.toggle("mobile-hidden");
-    overlay.classList.toggle("active");
+  // ========== ГЛАВНОЕ: ЗАКРЫВАЕМ САЙДБАР НА МОБИЛЬНЫХ ==========
+  if (window.innerWidth <= 768) {
+    forceCloseSidebar();
   }
 }
 
-// Функции для сворачивания поиска и историй
-function toggleSearch() {
-  const toggle = document.querySelector('.search-toggle');
-  const expanded = document.getElementById('searchExpanded');
-  if (toggle && expanded) {
-    toggle.classList.add('hidden');
-    expanded.classList.remove('hidden');
-    document.getElementById('searchInput').focus();
-  }
-}
-
-let storiesCollapsed = false;
-function toggleStories() {
-  const container = document.getElementById('storiesContainer');
-  const toggleBtn = document.querySelector('.toggle-stories');
-  if (container && toggleBtn) {
-    storiesCollapsed = !storiesCollapsed;
-    if (storiesCollapsed) {
-      container.classList.add('collapsed');
-      toggleBtn.textContent = '▶';
-    } else {
-      container.classList.remove('collapsed');
-      toggleBtn.textContent = '▼';
-    }
-  }
-}
-
-// ====================================================================
+// ==================== ПОИСК ПОЛЬЗОВАТЕЛЕЙ ====================
 
 let searchTimeout;
 function searchUsers(query) {
@@ -434,6 +443,8 @@ function searchUsers(query) {
     }
   }, 300);
 }
+
+// ==================== ИСТОРИИ ====================
 
 async function loadStories() {
   try {
@@ -548,6 +559,8 @@ function openStoryViewer(owner) {
     delete window.closeStoryViewer;
   };
 }
+
+// ==================== АУДИОЗВОНКИ ====================
 
 async function startCall() {
   if (currentChat === "global") {
@@ -667,6 +680,8 @@ function toggleMute() {
     document.getElementById("muteBtn").innerText = audioTrack.enabled ? "🔇 Выключить микрофон" : "🎤 Включить микрофон";
   }
 }
+
+// ==================== ПРОФИЛЬ И НАСТРОЙКИ ====================
 
 async function openCurrentProfile() {
   if (currentChat === "global") return;
