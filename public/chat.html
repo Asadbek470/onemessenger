@@ -9,14 +9,12 @@
 </head>
 <body>
   <div class="app">
-    <!-- Sidebar -->
     <aside id="sidebar" class="sidebar mobile-hidden">
       <div class="side-top">
         <div class="search">
           <i class="fa-regular fa-magnifying-glass"></i>
           <input id="searchInput" placeholder="Поиск @username..." oninput="searchUsers(this.value)">
         </div>
-
         <div class="stories">
           <button class="story-add" onclick="openStoryComposer()" title="Добавить сторис">
             <i class="fa-regular fa-plus"></i>
@@ -24,7 +22,6 @@
           <div id="storiesList" class="stories-list"></div>
         </div>
       </div>
-
       <div class="chatlist">
         <button class="chatitem active" data-chat="global" onclick="openChat('global')">
           <div class="avatar">
@@ -35,11 +32,9 @@
             <div class="preview">общение со всеми</div>
           </div>
         </button>
-
         <div id="privateChats"></div>
         <div id="searchResults"></div>
       </div>
-
       <div class="side-bottom">
         <button class="btn ghost full" onclick="openSettings()">
           <i class="fa-regular fa-circle-user"></i>
@@ -48,7 +43,6 @@
       </div>
     </aside>
 
-    <!-- Main chat area -->
     <main class="main">
       <header class="topbar">
         <button class="iconbtn mobile" onclick="toggleSidebar()">
@@ -58,7 +52,6 @@
           <div id="chatTitle" class="h">Общий чат</div>
           <div id="chatSub" class="s">общение со всеми</div>
         </div>
-
         <div class="actions">
           <button id="callBtn" class="iconbtn" onclick="startCall()" title="Аудиозвонок">
             <i class="fa-regular fa-phone"></i>
@@ -78,13 +71,10 @@
           <i class="fa-regular fa-paperclip"></i>
         </button>
         <input id="fileInput" type="file" hidden accept="image/*,video/*" onchange="sendMedia(this)">
-
         <input id="textInput" class="text" placeholder="Сообщение..." onkeydown="onEnter(event)">
-
         <button id="voiceBtn" class="iconbtn" title="Голосовое (удерживать)">
           <i class="fa-regular fa-microphone"></i>
         </button>
-
         <button class="iconbtn send" onclick="sendText()" title="Отправить">
           <i class="fa-regular fa-arrow-up"></i>
         </button>
@@ -92,7 +82,7 @@
     </main>
   </div>
 
-  <!-- Modals (без изменений, но для полноты приведу) -->
+  <!-- Modals -->
   <div id="profileModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
@@ -129,7 +119,12 @@
         <input id="setAvatarUrl" placeholder="https://...">
         <label>Загрузить аватар</label>
         <input id="avatarFile" type="file" accept="image/*">
-        <button class="btn primary full" onclick="saveProfile()">Сохранить</button>
+        <button class="btn primary full" onclick="saveProfile()">
+          <i class="fa-regular fa-floppy-disk"></i> Сохранить
+        </button>
+        <button class="btn danger full" onclick="confirmDeleteAccount()" style="margin-top: 16px;">
+          <i class="fa-regular fa-trash-can"></i> Удалить аккаунт
+        </button>
       </div>
     </div>
   </div>
