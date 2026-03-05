@@ -296,12 +296,14 @@ function stopRecording() {
 
 // ==================== УЛУЧШЕННАЯ МОБИЛЬНАЯ ВЕРСИЯ ====================
 
-// Функция закрытия сайдбара (работает всегда)
-function closeSidebar() {
+// Функция принудительного закрытия сайдбара
+function forceCloseSidebar() {
   const sidebar = document.getElementById("sidebar");
   const overlay = document.getElementById("sidebarOverlay");
-  if (sidebar && overlay) {
+  if (sidebar) {
     sidebar.classList.add("mobile-hidden");
+  }
+  if (overlay) {
     overlay.classList.remove("active");
   }
 }
@@ -313,32 +315,38 @@ function closeSearch() {
   if (toggle && expanded) {
     toggle.classList.remove('hidden');
     expanded.classList.add('hidden');
-    document.getElementById('searchResults').innerHTML = ''; // очищаем результаты
+    const results = document.getElementById('searchResults');
+    if (results) results.innerHTML = '';
   }
 }
 
 // ОСНОВНАЯ ФУНКЦИЯ ОТКРЫТИЯ ЧАТА
 async function openChat(chat) {
-  // Сворачиваем поиск, чтобы не мешал
+  // Сворачиваем поиск
   closeSearch();
 
-  // Загружаем сообщения и обновляем заголовок
+  // Загружаем сообщения
   currentChat = chat;
   loadMessages(chat);
 
+  // Обновляем заголовок
   if (chat === "global") {
     document.getElementById("chatTitle").innerText = "Общий чат";
     document.getElementById("chatSub").innerText = "общение со всеми";
     document.getElementById("callBtn").disabled = true;
   } else {
-    const res = await fetch(API + "/users/" + chat, {
-      headers: { Authorization: "Bearer " + token }
-    });
-    const data = await res.json();
-    if (data.ok) {
-      document.getElementById("chatTitle").innerText = data.user.displayName || data.user.username;
-      document.getElementById("chatSub").innerText = data.user.bio || "";
-      document.getElementById("callBtn").disabled = false;
+    try {
+      const res = await fetch(API + "/users/" + chat, {
+        headers: { Authorization: "Bearer " + token }
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById("chatTitle").innerText = data.user.displayName || data.user.username;
+        document.getElementById("chatSub").innerText = data.user.bio || "";
+        document.getElementById("callBtn").disabled = false;
+      }
+    } catch (e) {
+      console.error("Ошибка загрузки пользователя", e);
     }
   }
 
@@ -347,13 +355,12 @@ async function openChat(chat) {
   const active = document.querySelector(`.chatitem[data-username="${chat}"]`);
   if (active) active.classList.add("active");
   else if (chat === "global") {
-    document.querySelector('.chatitem[data-chat="global"]').classList.add("active");
+    document.querySelector('.chatitem[data-chat="global"]')?.classList.add("active");
   }
 
-  // На мобильных устройствах закрываем сайдбар
-  if (window.innerWidth <= 768) {
-    closeSidebar();
-  }
+  // ========== ГЛАВНОЕ: ПРИНУДИТЕЛЬНО ЗАКРЫВАЕМ САЙДБАР ==========
+  forceCloseSidebar();
+  // =================================================================
 }
 
 function toggleSidebar() {
@@ -365,7 +372,7 @@ function toggleSidebar() {
   }
 }
 
-// Новые функции для сворачивания поиска и историй
+// Функции для сворачивания поиска и историй
 function toggleSearch() {
   const toggle = document.querySelector('.search-toggle');
   const expanded = document.getElementById('searchExpanded');
@@ -402,39 +409,48 @@ function searchUsers(query) {
     return;
   }
   searchTimeout = setTimeout(async () => {
-    const res = await fetch(API + "/users/search?q=" + encodeURIComponent(query), {
-      headers: { Authorization: "Bearer " + token }
-    });
-    const data = await res.json();
-    const results = document.getElementById("searchResults");
-    results.innerHTML = "";
-    data.users.forEach(u => {
-      const btn = document.createElement("button");
-      btn.className = "chatitem";
-      btn.onclick = () => openChat(u.username);
-      btn.innerHTML = `
-        <div class="avatar">${u.avatarUrl ? `<img src="${u.avatarUrl}">` : '<span>👤</span>'}</div>
-        <div class="meta">
-          <div class="name">${u.displayName} <span class="status-dot offline"></span></div>
-          <div class="preview">@${u.username}</div>
-        </div>
-      `;
-      results.appendChild(btn);
-    });
+    try {
+      const res = await fetch(API + "/users/search?q=" + encodeURIComponent(query), {
+        headers: { Authorization: "Bearer " + token }
+      });
+      const data = await res.json();
+      const results = document.getElementById("searchResults");
+      results.innerHTML = "";
+      data.users.forEach(u => {
+        const btn = document.createElement("button");
+        btn.className = "chatitem";
+        btn.onclick = () => openChat(u.username);
+        btn.innerHTML = `
+          <div class="avatar">${u.avatarUrl ? `<img src="${u.avatarUrl}">` : '<span>👤</span>'}</div>
+          <div class="meta">
+            <div class="name">${u.displayName} <span class="status-dot offline"></span></div>
+            <div class="preview">@${u.username}</div>
+          </div>
+        `;
+        results.appendChild(btn);
+      });
+    } catch (e) {
+      console.error("Ошибка поиска", e);
+    }
   }, 300);
 }
 
 async function loadStories() {
-  const res = await fetch(API + "/stories", {
-    headers: { Authorization: "Bearer " + token }
-  });
-  const data = await res.json();
-  stories = data.stories || [];
-  renderStories();
+  try {
+    const res = await fetch(API + "/stories", {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const data = await res.json();
+    stories = data.stories || [];
+    renderStories();
+  } catch (e) {
+    console.error("Ошибка загрузки историй", e);
+  }
 }
 
 function renderStories() {
   const list = document.getElementById("storiesList");
+  if (!list) return;
   list.innerHTML = "";
   const grouped = new Map();
   stories.forEach(s => {
@@ -469,17 +485,21 @@ async function publishStory() {
   if (fileInput.files[0]) form.append("story", fileInput.files[0]);
   if (text) form.append("text", text);
 
-  const res = await fetch(API + "/stories", {
-    method: "POST",
-    headers: { Authorization: "Bearer " + token },
-    body: form
-  });
-  const data = await res.json();
-  if (data.ok) {
-    closeStoryComposer();
-    loadStories();
-  } else {
-    alert("Ошибка публикации");
+  try {
+    const res = await fetch(API + "/stories", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      body: form
+    });
+    const data = await res.json();
+    if (data.ok) {
+      closeStoryComposer();
+      loadStories();
+    } else {
+      alert("Ошибка публикации");
+    }
+  } catch (e) {
+    alert("Ошибка сети");
   }
 }
 
@@ -650,12 +670,16 @@ function toggleMute() {
 
 async function openCurrentProfile() {
   if (currentChat === "global") return;
-  const res = await fetch(API + "/users/" + currentChat, {
-    headers: { Authorization: "Bearer " + token }
-  });
-  const data = await res.json();
-  if (!data.ok) return;
-  showProfileModal(data.user);
+  try {
+    const res = await fetch(API + "/users/" + currentChat, {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const data = await res.json();
+    if (!data.ok) return;
+    showProfileModal(data.user);
+  } catch (e) {
+    console.error("Ошибка загрузки профиля", e);
+  }
 }
 
 function showProfileModal(user) {
@@ -705,32 +729,40 @@ async function saveProfile() {
     const form = new FormData();
     form.append("file", avatarFile);
     form.append("receiver", "global");
-    const uploadRes = await fetch(API + "/upload", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + token },
-      body: form
-    });
-    const uploadData = await uploadRes.json();
-    if (uploadData.ok) {
-      avatarUrl = uploadData.message.mediaUrl;
+    try {
+      const uploadRes = await fetch(API + "/upload", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token },
+        body: form
+      });
+      const uploadData = await uploadRes.json();
+      if (uploadData.ok) {
+        avatarUrl = uploadData.message.mediaUrl;
+      }
+    } catch (e) {
+      alert("Ошибка загрузки аватара");
     }
   }
 
-  const res = await fetch(API + "/me", {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + token
-    },
-    body: JSON.stringify({ displayName, bio, birthDate, avatarUrl })
-  });
-  const data = await res.json();
-  if (data.ok) {
-    currentUser = data.profile;
-    closeSettings();
-    loadChats();
-  } else {
-    alert("Ошибка сохранения");
+  try {
+    const res = await fetch(API + "/me", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({ displayName, bio, birthDate, avatarUrl })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      currentUser = data.profile;
+      closeSettings();
+      loadChats();
+    } else {
+      alert("Ошибка сохранения");
+    }
+  } catch (e) {
+    alert("Ошибка сети");
   }
 }
 
@@ -760,14 +792,18 @@ async function deleteAccount() {
 }
 
 async function checkBirthdays() {
-  const res = await fetch(API + "/birthdays/today", {
-    headers: { Authorization: "Bearer " + token }
-  });
-  const data = await res.json();
-  if (data.list.length > 0) {
-    const names = data.list.map(u => u.displayName || u.username).join(", ");
-    document.getElementById("birthdayBanner").innerText = `🎉 Сегодня день рождения: ${names}`;
-    document.getElementById("birthdayBanner").classList.remove("hidden");
+  try {
+    const res = await fetch(API + "/birthdays/today", {
+      headers: { Authorization: "Bearer " + token }
+    });
+    const data = await res.json();
+    if (data.list.length > 0) {
+      const names = data.list.map(u => u.displayName || u.username).join(", ");
+      document.getElementById("birthdayBanner").innerText = `🎉 Сегодня день рождения: ${names}`;
+      document.getElementById("birthdayBanner").classList.remove("hidden");
+    }
+  } catch (e) {
+    console.error("Ошибка загрузки дней рождения", e);
   }
 }
 
