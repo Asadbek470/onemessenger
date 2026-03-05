@@ -1,138 +1,96 @@
-let adminToken = localStorage.getItem("adminToken") || "";
+// public/admin.js
+(() => {
+  const $ = (id)=>document.getElementById(id);
 
-function $(id) { return document.getElementById(id); }
+  let adminToken = localStorage.getItem("adminToken") || "";
 
-function showAdminUI() {
-  $("loginPanel").classList.add("hidden");
-  $("adminPanel").classList.remove("hidden");
-  loadUsers();
-}
+  async function api(url, method, body){
+    const headers = adminToken ? { "Content-Type":"application/json", "Authorization":"Bearer "+adminToken } : { "Content-Type":"application/json" };
+    const r = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    return r.json();
+  }
 
-function hideAdminUI() {
-  $("loginPanel").classList.remove("hidden");
-  $("adminPanel").classList.add("hidden");
-}
+  function showApp(on){
+    $("adminLogin").classList.toggle("hidden", on);
+    $("adminApp").classList.toggle("hidden", !on);
+  }
 
-if (adminToken) showAdminUI();
-
-async function adminLogin() {
-  const user = $("adminUser").value.trim();
-  const pass = $("adminPass").value.trim();
-  $("aerr").textContent = "";
-
-  try {
-    const r = await fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user, pass })
-    });
-    const d = await r.json();
-    if (!d.ok) {
-      $("aerr").textContent = "Неверный логин/пароль";
+  $("aLoginBtn").onclick = async ()=>{
+    $("aMsg").textContent="";
+    const username = $("aUser").value.trim();
+    const password = $("aPass").value;
+    const data = await api("/api/admin/login", "POST", { username, password });
+    if(!data.ok){
+      $("aMsg").textContent = "❌ " + data.error;
       return;
     }
-
-    adminToken = d.token;
+    adminToken = data.token;
     localStorage.setItem("adminToken", adminToken);
-    showAdminUI();
-  } catch {
-    $("aerr").textContent = "Ошибка соединения";
+    showApp(true);
+    loadUsers();
+  };
+
+  $("aRefresh").onclick = loadUsers;
+
+  async function loadUsers(){
+    const data = await api("/api/admin/users", "GET");
+    if(!data.ok){
+      alert("Ошибка: "+data.error);
+      return;
+    }
+    renderUsers(data.users || []);
   }
-}
 
-function adminLogout() {
-  localStorage.removeItem("adminToken");
-  adminToken = "";
-  hideAdminUI();
-}
-
-async function loadUsers() {
-  try {
-    const r = await fetch("/api/admin/users", {
-      headers: { Authorization: `Bearer ${adminToken}` }
-    });
-    const d = await r.json();
-    if (!d.ok) return alert("Нет доступа");
-
+  function renderUsers(users){
     const wrap = $("usersTable");
-    wrap.innerHTML = "";
-
-    d.users.forEach(u => {
-      const row = document.createElement("div");
-      row.className = "admin-user-row";
-
-      const until = Number(u.blockedUntil || 0);
-      const now = Date.now();
-      const blocked = until > now;
-      const blockRemaining = blocked ? Math.ceil((until - now) / 60000) : 0;
-
-      row.innerHTML = `
-        <div class="admin-user-info">
-          <div class="admin-user-name">
-            <span>👤</span>
-            <div>
-              <div><strong>@${u.username}</strong> ${u.displayName ? `(${u.displayName})` : ""}</div>
-              <div class="admin-user-status ${blocked ? 'blocked' : 'ok'}">
-                ${blocked ? `🚫 Заблокирован (ещё ${blockRemaining} мин)` : "✅ Активен"}
-              </div>
-            </div>
-          </div>
+    wrap.innerHTML = `
+      <div class="trow head">
+        <div>👤 username</div>
+        <div>📝 имя/био</div>
+        <div>💬 текст</div>
+        <div>📎 медиа</div>
+        <div>📞 звонки</div>
+        <div>⛔ блок</div>
+      </div>
+    ` + users.map(u => `
+      <div class="trow" data-u="${u.username}">
+        <div><b>@${u.username}</b><div class="smalltxt">${u.createdAt?.slice(0,10)||""}</div></div>
+        <div>
+          <div>${escapeHtml(u.displayName||"")}</div>
+          <div class="smalltxt">${escapeHtml(u.bio||"")}</div>
         </div>
-
-        <div class="admin-user-controls">
-          <div class="control-group">
-            <label>Блок (минут)</label>
-            <input type="number" min="0" value="0" id="block-${u.username}" placeholder="0">
-            <button class="admin-btn primary" onclick="applyBlock('${u.username}')">Блокировать</button>
-          </div>
-
-          <div class="control-group permissions">
-            <label><input type="checkbox" ${u.canSendText ? "checked" : ""} data-text="${u.username}"> Сообщения</label>
-            <label><input type="checkbox" ${u.canSendMedia ? "checked" : ""} data-media="${u.username}"> Медиа</label>
-            <label><input type="checkbox" ${u.canCall ? "checked" : ""} data-call="${u.username}"> Звонки</label>
-            <button class="admin-btn ghost" onclick="saveRules('${u.username}')">Сохранить</button>
-          </div>
+        <div><input type="checkbox" class="cText" ${u.canSendText? "checked":""}></div>
+        <div><input type="checkbox" class="cMedia" ${u.canSendMedia? "checked":""}></div>
+        <div><input type="checkbox" class="cCall" ${u.canCall? "checked":""}></div>
+        <div>
+          <input class="blockUntil" placeholder="YYYY-MM-DDTHH:mm:ssZ" value="${escapeHtml(u.blockedUntil||"")}"/>
+          <button class="pill saveBtn">✅</button>
         </div>
-      `;
+      </div>
+    `).join("");
 
-      wrap.appendChild(row);
+    wrap.querySelectorAll(".saveBtn").forEach(btn=>{
+      btn.onclick = async ()=>{
+        const row = btn.closest(".trow");
+        const username = row.getAttribute("data-u");
+        const blockedUntil = row.querySelector(".blockUntil").value.trim();
+        const canSendText = row.querySelector(".cText").checked;
+        const canSendMedia = row.querySelector(".cMedia").checked;
+        const canCall = row.querySelector(".cCall").checked;
+        const data = await api("/api/admin/user/update", "POST", { username, blockedUntil, canSendText, canSendMedia, canCall });
+        if(!data.ok) alert("Ошибка: "+data.error);
+        else alert("✅ Обновлено");
+      };
     });
-  } catch (e) {
-    alert("Ошибка загрузки пользователей");
   }
-}
 
-async function applyBlock(username) {
-  const inp = document.getElementById(`block-${username}`);
-  const mins = Number(inp.value || 0);
-  const blockedUntil = mins > 0 ? Date.now() + mins * 60 * 1000 : 0;
-
-  await updateUser(username, { blockedUntil });
-  loadUsers();
-}
-
-async function saveRules(username) {
-  const canSendText = document.querySelector(`input[data-text="${username}"]`).checked ? 1 : 0;
-  const canSendMedia = document.querySelector(`input[data-media="${username}"]`).checked ? 1 : 0;
-  const canCall = document.querySelector(`input[data-call="${username}"]`).checked ? 1 : 0;
-
-  await updateUser(username, { canSendText, canSendMedia, canCall });
-  loadUsers();
-}
-
-async function updateUser(username, patch) {
-  try {
-    const r = await fetch("/api/admin/user/update", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ username, ...patch })
-    });
-    const d = await r.json();
-    if (!d.ok) alert("Ошибка обновления");
-  } catch {
-    alert("Ошибка сети");
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, (m)=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
   }
-}
+
+  // auto show if token exists
+  if(adminToken){
+    showApp(true);
+    loadUsers();
+  }
+})();
