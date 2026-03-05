@@ -50,7 +50,7 @@ body {
   opacity: 1;
 }
 
-/* АВТОРИЗАЦИЯ (без изменений) */
+/* АВТОРИЗАЦИЯ */
 .auth-body {
   display: flex;
   align-items: center;
@@ -233,7 +233,7 @@ body {
   flex-shrink: 0;
 }
 
-/* ===== СВОРАЧИВАЕМЫЙ ПОИСК ===== */
+/* Сворачиваемый поиск */
 .search-container {
   margin-bottom: 8px;
 }
@@ -296,7 +296,7 @@ body {
   color: #fff;
 }
 
-/* СТОРИС - тоже можно скрывать */
+/* Истории с кнопкой сворачивания */
 .stories-header {
   display: flex;
   align-items: center;
@@ -326,7 +326,7 @@ body {
   padding-bottom: 4px;
   scrollbar-width: thin;
   min-height: 60px;
-  transition: min-height 0.2s;
+  transition: min-height 0.2s, opacity 0.2s;
 }
 
 .stories.collapsed {
@@ -400,7 +400,7 @@ body {
   white-space: nowrap;
 }
 
-/* СПИСОК ЧАТОВ - занимает максимум места */
+/* СПИСОК ЧАТОВ */
 .chatlist {
   flex: 1;
   overflow-y: auto;
@@ -955,12 +955,10 @@ body {
     display: block;
   }
 
-  /* Компактная верхняя панель */
   .side-top {
     padding: 8px 8px 2px 8px;
   }
 
-  /* Список чатов занимает почти всё место */
   .chatlist {
     padding: 2px 6px;
   }
@@ -1008,7 +1006,6 @@ body {
     font-size: 13px;
   }
 
-  /* Основная область */
   .topbar {
     padding: 8px 10px;
   }
