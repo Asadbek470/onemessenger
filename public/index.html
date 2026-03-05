@@ -1,268 +1,142 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>One Messenger</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login | Messenger</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
-<body>
-  <div class="app">
-    <!-- Затемнение фона для мобильной версии -->
-    <div id="sidebarOverlay" class="sidebar-overlay" onclick="toggleSidebar()"></div>
+<body class="auth-body">
+  <div class="auth-card">
+    <div class="auth-title">💬 One Messenger</div>
+    <div class="tabs">
+      <button id="tabLogin" class="tab active">Вход</button>
+      <button id="tabReg" class="tab">Регистрация</button>
+    </div>
 
-    <!-- Сайдбар (левый) -->
-    <aside id="sidebar" class="sidebar mobile-hidden">
-      <div class="side-top">
-        <!-- Кнопка сворачивания всей верхней панели -->
-        <div class="top-panel-header">
-          <span></span>
-          <button class="toggle-top-panel" onclick="toggleTopPanel()" title="Свернуть/развернуть">▼</button>
-        </div>
-        <div id="topPanelContent" class="top-panel-content">
-          <!-- Сворачиваемый поиск -->
-          <div class="search-container">
-            <div class="search-toggle" onclick="toggleSearch()">
-              <span>🔍</span>
-              <span>Поиск...</span>
-            </div>
-            <div id="searchExpanded" class="search-expanded hidden">
-              <span>🔍</span>
-              <input id="searchInput" placeholder="Поиск @username..." oninput="searchUsers(this.value)">
-              <span class="close-search" onclick="closeSearch()">✕</span>
-            </div>
-          </div>
+    <div id="loginPane" class="pane">
+      <label>👤 Username</label>
+      <input id="loginUser" placeholder="@username" autocomplete="username"/>
+      <label>🔒 Пароль</label>
+      <input id="loginPass" type="password" placeholder="******" autocomplete="current-password"/>
+      <button id="loginBtn" class="primary">➡️ Войти</button>
+      <div id="loginMsg" class="msg"></div>
+    </div>
 
-          <!-- Истории с кнопкой сворачивания -->
-          <div class="stories-header">
-            <span>Истории</span>
-            <span class="toggle-stories" onclick="toggleStories()">▼</span>
-          </div>
-          <div id="storiesContainer" class="stories">
-            <button class="story-add" onclick="openStoryComposer()" title="Добавить сторис">
-              <span>➕</span>
-            </button>
-            <div id="storiesList" class="stories-list"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Список чатов -->
-      <div class="chatlist">
-        <button class="chatitem active" data-chat="global" onclick="openChat('global')">
-          <div class="avatar">
-            <span>🌐</span>
-          </div>
-          <div class="meta">
-            <div class="name">Общий чат</div>
-            <div class="preview">общение со всеми</div>
-          </div>
-        </button>
-
-        <div id="privateChats"></div>
-        <div id="searchResults"></div>
-      </div>
-
-      <!-- Кнопки внизу -->
-      <div class="side-bottom">
-        <button class="btn ghost full" onclick="openCreateGroupModal()">
-          <span>👥</span> Создать группу
-        </button>
-        <button class="btn ghost full" onclick="openSettings()" style="margin-top: 8px;">
-          <span>👤</span> Настройки профиля
-        </button>
-      </div>
-    </aside>
-
-    <!-- Основная область чата (правая) -->
-    <main class="main">
-      <header class="topbar">
-        <button class="iconbtn mobile" onclick="toggleSidebar()">
-          <span>☰</span>
-        </button>
-        <div class="title" onclick="openCurrentProfileOrGroup()">
-          <div id="chatTitle" class="h">Общий чат</div>
-          <div id="chatSub" class="s">общение со всеми</div>
-        </div>
-
-        <div class="actions">
-          <button id="callBtn" class="iconbtn" onclick="startCall()" title="Аудиозвонок">
-            <span>📞</span>
-          </button>
-          <button class="iconbtn" onclick="logout()" title="Выйти">
-            <span>🚪</span>
-          </button>
-        </div>
-      </header>
-
-      <div id="birthdayBanner" class="banner hidden"></div>
-
-      <section id="messages" class="messages"></section>
-
-      <!-- Панель ввода сообщения -->
-      <footer class="composer">
-        <button class="iconbtn" onclick="document.getElementById('fileInput').click()" title="Фото/Видео">
-          <span>📎</span>
-        </button>
-        <input id="fileInput" type="file" hidden accept="image/*,video/*" onchange="sendMedia(this)">
-
-        <input id="textInput" class="text" placeholder="Сообщение..." onkeydown="onEnter(event)">
-
-        <button id="voiceBtn" class="iconbtn" title="Голосовое (удерживать)">
-          <span>🎤</span>
-        </button>
-
-        <button class="iconbtn send" onclick="sendText()" title="Отправить">
-          <span>➡️</span>
-        </button>
-      </footer>
-    </main>
-  </div>
-
-  <!-- Модальное окно профиля -->
-  <div id="profileModal" class="modal hidden">
-    <div class="card">
-      <div class="cardtop">
-        <div class="cardtitle">Профиль</div>
-        <button class="iconbtn" onclick="closeProfile()"><span>❌</span></button>
-      </div>
-      <div class="profile">
-        <div class="avatar big" id="profileAvatar"><span>👤</span></div>
-        <div class="profiletext">
-          <div class="pname" id="profileName"></div>
-          <div class="puser" id="profileUser"></div>
-          <div class="pbio" id="profileBio"></div>
-          <div class="pbirth" id="profileBirth"></div>
-        </div>
-      </div>
-      <div id="profileActions" class="row"></div>
+    <div id="regPane" class="pane hidden">
+      <label>👤 Username (a-z 0-9 _ , 4-20)</label>
+      <input id="regUser" placeholder="username" autocomplete="username"/>
+      <label>🔒 Пароль (6+)</label>
+      <input id="regPass" type="password" placeholder="******" autocomplete="new-password"/>
+      <button id="regBtn" class="primary">✅ Создать</button>
+      <div id="regMsg" class="msg"></div>
     </div>
   </div>
 
-  <!-- Модальное окно настроек -->
-  <div id="settingsModal" class="modal hidden">
-    <div class="card">
-      <div class="cardtop">
-        <div class="cardtitle">Настройки профиля</div>
-        <button class="iconbtn" onclick="closeSettings()"><span>❌</span></button>
-      </div>
-      <div class="formgrid">
-        <label>Display name</label>
-        <input id="setDisplayName" placeholder="Имя">
-        <label>Bio</label>
-        <input id="setBio" placeholder="О себе">
-        <label>Дата рождения (YYYY-MM-DD)</label>
-        <input id="setBirthDate" placeholder="2009-01-31">
-        <label>Аватар (URL)</label>
-        <input id="setAvatarUrl" placeholder="https://...">
-        <label>Загрузить аватар</label>
-        <input id="avatarFile" type="file" accept="image/*">
-        <button class="btn primary full" onclick="saveProfile()">
-          <span>💾</span> Сохранить
-        </button>
-        <button class="btn danger full" onclick="confirmDeleteAccount()" style="margin-top: 16px;">
-          <span>🗑️</span> Удалить аккаунт
-        </button>
-      </div>
+  <!-- 2FA modal -->
+  <div id="modal2fa" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-title">🔐 Подтверждение входа</div>
+      <div class="muted">Код отправлен в личные сообщения от @telegram</div>
+      <input id="codeInput" placeholder="6-значный код" maxlength="6" />
+      <button id="confirmBtn" class="primary">➡️ Подтвердить</button>
+      <button id="cancelBtn" class="ghost">❌ Отмена</button>
+      <div id="codeMsg" class="msg"></div>
     </div>
   </div>
 
-  <!-- Модальное окно создания сторис -->
-  <div id="storyModal" class="modal hidden">
-    <div class="card">
-      <div class="cardtop">
-        <div class="cardtitle">Новая сторис</div>
-        <button class="iconbtn" onclick="closeStoryComposer()"><span>❌</span></button>
-      </div>
-      <div class="formgrid">
-        <label>Файл (не обязательно)</label>
-        <input id="storyFile" type="file" accept="image/*,video/*">
-        <label>Текст (не обязательно)</label>
-        <input id="storyText" maxlength="120" placeholder="Текст...">
-        <button class="btn primary full" onclick="publishStory()">Опубликовать</button>
-      </div>
-    </div>
-  </div>
+<script>
+(function(){
+  const $ = (id)=>document.getElementById(id);
 
-  <!-- Модальное окно создания группы -->
-  <div id="createGroupModal" class="modal hidden">
-    <div class="card">
-      <div class="cardtop">
-        <div class="cardtitle">Создать группу</div>
-        <button class="iconbtn" onclick="closeCreateGroupModal()"><span>❌</span></button>
-      </div>
-      <div class="formgrid">
-        <label>Название группы</label>
-        <input id="groupNameInput" placeholder="Название">
-        <label>Описание (необязательно)</label>
-        <input id="groupDescInput" placeholder="Описание">
-        <label>Участники (через запятую, @username)</label>
-        <input id="groupMembersInput" placeholder="@user1, @user2">
-        <button class="btn primary full" onclick="createGroup()">Создать</button>
-      </div>
-    </div>
-  </div>
+  const deviceIdKey = "deviceId";
+  function getDeviceId(){
+    let id = localStorage.getItem(deviceIdKey);
+    if(!id){
+      id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+      localStorage.setItem(deviceIdKey, id);
+    }
+    return id;
+  }
 
-  <!-- Модальное окно информации о группе -->
-  <div id="groupInfoModal" class="modal hidden">
-    <div class="card">
-      <div class="cardtop">
-        <div class="cardtitle">Информация о группе</div>
-        <button class="iconbtn" onclick="closeGroupInfoModal()"><span>❌</span></button>
-      </div>
-      <div class="profile">
-        <div class="avatar big" id="groupInfoAvatar"><span>👥</span></div>
-        <div class="profiletext">
-          <div class="pname" id="groupInfoName"></div>
-          <div class="puser" id="groupInfoDesc"></div>
-        </div>
-      </div>
-      <div class="section-title">Участники</div>
-      <div id="groupMembersList" class="members-list"></div>
+  function show(pane){
+    $("loginPane").classList.toggle("hidden", pane!=="login");
+    $("regPane").classList.toggle("hidden", pane!=="reg");
+    $("tabLogin").classList.toggle("active", pane==="login");
+    $("tabReg").classList.toggle("active", pane==="reg");
+  }
 
-      <!-- Добавление участников (только для админов) -->
-      <div class="add-members-section">
-        <label>Добавить участников (через запятую)</label>
-        <div class="row">
-          <input id="addMembersInput" placeholder="@username">
-          <button class="btn primary" onclick="addMembersToGroup()">Добавить</button>
-        </div>
-      </div>
-    </div>
-  </div>
+  $("tabLogin").onclick=()=>show("login");
+  $("tabReg").onclick=()=>show("reg");
 
-  <audio id="remoteAudio" autoplay playsinline></audio>
+  async function api(url, body){
+    const r = await fetch(url, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(body)
+    });
+    return r.json();
+  }
 
-  <div id="incomingCallModal" class="modal hidden">
-    <div class="card callcard">
-      <div class="cardtop">
-        <div class="cardtitle">Входящий звонок</div>
-        <button class="iconbtn" onclick="declineIncomingCall()"><span>❌</span></button>
-      </div>
-      <div id="incomingCallText" class="callstatus">Кто-то звонит…</div>
-      <div class="row">
-        <button class="btn primary" onclick="acceptIncomingCall()">Принять</button>
-        <button class="btn danger" onclick="declineIncomingCall()">Отклонить</button>
-      </div>
-    </div>
-  </div>
+  let pendingUsername = "";
 
-  <div id="callModal" class="modal hidden">
-    <div class="card callcard">
-      <div class="cardtop">
-        <div class="cardtitle">Звонок</div>
-        <button class="iconbtn" onclick="endCall()"><span>❌</span></button>
-      </div>
-      <div id="callStatus" class="callstatus">Соединение...</div>
-      <div class="row" style="justify-content: center;">
-        <button id="muteBtn" class="btn ghost" onclick="toggleMute()">🔇 Выключить микрофон</button>
-      </div>
-      <div class="row">
-        <button class="btn danger full" onclick="endCall()">🔚 Завершить</button>
-      </div>
-    </div>
-  </div>
+  $("loginBtn").onclick = async ()=>{
+    $("loginMsg").textContent="";
+    const identifier = $("loginUser").value.trim();
+    const password = $("loginPass").value;
+    const deviceId = getDeviceId();
+    const deviceName = navigator.userAgent.slice(0,80);
 
-  <script src="app.js"></script>
+    const data = await api("/api/auth/login", { identifier, password, deviceId, deviceName });
+    if(!data.ok){
+      $("loginMsg").textContent = "❌ " + data.error;
+      return;
+    }
+    if(data.requireConfirm){
+      pendingUsername = data.username;
+      $("modal2fa").classList.remove("hidden");
+      $("codeMsg").textContent="";
+      $("codeInput").value="";
+      $("codeInput").focus();
+      return;
+    }
+    localStorage.setItem("token", data.token);
+    window.location.href = "/chat.html";
+  };
+
+  $("regBtn").onclick = async ()=>{
+    $("regMsg").textContent="";
+    const username = $("regUser").value.trim().replace(/^@/,'');
+    const password = $("regPass").value;
+    const data = await api("/api/auth/register", { username, password });
+    if(!data.ok){
+      $("regMsg").textContent = "❌ " + data.error;
+      return;
+    }
+    $("regMsg").textContent = "✅ Готово! Теперь войди.";
+    show("login");
+    $("loginUser").value = "@"+username;
+    $("loginPass").value = "";
+  };
+
+  $("confirmBtn").onclick = async ()=>{
+    $("codeMsg").textContent="";
+    const code = $("codeInput").value.trim();
+    const deviceId = getDeviceId();
+    const data = await api("/api/auth/confirm", { username: pendingUsername, code, deviceId });
+    if(!data.ok){
+      $("codeMsg").textContent = "❌ " + data.error;
+      return;
+    }
+    localStorage.setItem("token", data.token);
+    $("modal2fa").classList.add("hidden");
+    window.location.href="/chat.html";
+  };
+
+  $("cancelBtn").onclick = ()=>{
+    $("modal2fa").classList.add("hidden");
+  };
+})();
+</script>
 </body>
 </html>
