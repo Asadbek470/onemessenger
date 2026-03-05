@@ -1,94 +1,45 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Messenger</title>
-  <link rel="stylesheet" href="style.css"/>
+<meta charset="UTF-8">
+<title>Messenger</title>
+<link rel="stylesheet" href="style.css">
 </head>
-<body class="app-body">
-  <div class="layout">
+<body>
 
-    <!-- Sidebar -->
-    <aside id="sidebar" class="sidebar">
-      <div class="side-top">
-        <button id="collapseBtn" class="iconbtn" title="Свернуть панель">▼</button>
-        <div class="side-title">💬 Чаты</div>
-        <button id="storiesBtn" class="iconbtn" title="Stories">▶</button>
-      </div>
+<div class="app">
 
-      <div id="sidePanel" class="side-panel">
-        <div class="search-row">
-          <span class="emoji">🔍</span>
-          <input id="searchInput" placeholder="Поиск @username"/>
-        </div>
+<div class="sidebar">
 
-        <div class="btn-row">
-          <button id="newGroupBtn" class="pill">👥 Создать группу</button>
-          <button id="settingsBtn" class="pill">👤 Профиль</button>
-        </div>
+<h2>💬 Chats</h2>
 
-        <div id="birthdayBanner" class="banner hidden"></div>
-      </div>
+<input id="search" placeholder="🔍 search">
 
-      <div class="chatlist" id="chatList"></div>
-    </aside>
+<div id="chatList"></div>
 
-    <!-- Main -->
-    <main class="main">
-      <header class="topbar">
-        <div class="chathead" id="chatHead">
-          <div class="avatar" id="headAvatar">🙂</div>
-          <div class="headmeta">
-            <div class="headtitle" id="headTitle">Глобальный чат</div>
-            <div class="headsub" id="headSub">🌍 online</div>
-          </div>
-        </div>
+</div>
 
-        <div class="top-actions">
-          <button id="callBtn" class="iconbtn" title="Аудиозвонок">📞</button>
-          <button id="logoutBtn" class="iconbtn" title="Выход">🚪</button>
-        </div>
-      </header>
+<div class="chat">
 
-      <div id="typingLine" class="typingline hidden">⌨️ печатает...</div>
+<div class="chatHeader">
+👤 <span id="chatName"></span>
+</div>
 
-      <section id="messages" class="messages"></section>
+<div id="messages" class="messages"></div>
 
-      <footer class="composer">
-        <input id="msgInput" placeholder="Сообщение..." />
-        <input id="fileInput" type="file" class="hidden" />
-        <button id="attachBtn" class="iconbtn" title="Файл">📎</button>
+<div class="inputBar">
 
-        <button id="micBtn" class="iconbtn mic" title="Голосовое (удерживать)">🎤</button>
-        <button id="sendBtn" class="primary small" title="Отправить">➡️</button>
-      </footer>
-    </main>
-  </div>
+<input id="text">
 
-  <!-- Modals -->
-  <div id="modalBackdrop" class="modal hidden">
-    <div class="modal-card wide">
-      <div class="modal-title" id="modalTitle">Окно</div>
-      <div id="modalBody"></div>
-      <div class="modal-actions">
-        <button id="modalClose" class="ghost">❌ Закрыть</button>
-      </div>
-    </div>
-  </div>
+<button onclick="send()">➡️</button>
 
-  <!-- Incoming call -->
-  <div id="callModal" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-title" id="callTitle">📞 Звонок</div>
-      <div id="callText" class="muted"></div>
-      <div class="modal-actions">
-        <button id="callAccept" class="primary">✅ Принять</button>
-        <button id="callDecline" class="ghost">❌ Отклонить</button>
-      </div>
-    </div>
-  </div>
+</div>
 
-  <script src="app.js"></script>
+</div>
+
+</div>
+
+<script src="app.js"></script>
+
 </body>
 </html>
