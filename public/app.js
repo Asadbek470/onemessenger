@@ -31,6 +31,7 @@ const storiesBtn = document.getElementById('stories-btn');
 // Modals
 const profileModal = document.getElementById('profile-modal');
 const settingsModal = document.getElementById('settings-modal');
+const sessionsList = document.getElementById('sessions-list');
 const createGroupModal = document.getElementById('create-group-modal');
 const groupInfoModal = document.getElementById('group-info-modal');
 const incomingCallModal = document.getElementById('incoming-call-modal');
@@ -43,10 +44,36 @@ async function loadProfile() {
   const data = await res.json();
   if (data.ok) {
     // Use data.user
+    document.getElementById('display-name').value = data.user.displayName || '';
+    document.getElementById('bio').value = data.user.bio || '';
+    document.getElementById('birth-date').value = data.user.birthDate || '';
   }
 }
 
-loadProfile();
+// Load sessions
+async function loadSessions() {
+  const res = await fetch('/api/sessions', { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json();
+  if (data.ok) {
+    sessionsList.innerHTML = '';
+    data.sessions.forEach(s => {
+      const div = document.createElement('div');
+      div.classList.add('session-item');
+      div.innerHTML = `
+        <span>${s.deviceName} - Last used: ${s.lastUsed}</span>
+        <button class="btn danger small" onclick="terminateSession(${s.id})">Terminate</button>
+      `;
+      sessionsList.appendChild(div);
+    });
+  }
+}
+
+async function terminateSession(id) {
+  const res = await fetch(`/api/sessions/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  if ((await res.json()).ok) {
+    loadSessions();
+  }
+}
 
 // Load chats
 async function loadChats() {
@@ -57,13 +84,14 @@ async function loadChats() {
     data.chats.forEach(chat => {
       const div = document.createElement('div');
       div.classList.add('chat-item');
-      div.textContent = chat.name;
+      div.innerHTML = `<span class="chat-avatar">👤</span><span>${chat.name}</span>`;
       div.onclick = () => openChat(chat);
       chatsList.appendChild(div);
     });
   }
 }
 
+loadProfile();
 loadChats();
 
 // Open chat
@@ -91,24 +119,19 @@ async function loadMessages(chatId) {
 function appendMessage(msg) {
   const div = document.createElement('div');
   div.classList.add('message');
-  div.innerHTML = `<strong>${msg.sender}:</strong> ${msg.text || ''}`;
+  if (msg.sender === localStorage.getItem('username')) div.classList.add('own');  // Assume username stored
+  let content = `<div class="sender">${msg.sender}</div>`;
+  if (msg.text) content += `<p>${msg.text}</p>`;
   if (msg.mediaUrl) {
     if (msg.mediaType === 'image') {
-      const img = document.createElement('img');
-      img.src = msg.mediaUrl;
-      div.appendChild(img);
+      content += `<img src="${msg.mediaUrl}" alt="image" style="max-width:100%; border-radius:8px;">`;
     } else if (msg.mediaType === 'video') {
-      const video = document.createElement('video');
-      video.src = msg.mediaUrl;
-      video.controls = true;
-      div.appendChild(video);
+      content += `<video src="${msg.mediaUrl}" controls style="max-width:100%; border-radius:8px;"></video>`;
     } else if (msg.mediaType === 'audio') {
-      const audio = document.createElement('audio');
-      audio.src = msg.mediaUrl;
-      audio.controls = true;
-      div.appendChild(audio);
+      content += `<audio src="${msg.mediaUrl}" controls></audio>`;
     }
   }
+  div.innerHTML = content;
   messagesDiv.appendChild(div);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
@@ -154,7 +177,6 @@ attachBtn.addEventListener('click', () => {
     });
     const data = await res.json();
     if (data.ok) {
-      // Send via WS or save as message
       ws.send(JSON.stringify({
         type: 'media-message',
         chatType: currentChat.type,
@@ -169,20 +191,23 @@ attachBtn.addEventListener('click', () => {
 });
 
 // Voice message
-micBtn.addEventListener('mousedown', () => {
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+micBtn.addEventListener('mousedown', async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
     mediaRecorder.start();
     audioChunks = [];
     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-  });
+  } catch (err) {
+    console.error('Mic access denied');
+  }
 });
 
 micBtn.addEventListener('mouseup', () => stopRecording());
 micBtn.addEventListener('mouseleave', () => stopRecording());
 
-function stopRecording() {
-  if (mediaRecorder) {
+async function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
     mediaRecorder.onstop = async () => {
       const blob = new Blob(audioChunks, { type: 'audio/webm' });
@@ -224,13 +249,12 @@ ws.onmessage = (event) => {
       }
       break;
     case 'status':
-      // Update status in chats list or header
       if (currentChat?.type === 'personal' && data.username === currentChat.id) {
         chatStatus.textContent = data.status === 'online' ? 'Online' : `Last seen ${data.lastSeen}`;
       }
       break;
     case 'call-offer':
-      incomingCallModal.style.display = 'block';
+      incomingCallModal.style.display = 'flex';
       document.getElementById('caller').textContent = data.from;
       document.getElementById('accept-call').onclick = () => acceptCall(data);
       document.getElementById('reject-call').onclick = () => rejectCall(data.from);
@@ -271,7 +295,7 @@ async function startCall() {
   await peerConnection.setLocalDescription(offer);
   ws.send(JSON.stringify({ type: 'call-offer', offer, to: currentChat.id }));
 
-  callModal.style.display = 'block';
+  callModal.style.display = 'flex';
   document.getElementById('call-peer').textContent = currentChat.name;
   document.getElementById('end-call').onclick = () => {
     ws.send(JSON.stringify({ type: 'call-end', to: currentChat.id }));
@@ -302,7 +326,7 @@ async function acceptCall(data) {
   await peerConnection.setLocalDescription(answer);
   ws.send(JSON.stringify({ type: 'call-answer', answer, to: data.from }));
 
-  callModal.style.display = 'block';
+  callModal.style.display = 'flex';
   document.getElementById('call-peer').textContent = data.from;
   document.getElementById('end-call').onclick = () => {
     ws.send(JSON.stringify({ type: 'call-end', to: data.from }));
@@ -327,11 +351,11 @@ function endCall() {
 backBtn.addEventListener('click', () => sidebar.classList.add('active'));
 
 createGroupBtn.addEventListener('click', () => {
-  createGroupModal.style.display = 'block';
+  createGroupModal.style.display = 'flex';
   document.getElementById('create-group-btn').onclick = async () => {
     const name = document.getElementById('group-name').value;
     const desc = document.getElementById('group-desc').value;
-    const members = document.getElementById('group-members').value.split(',');
+    const members = document.getElementById('group-members').value.split(',').map(m => m.trim());
     const res = await fetch('/api/groups', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -346,8 +370,8 @@ createGroupBtn.addEventListener('click', () => {
 });
 
 settingsBtn.addEventListener('click', () => {
-  settingsModal.style.display = 'block';
-  // Load current profile into inputs
+  loadSessions();
+  settingsModal.style.display = 'flex';
   document.getElementById('save-profile').onclick = async () => {
     const formData = new FormData();
     formData.append('displayName', document.getElementById('display-name').value);
@@ -391,16 +415,19 @@ storiesBtn.addEventListener('click', async () => {
   const res = await fetch('/api/stories', { headers: { Authorization: `Bearer ${token}` } });
   const data = await res.json();
   if (data.ok) {
-    storiesModal.innerHTML = '<h2>Stories</h2>';
+    storiesModal.innerHTML = '<div class="modal-content"><h2>Stories</h2></div>';
+    const content = storiesModal.querySelector('.modal-content');
     data.stories.forEach(s => {
       const div = document.createElement('div');
-      div.textContent = `${s.owner}: ${s.text}`;
+      div.classList.add('story-item');
+      div.innerHTML = `<strong>${s.owner}</strong>: ${s.text || ''}`;
       if (s.mediaUrl) {
-        // Add media
+        if (s.mediaType === 'image') div.innerHTML += `<img src="${s.mediaUrl}" alt="story">`;
+        // similar for video
       }
-      storiesModal.appendChild(div);
+      content.appendChild(div);
     });
-    storiesModal.style.display = 'block';
+    storiesModal.style.display = 'flex';
   }
 });
 
@@ -419,9 +446,9 @@ async function loadUserProfile(username) {
   const res = await fetch(`/api/users/${username}`, { headers: { Authorization: `Bearer ${token}` } });
   const data = await res.json();
   if (data.ok) {
-    profileModal.innerHTML = `<h2>${data.user.displayName || data.user.username}</h2><p>${data.user.bio}</p>`;
+    profileModal.innerHTML = `<div class="modal-content"><h2>${data.user.displayName || data.user.username}</h2><p>${data.user.bio}</p></div>`;
     // Add avatar, birthDate, etc.
-    profileModal.style.display = 'block';
+    profileModal.style.display = 'flex';
   }
 }
 
@@ -429,9 +456,9 @@ async function loadGroupInfo(groupId) {
   const res = await fetch(`/api/groups/${groupId}`, { headers: { Authorization: `Bearer ${token}` } });
   const data = await res.json();
   if (data.ok) {
-    groupInfoModal.innerHTML = `<h2>${data.group.name}</h2><p>${data.group.description}</p>`;
+    groupInfoModal.innerHTML = `<div class="modal-content"><h2>${data.group.name}</h2><p>${data.group.description}</p></div>`;
     // List members, edit buttons if admin
-    groupInfoModal.style.display = 'block';
+    groupInfoModal.style.display = 'flex';
   }
 }
 
@@ -441,7 +468,10 @@ async function loadBirthdays() {
   const data = await res.json();
   if (data.ok && data.birthdays.length > 0) {
     // Show banner
-    alert(`Today's birthdays: ${data.birthdays.map(b => b.displayName).join(', ')}`);
+    const banner = document.createElement('div');
+    banner.classList.add('birthday-banner');
+    banner.textContent = `Today's birthdays: ${data.birthdays.map(b => b.displayName).join(', ')}`;
+    document.querySelector('.app').prepend(banner);
   }
 }
 
@@ -451,4 +481,11 @@ loadBirthdays();
 document.getElementById('exit-btn').addEventListener('click', () => {
   localStorage.removeItem('token');
   window.location.href = 'index.html';
+});
+
+// Close modals on click outside
+document.querySelectorAll('.modal').forEach(modal => {
+  modal.addEventListener('click', e => {
+    if (e.target === modal) modal.style.display = 'none';
+  });
 });
