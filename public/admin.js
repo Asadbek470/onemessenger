@@ -29,16 +29,17 @@ async function loadUsers() {
     usersList.innerHTML = '';
     data.users.forEach(user => {
       const div = document.createElement('div');
+      div.classList.add('admin-user-item');
       div.innerHTML = `
         <strong>${user.username}</strong>
-        <input type="date" placeholder="Blocked Until" value="${user.blockedUntil || ''}">
-        <label>Can Send Text: <input type="checkbox" ${user.canSendText ? 'checked' : ''}></label>
-        <label>Can Send Media: <input type="checkbox" ${user.canSendMedia ? 'checked' : ''}></label>
-        <label>Can Call: <input type="checkbox" ${user.canCall ? 'checked' : ''}></label>
-        <button>Update</button>
+        <input type="datetime-local" placeholder="Blocked Until" value="${user.blockedUntil || ''}">
+        <label>Text: <input type="checkbox" ${user.canSendText ? 'checked' : ''}></label>
+        <label>Media: <input type="checkbox" ${user.canSendMedia ? 'checked' : ''}></label>
+        <label>Call: <input type="checkbox" ${user.canCall ? 'checked' : ''}></label>
+        <button class="btn primary small">Update</button>
       `;
       div.querySelector('button').onclick = async () => {
-        const blockedUntil = div.querySelector('input[type="date"]').value;
+        const blockedUntil = div.querySelector('input[type="datetime-local"]').value;
         const canSendText = div.querySelector('input[type="checkbox"]:nth-of-type(1)').checked;
         const canSendMedia = div.querySelector('input[type="checkbox"]:nth-of-type(2)').checked;
         const canCall = div.querySelector('input[type="checkbox"]:nth-of-type(3)').checked;
