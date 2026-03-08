@@ -1,45 +1,73 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Messenger</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web Messenger</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="app">
+    <div class="sidebar">
+      <div class="top-panel">
+        <span class="emoji-btn" id="search-btn">🔍</span>
+        <input type="text" id="search-input" placeholder="Search users">
+        <span class="emoji-btn" id="stories-btn">📖</span>
+        <span class="emoji-btn toggle-arrow">▼</span>
+      </div>
+      <div class="chats-list"></div>
+      <div class="bottom-buttons">
+        <span class="emoji-btn" id="create-group">👥</span>
+        <span class="emoji-btn" id="settings">👤</span>
+      </div>
+    </div>
+    <div class="chat-area">
+      <div class="chat-header">
+        <span class="back-btn emoji-btn">⬅️</span>
+        <span id="chat-title"></span>
+        <span id="chat-status"></span>
+        <span class="emoji-btn" id="call-btn">📞</span>
+        <span class="emoji-btn" id="exit-btn">🚪</span>
+      </div>
+      <div class="messages"></div>
+      <div class="input-panel">
+        <input type="text" id="message-input" placeholder="Type a message">
+        <span class="emoji-btn" id="attach-btn">📎</span>
+        <span class="emoji-btn" id="mic-btn">🎤</span>
+        <span class="emoji-btn" id="send-btn">➡️</span>
+      </div>
+    </div>
+  </div>
 
-<div class="app">
+  <!-- Modals -->
+  <div id="profile-modal" class="modal"></div>
+  <div id="settings-modal" class="modal">
+    <h2>Settings</h2>
+    <input type="text" id="display-name" placeholder="Display Name">
+    <textarea id="bio" placeholder="Bio"></textarea>
+    <input type="date" id="birth-date">
+    <input type="file" id="avatar-input">
+    <button id="save-profile">Save</button>
+    <button id="delete-account">Delete Account</button>
+  </div>
+  <div id="create-group-modal" class="modal">
+    <input type="text" id="group-name" placeholder="Group Name">
+    <textarea id="group-desc" placeholder="Description"></textarea>
+    <input type="text" id="group-members" placeholder="Usernames (comma-separated)">
+    <button id="create-group-btn">Create</button>
+  </div>
+  <div id="group-info-modal" class="modal"></div>
+  <div id="incoming-call-modal" class="modal">
+    <h2>Incoming Call from <span id="caller"></span></h2>
+    <button id="accept-call">Accept</button>
+    <button id="reject-call">Reject</button>
+  </div>
+  <div id="call-modal" class="modal">
+    <h2>Call with <span id="call-peer"></span></h2>
+    <button id="end-call">End Call</button>
+  </div>
+  <div id="stories-modal" class="modal"></div>
 
-<div class="sidebar">
-
-<h2>💬 Chats</h2>
-
-<input id="search" placeholder="🔍 search">
-
-<div id="chatList"></div>
-
-</div>
-
-<div class="chat">
-
-<div class="chatHeader">
-👤 <span id="chatName"></span>
-</div>
-
-<div id="messages" class="messages"></div>
-
-<div class="inputBar">
-
-<input id="text">
-
-<button onclick="send()">➡️</button>
-
-</div>
-
-</div>
-
-</div>
-
-<script src="app.js"></script>
-
+  <script src="app.js"></script>
 </body>
 </html>
