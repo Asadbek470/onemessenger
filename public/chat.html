@@ -189,6 +189,12 @@
         <div class="row">
           <button id="muteBtn" class="btn ghost" onclick="toggleMute()">Выключить микрофон</button>
           <button class="btn danger" onclick="endCall()">Завершить</button>
+          <video id="localVideo" autoplay muted></video>
+<video id="remoteVideo" autoplay></video>
+
+<canvas id="wave"></canvas>
+
+<div id="quality">🟢</div>
         </div>
       </div>
     </div>
