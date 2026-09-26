@@ -9,7 +9,7 @@
 <body>
     <div class="admin-container">
         <h1>One Messenger • Admin Panel</h1>
-        
+
         <div class="admin-search">
             <input id="searchUser" placeholder="Поиск пользователя @username">
             <button onclick="searchUser()">Найти</button>
@@ -22,6 +22,7 @@
                     <h2 id="userName"></h2>
                     <p id="userUsername"></p>
                     <p id="userBio"></p>
+                    <p id="userFlags"></p>
                 </div>
             </div>
 
@@ -35,6 +36,28 @@
         </div>
     </div>
 
+    <!--
+      The real protection is server-side (every /api/admin/* route requires
+      isAdmin=1). This client-side check just avoids showing the panel's UI
+      to non-admins who happen to open this URL.
+    -->
+    <script>
+      (async function gate() {
+        const token = localStorage.getItem("token");
+        if (!token) { location.href = "index.html"; return; }
+
+        try {
+          const r = await fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } });
+          const d = await r.json();
+          if (!d.ok || !d.profile.isAdmin) {
+            alert("Доступ только для администраторов");
+            location.href = "chat.html";
+          }
+        } catch {
+          location.href = "chat.html";
+        }
+      })();
+    </script>
     <script src="admin.js"></script>
 </body>
 </html>
