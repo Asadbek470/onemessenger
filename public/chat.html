@@ -79,9 +79,6 @@
           <button id="callBtn" class="iconbtn" onclick="startAudioCall()" title="Аудиозвонок">
             <i class="fa-solid fa-phone"></i>
           </button>
-          <button class="iconbtn" onclick="logout()" title="Выйти">
-            <i class="fa-solid fa-right-from-bracket"></i>
-          </button>
         </div>
       </header>
 
@@ -157,8 +154,12 @@
             <label>Дата рождения (YYYY-MM-DD)</label>
             <input id="setBirthDate" placeholder="2009-01-31" />
 
-            <label>Аватар (URL)</label>
-            <input id="setAvatarUrl" placeholder="https://..." />
+            <label>Аватар</label>
+            <div class="row">
+              <input id="setAvatarUrl" placeholder="https://..." />
+              <button class="btn ghost" onclick="document.getElementById('avatarFileInput').click()"><i class="fa-solid fa-image"></i> Из галереи</button>
+            </div>
+            <input id="avatarFileInput" type="file" hidden accept="image/*" onchange="uploadAvatarFile(this)" />
 
             <button class="btn primary full" onclick="saveProfile()">Сохранить профиль</button>
           </div>
@@ -182,6 +183,14 @@
         <div class="settingsblock">
           <div class="blocktitle">Официальная верификация</div>
           <div id="verificationSection" class="formgrid"></div>
+        </div>
+
+        <div class="settingsblock">
+          <div class="blocktitle">Аккаунт</div>
+          <div class="formgrid">
+            <button class="btn ghost full" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i> Выйти из аккаунта</button>
+            <div id="deleteAccountSection"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -249,6 +258,22 @@
 
         <button class="btn primary full" onclick="publishList()">Отправить список</button>
       </div>
+    </div>
+  </div>
+
+  <!-- STORY VIEWER (full screen, animated, replaces the old plain alert) -->
+  <div id="storyViewerModal" class="modal storyviewer hidden" onclick="if(event.target===this) closeStoryViewer()">
+    <div class="storyviewer-inner">
+      <div class="storyviewer-progress"><div id="storyProgressBar" class="storyviewer-progress-fill"></div></div>
+      <div class="storyviewer-head">
+        <div class="avatar" id="storyViewerAvatar"></div>
+        <div class="meta">
+          <div class="name" id="storyViewerName"></div>
+        </div>
+        <button class="iconbtn" onclick="closeStoryViewer()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="storyViewerMedia" class="storyviewer-media"></div>
+      <div id="storyViewerCaption" class="storyviewer-caption"></div>
     </div>
   </div>
 
