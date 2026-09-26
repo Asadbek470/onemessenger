@@ -26,12 +26,32 @@ if (!JWT_SECRET) {
 const EFFECTIVE_JWT_SECRET = JWT_SECRET || crypto.randomBytes(32).toString("hex");
 const APP_NAME = "One Messenger";
 
-// Comma-separated list of usernames that should be promoted to admin on boot,
-// e.g. ADMIN_USERNAMES=asadbek000,another_admin
-const ADMIN_USERNAMES = String(process.env.ADMIN_USERNAMES || "")
-  .split(",")
-  .map(s => s.trim().replace(/^@+/, "").toLowerCase())
-  .filter(Boolean);
+// ---------------- ADMIN CREDENTIALS ----------------
+// The admin panel is a completely separate login, not tied to any regular
+// user account. Set these in Render -> Environment. The values below are
+// only fallbacks so the panel works out of the box — CHANGE THEM before
+// this app is reachable by anyone else, because default credentials in a
+// public GitHub repo are effectively public.
+const ADMIN_LOGIN = process.env.ADMIN_LOGIN || "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin2026";
+if (!process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
+  console.warn(
+    "[SECURITY WARNING] ADMIN_LOGIN/ADMIN_PASSWORD are not set — using the " +
+    "built-in defaults (admin / admin2026). Set both in your environment " +
+    "before deploying anywhere public."
+  );
+}
+
+function timingSafeStrEqual(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) {
+    // still run a comparison of equal length to avoid leaking length via timing
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -89,7 +109,6 @@ db.serialize(() => {
       bio TEXT DEFAULT '',
       avatarUrl TEXT DEFAULT '',
       birthDate TEXT DEFAULT '',
-      isAdmin INTEGER NOT NULL DEFAULT 0,
       banned INTEGER NOT NULL DEFAULT 0,
       muted INTEGER NOT NULL DEFAULT 0,
       createdAt INTEGER NOT NULL DEFAULT 0
@@ -99,7 +118,6 @@ db.serialize(() => {
   // Safe to run repeatedly against an existing DB; SQLite errors if a column
   // already exists, which we just swallow.
   const addCol = (col, def) => db.run(`ALTER TABLE users ADD COLUMN ${col} ${def}`, () => {});
-  addCol("isAdmin", "INTEGER NOT NULL DEFAULT 0");
   addCol("banned", "INTEGER NOT NULL DEFAULT 0");
   addCol("muted", "INTEGER NOT NULL DEFAULT 0");
   addCol("verified", "INTEGER NOT NULL DEFAULT 0");
@@ -170,11 +188,6 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_msg ON messages(chatType, sender, receiver, createdAt)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_st_exp ON stories(expiresAt)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_gm_user ON group_members(username)`);
-
-  if (ADMIN_USERNAMES.length) {
-    const placeholders = ADMIN_USERNAMES.map(() => "?").join(",");
-    db.run(`UPDATE users SET isAdmin=1 WHERE username IN (${placeholders})`, ADMIN_USERNAMES);
-  }
 });
 
 function parseSettings(u) {
@@ -188,7 +201,6 @@ function safeUser(u) {
     bio: u.bio || "",
     avatarUrl: u.avatarUrl || "",
     birthDate: u.birthDate || "",
-    isAdmin: !!u.isAdmin,
     verified: !!u.verified,
     totpEnabled: !!u.totpEnabled,
     settings: parseSettings(u)
@@ -218,11 +230,22 @@ function verifyAuth(req, res, next) {
   }
 }
 
-function verifyAdmin(req, res, next) {
-  if (!req.user || !req.user.isAdmin) {
-    return res.status(403).json({ ok: false, error: "Доступ только для админов" });
+// The admin panel authenticates separately from regular users — a fixed
+// login/password pair (see ADMIN_LOGIN/ADMIN_PASSWORD above), completely
+// independent of any user account. verifySuperAdmin checks that special
+// session token; it never touches the `users` table.
+function verifySuperAdmin(req, res, next) {
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : "";
+  if (!token) return res.status(401).json({ ok: false, error: "Нет токена админа" });
+
+  try {
+    const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET);
+    if (decoded.role !== "superadmin") return res.status(403).json({ ok: false, error: "Доступ только для админов" });
+    next();
+  } catch {
+    return res.status(401).json({ ok: false, error: "Сессия админа истекла, войди заново" });
   }
-  next();
 }
 
 function guessMediaType(mime) {
@@ -514,14 +537,14 @@ app.get("/api/verification/mine", verifyAuth, (req, res) => {
   );
 });
 
-app.get("/api/admin/verification-requests", verifyAuth, verifyAdmin, (req, res) => {
+app.get("/api/admin/verification-requests", verifySuperAdmin, (req, res) => {
   db.all(
     `SELECT * FROM verification_requests WHERE status='pending' ORDER BY createdAt ASC LIMIT 100`,
     (err, rows) => res.json({ ok: true, requests: rows || [] })
   );
 });
 
-app.post("/api/admin/verification-requests/:id/approve", verifyAuth, verifyAdmin, (req, res) => {
+app.post("/api/admin/verification-requests/:id/approve", verifySuperAdmin, (req, res) => {
   const id = Number(req.params.id);
   db.get(`SELECT * FROM verification_requests WHERE id=?`, [id], (err, reqRow) => {
     if (!reqRow || reqRow.status !== "pending") return res.status(404).json({ ok: false, error: "Заявка не найдена" });
@@ -534,7 +557,7 @@ app.post("/api/admin/verification-requests/:id/approve", verifyAuth, verifyAdmin
   });
 });
 
-app.post("/api/admin/verification-requests/:id/reject", verifyAuth, verifyAdmin, (req, res) => {
+app.post("/api/admin/verification-requests/:id/reject", verifySuperAdmin, (req, res) => {
   const id = Number(req.params.id);
   db.run(`UPDATE verification_requests SET status='rejected', decidedAt=? WHERE id=? AND status='pending'`, [now(), id], function (err) {
     if (err || this.changes === 0) return res.status(404).json({ ok: false, error: "Заявка не найдена" });
@@ -888,11 +911,43 @@ app.get("/api/birthdays/today", verifyAuth, (req, res) => {
   );
 });
 
-// ---------------- ADMIN ----------------
-app.get("/api/admin/user/:username", verifyAuth, verifyAdmin, (req, res) => {
+// ================================================================
+// ADMIN — separate credential-based login, independent of user accounts
+// ================================================================
+app.post("/api/admin/login", rateLimit(10, 5 * 60 * 1000), (req, res) => {
+  const login = String(req.body.login || "");
+  const password = String(req.body.password || "");
+
+  const loginOk = timingSafeStrEqual(login, ADMIN_LOGIN);
+  const passOk = timingSafeStrEqual(password, ADMIN_PASSWORD);
+
+  if (!loginOk || !passOk) {
+    return res.status(401).json({ ok: false, error: "Неверный логин или пароль" });
+  }
+
+  const token = jwt.sign({ role: "superadmin" }, EFFECTIVE_JWT_SECRET, { expiresIn: "12h" });
+  res.json({ ok: true, token });
+});
+
+// Every /api/admin/* route below requires the superadmin session token —
+// it has nothing to do with any user's own login token.
+
+app.get("/api/admin/users", verifySuperAdmin, (req, res) => {
+  const q = String(req.query.q || "").trim().toLowerCase();
+  const where = q ? `WHERE username LIKE ?` : "";
+  const params = q ? [`%${q}%`] : [];
+
+  db.all(
+    `SELECT username, displayName, avatarUrl, banned, muted, verified, createdAt FROM users ${where} ORDER BY createdAt DESC LIMIT 200`,
+    params,
+    (err, rows) => res.json({ ok: true, users: rows || [] })
+  );
+});
+
+app.get("/api/admin/user/:username", verifySuperAdmin, (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   db.get(
-    `SELECT username, displayName, bio, avatarUrl, birthDate, banned, muted, isAdmin, verified FROM users WHERE username=?`,
+    `SELECT username, displayName, bio, avatarUrl, birthDate, banned, muted, verified, createdAt FROM users WHERE username=?`,
     [u],
     (err, row) => {
       if (!row) return res.status(404).json({ ok: false, error: "Не найден" });
@@ -901,12 +956,84 @@ app.get("/api/admin/user/:username", verifyAuth, verifyAdmin, (req, res) => {
   );
 });
 
+// "С кем общается" — every private chat partner (with last message time and
+// preview) plus every group/channel this user belongs to. This is the
+// unrestricted moderation view: it does not filter by any block/privacy
+// setting, by design, since it's meant for investigating reports/abuse.
+app.get("/api/admin/user/:username/overview", verifySuperAdmin, async (req, res) => {
+  const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+
+  const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [u]);
+  if (!exists) return res.status(404).json({ ok: false, error: "Не найден" });
+
+  const partners = await dbAll(
+    `
+    SELECT other AS username, MAX(createdAt) AS lastAt, COUNT(*) AS total
+    FROM (
+      SELECT CASE WHEN sender=? THEN receiver ELSE sender END AS other, createdAt
+      FROM messages WHERE chatType='private' AND (sender=? OR receiver=?)
+    )
+    GROUP BY other
+    ORDER BY lastAt DESC
+    `,
+    [u, u, u]
+  );
+
+  const groups = await dbAll(
+    `SELECT g.id, g.name, g.isChannel, gm.role
+     FROM groups g JOIN group_members gm ON gm.groupId=g.id
+     WHERE gm.username=?
+     ORDER BY g.createdAt DESC`,
+    [u]
+  );
+
+  const globalCount = await dbGet(`SELECT COUNT(*) AS c FROM messages WHERE chatType='global' AND sender=?`, [u]);
+
+  res.json({ ok: true, partners, groups, globalMessageCount: globalCount.c });
+});
+
+// Full thread between two specific users — the actual "переписка" view.
+app.get("/api/admin/messages/private/:userA/:userB", verifySuperAdmin, async (req, res) => {
+  const a = String(req.params.userA || "").replace(/^@+/, "").toLowerCase();
+  const b = String(req.params.userB || "").replace(/^@+/, "").toLowerCase();
+
+  const rows = await dbAll(
+    `SELECT * FROM messages WHERE chatType='private' AND ((sender=? AND receiver=?) OR (sender=? AND receiver=?)) ORDER BY createdAt ASC LIMIT 2000`,
+    [a, b, b, a]
+  );
+  res.json({ ok: true, messages: rows });
+});
+
+app.get("/api/admin/messages/group/:id", verifySuperAdmin, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const rows = await dbAll(
+    `SELECT * FROM messages WHERE chatType='group' AND receiver=? ORDER BY createdAt ASC LIMIT 2000`,
+    [`group:${groupId}`]
+  );
+  res.json({ ok: true, messages: rows });
+});
+
+app.get("/api/admin/messages/global", verifySuperAdmin, async (req, res) => {
+  const rows = await dbAll(`SELECT * FROM messages WHERE chatType='global' ORDER BY createdAt DESC LIMIT 500`);
+  res.json({ ok: true, messages: rows });
+});
+
+// Admin can remove any single message while reviewing a thread (separate
+// from a user deleting their own message via /api/messages/:id).
+app.delete("/api/admin/messages/:id", verifySuperAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
+  if (!row) return res.status(404).json({ ok: false, error: "Не найдено" });
+
+  await dbRun(`DELETE FROM messages WHERE id=?`, [id]);
+  await broadcastDelete(row, id);
+  res.json({ ok: true });
+});
+
 function adminSetFlag(field, value) {
   return (req, res) => {
     const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
-    if (u === req.user.username && field === "banned" && value === 1) {
-      return res.status(400).json({ ok: false, error: "Нельзя забанить самого себя" });
-    }
+
     db.run(`UPDATE users SET ${field}=? WHERE username=?`, [value, u], function (err) {
       if (err || this.changes === 0) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
 
@@ -919,14 +1046,13 @@ function adminSetFlag(field, value) {
   };
 }
 
-app.post("/api/admin/ban/:username", verifyAuth, verifyAdmin, adminSetFlag("banned", 1));
-app.post("/api/admin/unban/:username", verifyAuth, verifyAdmin, adminSetFlag("banned", 0));
-app.post("/api/admin/mute/:username", verifyAuth, verifyAdmin, adminSetFlag("muted", 1));
-app.post("/api/admin/unmute/:username", verifyAuth, verifyAdmin, adminSetFlag("muted", 0));
+app.post("/api/admin/ban/:username", verifySuperAdmin, adminSetFlag("banned", 1));
+app.post("/api/admin/unban/:username", verifySuperAdmin, adminSetFlag("banned", 0));
+app.post("/api/admin/mute/:username", verifySuperAdmin, adminSetFlag("muted", 1));
+app.post("/api/admin/unmute/:username", verifySuperAdmin, adminSetFlag("muted", 0));
 
-app.delete("/api/admin/delete/:username", verifyAuth, verifyAdmin, (req, res) => {
+app.delete("/api/admin/delete/:username", verifySuperAdmin, (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
-  if (u === req.user.username) return res.status(400).json({ ok: false, error: "Нельзя удалить самого себя" });
 
   db.run(`DELETE FROM users WHERE username=?`, [u], function (err) {
     if (err || this.changes === 0) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
