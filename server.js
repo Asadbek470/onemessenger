@@ -1057,8 +1057,7 @@ function adminSetFlag(field, value) {
       if (err || this.changes === 0) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
 
       if (field === "banned" && value === 1) {
-        const ws = online.get(u);
-        if (ws) ws.close();
+        closeAllConnections(u);
       }
       res.json({ ok: true });
     });
@@ -1080,8 +1079,7 @@ app.delete("/api/admin/delete/:username", verifySuperAdmin, (req, res) => {
     db.run(`DELETE FROM stories WHERE owner=?`, [u]);
     db.run(`DELETE FROM group_members WHERE username=?`, [u]);
 
-    const ws = online.get(u);
-    if (ws) ws.close();
+    closeAllConnections(u);
 
     res.json({ ok: true });
   });
@@ -1090,14 +1088,42 @@ app.delete("/api/admin/delete/:username", verifySuperAdmin, (req, res) => {
 // ================================================================
 // WEBSOCKET (messages + typing + presence + calls + groups + lists)
 // ================================================================
-const online = new Map(); // username -> ws
+// online: username -> Set<ws>. A person can have several tabs/devices open
+// at once; we only consider them offline once EVERY connection for that
+// username has closed, not just the most recent one.
+const online = new Map();
+
+function addOnline(username, ws) {
+  if (!online.has(username)) online.set(username, new Set());
+  online.get(username).add(ws);
+}
+function removeOnline(username, ws) {
+  const set = online.get(username);
+  if (!set) return;
+  set.delete(ws);
+  if (set.size === 0) online.delete(username);
+}
+function isOnline(username) {
+  const set = online.get(username);
+  return !!set && set.size > 0;
+}
+function wsSendToUser(username, payload) {
+  const set = online.get(username);
+  if (!set) return;
+  for (const ws of set) wsSend(ws, payload);
+}
+function closeAllConnections(username) {
+  const set = online.get(username);
+  if (!set) return;
+  for (const ws of [...set]) { try { ws.close(); } catch {} }
+}
 
 function wsSend(ws, payload) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
 }
 
 function broadcastAll(payload) {
-  for (const ws of online.values()) wsSend(ws, payload);
+  for (const set of online.values()) for (const ws of set) wsSend(ws, payload);
 }
 
 function broadcastPresence() {
@@ -1135,7 +1161,7 @@ async function recipientsFor(chatType, receiver, sender) {
 
 async function broadcastToChat(chatType, receiver, sender, payload) {
   const usernames = await recipientsFor(chatType, receiver, sender);
-  for (const u of usernames) wsSend(online.get(u), payload);
+  for (const u of usernames) wsSendToUser(u, payload);
 }
 
 async function broadcastMessage(msg) {
@@ -1158,7 +1184,7 @@ wss.on("connection", (ws, req) => {
       if (!user || user.banned) return ws.close();
 
       ws.username = username;
-      online.set(username, ws);
+      addOnline(username, ws);
 
       wsSend(ws, { type: "ws-ready", username });
       broadcastPresence();
@@ -1176,10 +1202,9 @@ wss.on("connection", (ws, req) => {
           if (to.startsWith("group:")) {
             const groupId = Number(to.slice(6));
             const members = await dbAll(`SELECT username FROM group_members WHERE groupId=?`, [groupId]);
-            for (const m of members) if (m.username !== from) wsSend(online.get(m.username), { type: "typing", from, to, isTyping: !!data.isTyping });
+            for (const m of members) if (m.username !== from) wsSendToUser(m.username, { type: "typing", from, to, isTyping: !!data.isTyping });
           } else {
-            const target = online.get(to);
-            if (target) wsSend(target, { type: "typing", from, isTyping: !!data.isTyping });
+            wsSendToUser(to, { type: "typing", from, isTyping: !!data.isTyping });
           }
           return;
         }
@@ -1187,9 +1212,8 @@ wss.on("connection", (ws, req) => {
         // WebRTC audio call signaling (private calls only)
         if (["call-offer", "call-answer", "ice", "call-end", "call-reject"].includes(data.type)) {
           const to = String(data.to || "").replace(/^@+/, "").toLowerCase();
-          const target = online.get(to);
-          if (!target) return wsSend(ws, { type: "call-error", message: "Пользователь не онлайн" });
-          wsSend(target, { ...data, from });
+          if (!isOnline(to)) return wsSend(ws, { type: "call-error", message: "Пользователь не онлайн" });
+          wsSendToUser(to, { ...data, from });
           return;
         }
 
@@ -1267,7 +1291,7 @@ wss.on("connection", (ws, req) => {
       });
 
       ws.on("close", () => {
-        if (ws.username) online.delete(ws.username);
+        if (ws.username) removeOnline(ws.username, ws);
         broadcastPresence();
       });
     });
