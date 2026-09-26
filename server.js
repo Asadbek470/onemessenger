@@ -45,6 +45,19 @@ function loadOrCreatePersistedSecret() {
 const EFFECTIVE_JWT_SECRET = JWT_SECRET || loadOrCreatePersistedSecret();
 const APP_NAME = "One Messenger";
 
+// ---------------- GIFTS (emoji gifts on profiles) ----------------
+// Free to send every Friday, or any day at all if the sender knows one of
+// these secret codes. Change this env var any time you like — it's read
+// fresh on every request, so it never touches (or wipes) any existing
+// user, story, or gift already in the database.
+const GIFT_SECRET_CODES = String(process.env.GIFT_SECRET_CODES || "777,666")
+  .split(",").map(s => s.trim()).filter(Boolean);
+const GIFT_EMOJIS = ["🎁", "🌟", "💎", "🔥", "❤️", "🏆", "👑", "✨", "🎉", "🌹"];
+
+function isGiftDay() {
+  return new Date().getDay() === 5; // Friday
+}
+
 // ---------------- ADMIN CREDENTIALS ----------------
 // The admin panel is a completely separate login, not tied to any regular
 // user account. Set these in Render -> Environment. The values below are
@@ -190,6 +203,21 @@ db.serialize(() => {
       PRIMARY KEY (groupId, username)
     )
   `);
+
+  // Purely cosmetic emoji "gifts" people can send to each other's profile.
+  // Gating (Friday / secret code) lives entirely in application code below,
+  // never in the schema — so changing the code or the day rule later never
+  // touches this table or any existing row in it.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS gifts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender TEXT NOT NULL,
+      recipient TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      createdAt INTEGER NOT NULL
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_gifts_recipient ON gifts(recipient, createdAt)`);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS verification_requests (
@@ -929,6 +957,19 @@ app.get("/api/stories", verifyAuth, (req, res) => {
   );
 });
 
+// Full personal archive — every story you've ever posted, active or
+// long expired, so you can always look back at what you shared. Only
+// the owner can see their own archive this way (others still only ever
+// see the 2-hour public preview via /api/stories above).
+app.get("/api/stories/mine", verifyAuth, async (req, res) => {
+  const rows = await dbAll(
+    `SELECT * FROM stories WHERE owner=? ORDER BY createdAt DESC LIMIT 500`,
+    [req.user.username]
+  );
+  const withStatus = rows.map(s => ({ ...s, active: s.expiresAt > now() }));
+  res.json({ ok: true, stories: withStatus });
+});
+
 app.post("/api/stories", verifyAuth, (req, res, next) => {
   upload.single("story")(req, res, (err) => {
     if (err) return res.status(400).json({ ok: false, error: err.message || "Ошибка загрузки" });
@@ -964,6 +1005,41 @@ app.post("/api/stories", verifyAuth, (req, res, next) => {
       res.json({ ok: true, id: this.lastID });
     }
   );
+});
+
+// ---------------- GIFTS ----------------
+app.get("/api/gifts/:username", verifyAuth, async (req, res) => {
+  const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const rows = await dbAll(
+    `SELECT sender, emoji, createdAt FROM gifts WHERE recipient=? ORDER BY createdAt DESC LIMIT 100`,
+    [u]
+  );
+  res.json({ ok: true, gifts: rows });
+});
+
+app.post("/api/gifts/send", verifyAuth, rateLimit(30, 60 * 1000), async (req, res) => {
+  const recipient = String(req.body.recipient || "").replace(/^@+/, "").toLowerCase();
+  const emoji = String(req.body.emoji || "");
+  const code = String(req.body.code || "").trim();
+
+  if (!GIFT_EMOJIS.includes(emoji)) return res.status(400).json({ ok: false, error: "Недопустимый подарок" });
+  if (recipient === req.user.username) return res.status(400).json({ ok: false, error: "Нельзя подарить самому себе" });
+
+  const exists = await dbGet(`SELECT username FROM users WHERE username=? AND banned=0`, [recipient]);
+  if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+
+  const codeOk = code && GIFT_SECRET_CODES.includes(code);
+  if (!isGiftDay() && !codeOk) {
+    return res.status(403).json({ ok: false, error: "Подарки бесплатно — только по пятницам, либо по секретному коду" });
+  }
+
+  await dbRun(
+    `INSERT INTO gifts (sender, recipient, emoji, createdAt) VALUES (?,?,?,?)`,
+    [req.user.username, recipient, emoji, now()]
+  );
+
+  wsSendToUser(recipient, { type: "giftReceived", from: req.user.username, emoji });
+  res.json({ ok: true });
 });
 
 // ---------------- BIRTHDAYS ----------------
