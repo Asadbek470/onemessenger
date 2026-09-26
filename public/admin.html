@@ -34,6 +34,9 @@
                 <button onclick="deleteUser()" class="danger">Удалить аккаунт</button>
             </div>
         </div>
+
+        <h2 class="admin-section-title">Заявки на официальную верификацию</h2>
+        <div id="verificationList" class="ver-list"></div>
     </div>
 
     <!--
@@ -52,6 +55,8 @@
           if (!d.ok || !d.profile.isAdmin) {
             alert("Доступ только для администраторов");
             location.href = "chat.html";
+          } else if (window.loadVerificationRequests) {
+            window.loadVerificationRequests();
           }
         } catch {
           location.href = "chat.html";
