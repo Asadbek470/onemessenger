@@ -67,28 +67,26 @@ body.auth{display:flex;align-items:center;justify-content:center;padding:16px}
 }
 .hint{margin-top:10px;color:var(--muted);font-size:12px}
 
-/* ---------- APP LAYOUT ---------- */
-.app{
+/* ---------- APP LAYOUT (bottom-tab navigation, no side panel) ---------- */
+.appshell{
   height:100vh;
-  display:flex;
-}
-.sidebar{
-  width:360px;
-  max-width:88vw;
-  background: rgba(15,29,46,.9);
-  border-right:1px solid var(--line);
+  height:100dvh;
   display:flex;
   flex-direction:column;
-  backdrop-filter: blur(10px);
+  position:relative;
 }
-.sidebar.mobile-hidden{
-  transform: translateX(-110%);
-  position:absolute;
-  z-index:20;
-  height:100%;
-  transition: transform .22s ease;
+.screen{
+  flex:1;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  background: rgba(15,29,46,.9);
 }
-.side-top{padding:14px 12px 10px}
+.screen.hidden{display:none}
+.screen-header{padding:14px 12px 10px}
+.screentitle{margin:6px 4px 4px;font-size:20px;font-weight:800}
+.sectiontitle{margin:22px 4px 10px;font-size:15px;font-weight:800;color:var(--muted)}
+
 .search{
   display:flex;align-items:center;gap:10px;
   background: rgba(0,0,0,.18);
@@ -189,9 +187,80 @@ body.auth{display:flex;align-items:center;justify-content:center;padding:16px}
 
 .verified-badge{color:var(--blue);font-size:.85em}
 
-.side-bottom{padding:12px;border-top:1px solid var(--line)}
+/* bottom tab bar — the ONLY navigation chrome; no side panel anywhere */
+.bottomnav{
+  display:flex;
+  border-top:1px solid var(--line);
+  background: rgba(10,18,29,.98);
+  backdrop-filter: blur(10px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  z-index:30;
+}
+.bottomnav.hidden{display:none}
+.navbtn{
+  flex:1;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  padding:10px 4px 8px;
+  border:none;background:transparent;color:var(--muted);
+  cursor:pointer;font-size:11px;
+}
+.navbtn i{font-size:19px}
+.navbtn.active{color:var(--blue)}
 
-/* ---------- MAIN ---------- */
+/* PROFILE TAB (own profile) */
+.profiletab{
+  padding:20px 18px 28px;
+  overflow:auto;
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+}
+.profiletab .avatar.big{width:96px;height:96px;border-radius:28px;margin-bottom:14px;font-size:32px}
+.profiletab .pname{font-weight:900;font-size:20px;display:flex;align-items:center;gap:6px}
+.profiletab .puser{color:var(--muted);margin-top:2px}
+.profiletab .pbio{margin-top:10px;color:rgba(255,255,255,.85);max-width:340px}
+.profiletab .btn{margin-top:16px}
+
+.gifts-row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:12px;min-height:0}
+.gift-badge{font-size:20px}
+
+.stories-grid{
+  width:100%;
+  display:grid;
+  grid-template-columns:repeat(3, 1fr);
+  gap:8px;
+}
+.storythumb{
+  aspect-ratio:9/14;
+  border-radius:14px;overflow:hidden;position:relative;
+  border:1px solid var(--line);background:rgba(0,0,0,.25);
+  cursor:pointer;padding:0;
+}
+.storythumb img, .storythumb video{width:100%;height:100%;object-fit:cover;display:block}
+.storythumb.expired{opacity:.45}
+.storythumb-badge{
+  position:absolute;bottom:4px;left:4px;right:4px;
+  background:rgba(0,0,0,.55);color:#fff;font-size:10px;
+  padding:2px 4px;border-radius:6px;text-align:center;
+}
+.storythumb-text{
+  width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+  padding:8px;font-size:12px;color:#fff;text-align:center;
+  background:linear-gradient(160deg, rgba(42,157,244,.45), rgba(120,60,200,.4));
+}
+
+/* gift picker (inside the "view other person's profile" modal) */
+.giftpicker{padding:0 14px 14px}
+.gift-emoji-row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 14px}
+.gift-emoji-btn{
+  width:44px;height:44px;font-size:20px;border-radius:14px;
+  border:1px solid var(--line);background:rgba(0,0,0,.18);cursor:pointer;
+}
+.gift-emoji-btn:hover{background:rgba(42,157,244,.18)}
+
+/* ---------- MAIN (chat conversation screen) ---------- */
+.chatscreen{
+  position:fixed; inset:0; z-index:25;
+  background: rgba(12,23,38,.98);
+}
 .main{
   flex:1;
   display:flex;
