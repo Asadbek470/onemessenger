@@ -80,3 +80,45 @@ async function deleteUser() {
         currentUser = null;
     }
 }
+
+// ---------------- VERIFICATION REQUESTS ----------------
+async function loadVerificationRequests() {
+    const box = document.getElementById("verificationList");
+    if (!box) return;
+
+    const res = await fetch("/api/admin/verification-requests", {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (!data.ok) { box.innerHTML = "<p>Ошибка загрузки заявок</p>"; return; }
+
+    if (data.requests.length === 0) {
+        box.innerHTML = "<p>Нет заявок на рассмотрении</p>";
+        return;
+    }
+
+    box.innerHTML = data.requests.map(r => `
+        <div class="ver-item" data-id="${r.id}">
+            <div><b>@${esc(r.username)}</b> — ${esc(r.orgName)}, ${esc(r.role)}</div>
+            <div><a href="${esc(r.proofUrl)}" target="_blank" rel="noopener noreferrer">${esc(r.proofUrl)}</a></div>
+            <div class="ver-actions">
+                <button class="success" onclick="decideVerification(${r.id}, 'approve')">Одобрить</button>
+                <button class="danger" onclick="decideVerification(${r.id}, 'reject')">Отклонить</button>
+            </div>
+        </div>
+    `).join("");
+}
+
+async function decideVerification(id, action) {
+    const res = await fetch(`/api/admin/verification-requests/${id}/${action}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (!data.ok) return alert(data.error || "Ошибка");
+    loadVerificationRequests();
+}
+
+// Exposed so admin.html's gate script can trigger the first load once it
+// has confirmed the current user is actually an admin.
+window.loadVerificationRequests = loadVerificationRequests;
