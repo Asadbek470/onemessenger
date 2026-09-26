@@ -105,7 +105,6 @@ function removePasscodeFromSettings() {
 function lockNow() {
   if (!passcodeEnabled()) return alert("Сначала установи код-пароль");
   document.getElementById("passcodeOverlay").classList.remove("hidden");
-  closeSettings();
 }
 
 function renderPasscodeSection() {
@@ -149,7 +148,6 @@ async function initApp() {
   applyTheme(me.settings || {});
   connectWS();
 
-  await openChat("global");
   await refreshChats();
   await loadStories();
   await showBirthdays();
@@ -162,7 +160,7 @@ async function initApp() {
     }
   } catch {}
 
-  if (window.innerWidth <= 900) document.getElementById("sidebar").classList.add("mobile-hidden");
+  switchTab("chats");
 }
 
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
@@ -219,8 +217,22 @@ function logout() {
   location.href = "index.html";
 }
 
-function toggleSidebar() {
-  document.getElementById("sidebar").classList.toggle("mobile-hidden");
+// Bottom-tab navigation replaces the old left sidebar entirely. There are
+// three tabs (chats / profile / settings) plus a fourth "screen" — an open
+// chat conversation — that slides in over everything and hides the tab bar.
+let activeTab = "chats";
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll(".screen").forEach(s => s.classList.add("hidden"));
+  document.getElementById("screenChat").classList.add("hidden");
+
+  document.getElementById(`screen${tab[0].toUpperCase()}${tab.slice(1)}`).classList.remove("hidden");
+  document.querySelectorAll(".navbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  document.getElementById("bottomNav").classList.remove("hidden");
+
+  if (tab === "profile") loadMyProfileTab();
+  if (tab === "settings") openSettings();
 }
 
 function isGroupChat(chat) {
@@ -278,6 +290,12 @@ function connectWS() {
 
     if (data.type === "listUpdated") {
       updateListBubble(data.id, data.list);
+      return;
+    }
+
+    if (data.type === "giftReceived") {
+      toast(`${data.emoji} @${data.from} подарил тебе подарок!`);
+      if (activeTab === "profile") loadMyProfileTab();
       return;
     }
 
@@ -348,9 +366,12 @@ async function openChat(chat) {
   const btn = document.querySelector(`.chatitem[data-chat="${currentChat}"]`);
   if (btn) btn.classList.add("active");
 
-  if (window.innerWidth <= 900) document.getElementById("sidebar").classList.add("mobile-hidden");
-
   document.getElementById("typingLine").classList.add("hidden");
+
+  // opening a chat slides its own full-screen conversation over the tabs
+  document.querySelectorAll(".screen").forEach(s => s.classList.add("hidden"));
+  document.getElementById("screenChat").classList.remove("hidden");
+  document.getElementById("bottomNav").classList.add("hidden");
 
   if (isGroupChat(currentChat)) {
     const groupId = currentChat.slice(6);
@@ -361,6 +382,12 @@ async function openChat(chat) {
 
   updateHeader();
   await loadMessages();
+}
+
+function backToChats() {
+  document.getElementById("screenChat").classList.add("hidden");
+  document.getElementById("bottomNav").classList.remove("hidden");
+  switchTab("chats");
 }
 
 async function loadMessages() {
@@ -806,17 +833,23 @@ async function searchUsers(val) {
 
 // ================== PROFILE VIEW ==================
 async function openCurrentProfile() {
-  if (currentChat === "global" || isGroupChat(currentChat)) {
-    if (isGroupChat(currentChat)) return openGroupInfo();
-    await openProfile(me.username, true);
+  if (currentChat === "global") {
+    switchTab("profile");
+  } else if (isGroupChat(currentChat)) {
+    openGroupInfo();
   } else {
     await openProfile(currentChat, false);
   }
 }
 
+// Viewing your OWN profile always goes to the Профиль tab now; this modal
+// is only ever used for other people, plus it now shows/sends gifts.
 async function openProfile(username, isMe) {
+  if (isMe) { switchTab("profile"); return; }
+
   const modal = document.getElementById("profileModal");
   modal.classList.remove("hidden");
+  document.getElementById("giftPickerBox").classList.add("hidden");
 
   const title = document.getElementById("profileTitle");
   const avatar = document.getElementById("profileAvatar");
@@ -826,38 +859,33 @@ async function openProfile(username, isMe) {
   const birth = document.getElementById("profileBirth");
   const actions = document.getElementById("profileActions");
 
-  title.textContent = isMe ? "Мой профиль" : "Профиль";
+  title.textContent = "Профиль";
   actions.innerHTML = "";
 
-  let p = null;
-  if (isMe) {
-    p = me;
-  } else {
-    const r = await fetch(`/api/users/${encodeURIComponent(username)}`, { headers: authHeaders() });
-    const d = await r.json();
-    if (!d.ok) { alert("Не найден"); return closeProfile(); }
-    p = d.user;
-  }
+  const r = await fetch(`/api/users/${encodeURIComponent(username)}`, { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) { alert("Не найден"); return closeProfile(); }
+  const p = d.user;
 
   avatar.innerHTML = p.avatarUrl ? `<img src="${esc(p.avatarUrl)}" alt="">` : `<span>${esc((p.displayName || p.username)[0].toUpperCase())}</span>`;
   name.innerHTML = esc(p.displayName || p.username) + verifiedBadge(p.verified);
   user.textContent = "@" + p.username;
   bio.textContent = p.bio ? p.bio : "";
-  birth.textContent = p.birthDate ? ("🎂 " + p.birthDate) : ""; // only ever present when isMe
+  birth.textContent = "";
 
-  if (!isMe) {
-    const b = document.createElement("button");
-    b.className = "btn primary full";
-    b.textContent = "Открыть чат";
-    b.onclick = () => { closeProfile(); openChat(p.username); };
-    actions.appendChild(b);
-  } else {
-    const b = document.createElement("button");
-    b.className = "btn ghost full";
-    b.textContent = "Настройки профиля";
-    b.onclick = () => { closeProfile(); openSettings(); };
-    actions.appendChild(b);
-  }
+  const openChatBtn = document.createElement("button");
+  openChatBtn.className = "btn primary full";
+  openChatBtn.textContent = "Открыть чат";
+  openChatBtn.onclick = () => { closeProfile(); openChat(p.username); };
+  actions.appendChild(openChatBtn);
+
+  const giftBtn = document.createElement("button");
+  giftBtn.className = "btn ghost full";
+  giftBtn.innerHTML = `🎁 Подарить`;
+  giftBtn.onclick = () => openGiftPicker(p.username);
+  actions.appendChild(giftBtn);
+
+  await loadGifts(username, "profileGiftsRow");
 }
 
 function closeProfile() {
@@ -866,7 +894,6 @@ function closeProfile() {
 
 // ================== SETTINGS ==================
 function openSettings() {
-  document.getElementById("settingsModal").classList.remove("hidden");
   document.getElementById("setDisplayName").value = me.displayName || "";
   document.getElementById("setBio").value = me.bio || "";
   document.getElementById("setBirthDate").value = me.birthDate || "";
@@ -911,10 +938,6 @@ async function confirmDeleteAccount() {
 
   localStorage.removeItem("token");
   location.href = "index.html";
-}
-
-function closeSettings() {
-  document.getElementById("settingsModal").classList.add("hidden");
 }
 
 async function uploadAvatarFile(input) {
@@ -1196,6 +1219,80 @@ function stopHoldVoice() {
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
     mediaRecorder.stop();
   }
+}
+
+// ================== MY PROFILE TAB ==================
+async function loadMyProfileTab() {
+  document.getElementById("myProfileAvatar").innerHTML = me.avatarUrl
+    ? `<img src="${esc(me.avatarUrl)}" alt="">`
+    : `<span>${esc((me.displayName || me.username)[0].toUpperCase())}</span>`;
+  document.getElementById("myProfileName").innerHTML = esc(me.displayName || me.username) + verifiedBadge(me.verified);
+  document.getElementById("myProfileUser").textContent = "@" + me.username;
+  document.getElementById("myProfileBio").textContent = me.bio || "";
+
+  await loadGifts(me.username, "myGiftsRow");
+
+  const r = await fetch("/api/stories/mine", { headers: authHeaders() });
+  const d = await r.json();
+  const grid = document.getElementById("myStoriesGrid");
+  if (!d.ok || d.stories.length === 0) {
+    grid.innerHTML = `<div class="hint">Ты ещё не публиковал(а) историй</div>`;
+    return;
+  }
+
+  grid.innerHTML = d.stories.map(s => {
+    const thumb = s.mediaType === "image" ? `<img src="${esc(s.mediaUrl)}" alt="">`
+      : s.mediaType === "video" ? `<video src="${esc(s.mediaUrl)}" muted></video>`
+      : `<div class="storythumb-text">${esc((s.text || "").slice(0, 40))}</div>`;
+    return `
+      <button class="storythumb ${s.active ? "" : "expired"}" onclick='viewStory(${JSON.stringify(s).replace(/'/g, "&#39;")})'>
+        ${thumb}
+        ${!s.active ? '<span class="storythumb-badge">истекла</span>' : ""}
+      </button>
+    `;
+  }).join("");
+}
+
+// ================== GIFTS ==================
+async function loadGifts(username, containerId) {
+  const box = document.getElementById(containerId);
+  if (!box) return;
+
+  const r = await fetch(`/api/gifts/${encodeURIComponent(username)}`, { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok || d.gifts.length === 0) { box.innerHTML = ""; return; }
+
+  box.innerHTML = d.gifts.map(g => `<span class="gift-badge" title="от @${esc(g.sender)}">${g.emoji}</span>`).join("");
+}
+
+const GIFT_EMOJIS = ["🎁", "🌟", "💎", "🔥", "❤️", "🏆", "👑", "✨", "🎉", "🌹"];
+let giftRecipient = null;
+
+function openGiftPicker(username) {
+  giftRecipient = username;
+  const box = document.getElementById("giftPickerBox");
+  box.classList.remove("hidden");
+  document.getElementById("giftCodeInput").value = "";
+  document.getElementById("giftEmojiRow").innerHTML = GIFT_EMOJIS
+    .map(e => `<button class="gift-emoji-btn" onclick="sendGift('${e}')">${e}</button>`)
+    .join("");
+}
+
+async function sendGift(emoji) {
+  if (!giftRecipient) return;
+  const code = document.getElementById("giftCodeInput").value.trim();
+
+  const r = await fetch("/api/gifts/send", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ recipient: giftRecipient, emoji, code })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Не получилось подарить");
+
+  toast(`${emoji} Подарок отправлен!`);
+  document.getElementById("giftPickerBox").classList.add("hidden");
+  await loadGifts(giftRecipient, "profileGiftsRow");
 }
 
 // ================== STORIES ==================
