@@ -227,7 +227,10 @@ function safeUser(u) {
 }
 
 function signToken(username, extra = {}) {
-  return jwt.sign({ username, ...extra }, EFFECTIVE_JWT_SECRET, { expiresIn: "14d" });
+  // Long-lived on purpose: this is a personal messenger, not a banking app —
+  // people shouldn't be forced to log back in every couple of weeks. Signing
+  // out (or deleting the account) in Settings is what actually ends a session.
+  return jwt.sign({ username, ...extra }, EFFECTIVE_JWT_SECRET, { expiresIn: "365d" });
 }
 
 function verifyAuth(req, res, next) {
@@ -462,6 +465,25 @@ app.post("/api/2fa/disable", verifyAuth, async (req, res) => {
 // ---------------- PROFILE ----------------
 app.get("/api/me", verifyAuth, (req, res) => res.json({ ok: true, profile: safeUser(req.user) }));
 
+// Self-service account deletion — requires the account's own password as
+// confirmation. Wipes everything tied to the username: messages, stories,
+// group memberships, then the user row itself, and disconnects any open
+// sessions for that account.
+app.delete("/api/me", verifyAuth, async (req, res) => {
+  const password = String(req.body.password || "");
+  const ok = await bcrypt.compare(password, req.user.passwordHash);
+  if (!ok) return res.status(400).json({ ok: false, error: "Неверный пароль" });
+
+  const u = req.user.username;
+  await dbRun(`DELETE FROM messages WHERE sender=? OR receiver=?`, [u, u]);
+  await dbRun(`DELETE FROM stories WHERE owner=?`, [u]);
+  await dbRun(`DELETE FROM group_members WHERE username=?`, [u]);
+  await dbRun(`DELETE FROM users WHERE username=?`, [u]);
+
+  closeAllConnections(u);
+  res.json({ ok: true });
+});
+
 app.put("/api/me", verifyAuth, (req, res) => {
   const displayName = String(req.body.displayName || "").trim().slice(0, 40);
   const bio = String(req.body.bio || "").trim().slice(0, 200);
@@ -494,6 +516,35 @@ app.put("/api/me/settings", verifyAuth, (req, res) => {
   db.run(`UPDATE users SET settings=? WHERE username=?`, [JSON.stringify(merged), req.user.username], (err) => {
     if (err) return res.status(500).json({ ok: false, error: "Ошибка сохранения настроек" });
     res.json({ ok: true, settings: merged });
+  });
+});
+
+// Upload a profile picture straight from the device's gallery/camera,
+// instead of forcing the person to paste an image URL. Reuses the same
+// upload safety rules as chat media (mimetype whitelist, size limit,
+// mimetype-derived extension) but writes only to the user's own avatarUrl —
+// it never creates a chat message.
+app.post("/api/me/avatar", verifyAuth, (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err) return res.status(400).json({ ok: false, error: err.message || "Ошибка загрузки" });
+    next();
+  });
+}, (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
+
+  if (guessMediaType(req.file.mimetype) !== "image") {
+    fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ ok: false, error: "Аватар должен быть изображением" });
+  }
+
+  const ext = MIME_EXT[req.file.mimetype] || "";
+  const newName = `avatar-${req.file.filename}${ext}`;
+  fs.renameSync(req.file.path, path.join(uploadsDir, newName));
+  const avatarUrl = `/uploads/${newName}`;
+
+  db.run(`UPDATE users SET avatarUrl=? WHERE username=?`, [avatarUrl, req.user.username], (err) => {
+    if (err) return res.status(500).json({ ok: false, error: "Ошибка сохранения" });
+    res.json({ ok: true, avatarUrl });
   });
 });
 
@@ -890,7 +941,7 @@ app.post("/api/stories", verifyAuth, (req, res, next) => {
   const text = String(req.body.text || "").trim().slice(0, 120);
 
   const createdAt = now();
-  const expiresAt = createdAt + 24 * 60 * 60 * 1000;
+  const expiresAt = createdAt + 2 * 60 * 60 * 1000; // stories now expire after 2h (no cap on how many you can post)
 
   let mediaType = "text";
   let mediaUrl = "";
