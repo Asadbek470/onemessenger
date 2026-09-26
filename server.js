@@ -24,6 +24,7 @@ if (!JWT_SECRET) {
   );
 }
 const EFFECTIVE_JWT_SECRET = JWT_SECRET || crypto.randomBytes(32).toString("hex");
+const APP_NAME = "One Messenger";
 
 // Comma-separated list of usernames that should be promoted to admin on boot,
 // e.g. ADMIN_USERNAMES=asadbek000,another_admin
@@ -32,7 +33,7 @@ const ADMIN_USERNAMES = String(process.env.ADMIN_USERNAMES || "")
   .map(s => s.trim().replace(/^@+/, "").toLowerCase())
   .filter(Boolean);
 
-app.use(express.json({ limit: "2mb" })); // 30mb was unnecessarily large and only needed for binary uploads, which go through multer instead
+app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const uploadsDir = path.join(__dirname, "uploads");
@@ -41,8 +42,8 @@ app.use("/uploads", express.static(uploadsDir));
 
 // ---------------- UPLOAD SAFETY ----------------
 // Never trust the extension the client sends. Map from the sniffed mimetype
-// instead, so a crafted filename like `evil.jpg" onerror="alert(1)` can never
-// end up inside an <img src="..."> / <video src="..."> attribute.
+// instead, so a crafted filename can never end up inside an
+// <img src="..."> / <video src="..."> attribute unescaped.
 const MIME_EXT = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -72,6 +73,11 @@ const upload = multer({
 const db = new sqlite3.Database("database.db");
 
 const now = () => Date.now();
+const dbAll = (sql, params = []) => new Promise((res, rej) => db.all(sql, params, (e, r) => e ? rej(e) : res(r || [])));
+const dbGet = (sql, params = []) => new Promise((res, rej) => db.get(sql, params, (e, r) => e ? rej(e) : res(r || null)));
+const dbRun = function (sql, params = []) {
+  return new Promise((res, rej) => db.run(sql, params, function (e) { e ? rej(e) : res(this); }));
+};
 
 db.serialize(() => {
   db.run(`
@@ -90,20 +96,25 @@ db.serialize(() => {
     )
   `);
 
-  // Safe to run repeatedly against an existing DB from the old schema;
-  // SQLite errors if the column already exists, which we just ignore.
-  db.run(`ALTER TABLE users ADD COLUMN isAdmin INTEGER NOT NULL DEFAULT 0`, () => {});
-  db.run(`ALTER TABLE users ADD COLUMN banned INTEGER NOT NULL DEFAULT 0`, () => {});
-  db.run(`ALTER TABLE users ADD COLUMN muted INTEGER NOT NULL DEFAULT 0`, () => {});
+  // Safe to run repeatedly against an existing DB; SQLite errors if a column
+  // already exists, which we just swallow.
+  const addCol = (col, def) => db.run(`ALTER TABLE users ADD COLUMN ${col} ${def}`, () => {});
+  addCol("isAdmin", "INTEGER NOT NULL DEFAULT 0");
+  addCol("banned", "INTEGER NOT NULL DEFAULT 0");
+  addCol("muted", "INTEGER NOT NULL DEFAULT 0");
+  addCol("verified", "INTEGER NOT NULL DEFAULT 0");
+  addCol("totpSecret", "TEXT NOT NULL DEFAULT ''");
+  addCol("totpEnabled", "INTEGER NOT NULL DEFAULT 0");
+  addCol("settings", "TEXT NOT NULL DEFAULT '{}'"); // { theme, wallpaper, accent }
 
   db.run(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chatType TEXT NOT NULL,          -- global|private
+      chatType TEXT NOT NULL,          -- global|private|group
       sender TEXT NOT NULL,
-      receiver TEXT NOT NULL,          -- global or username
+      receiver TEXT NOT NULL,          -- 'global' | username | 'group:<id>'
       text TEXT DEFAULT '',
-      mediaType TEXT DEFAULT 'text',   -- text|image|video|audio
+      mediaType TEXT DEFAULT 'text',   -- text|image|video|audio|list
       mediaUrl TEXT DEFAULT '',
       createdAt INTEGER NOT NULL
     )
@@ -121,14 +132,54 @@ db.serialize(() => {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      avatarUrl TEXT DEFAULT '',
+      isChannel INTEGER NOT NULL DEFAULT 0,
+      owner TEXT NOT NULL,
+      createdAt INTEGER NOT NULL
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS group_members (
+      groupId INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member', -- owner|admin|member
+      joinedAt INTEGER NOT NULL,
+      PRIMARY KEY (groupId, username)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS verification_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL,
+      orgName TEXT NOT NULL,
+      role TEXT NOT NULL,
+      proofUrl TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending', -- pending|approved|rejected
+      createdAt INTEGER NOT NULL,
+      decidedAt INTEGER
+    )
+  `);
+
   db.run(`CREATE INDEX IF NOT EXISTS idx_msg ON messages(chatType, sender, receiver, createdAt)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_st_exp ON stories(expiresAt)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_gm_user ON group_members(username)`);
 
   if (ADMIN_USERNAMES.length) {
     const placeholders = ADMIN_USERNAMES.map(() => "?").join(",");
     db.run(`UPDATE users SET isAdmin=1 WHERE username IN (${placeholders})`, ADMIN_USERNAMES);
   }
 });
+
+function parseSettings(u) {
+  try { return JSON.parse(u.settings || "{}"); } catch { return {}; }
+}
 
 function safeUser(u) {
   return {
@@ -137,12 +188,15 @@ function safeUser(u) {
     bio: u.bio || "",
     avatarUrl: u.avatarUrl || "",
     birthDate: u.birthDate || "",
-    isAdmin: !!u.isAdmin
+    isAdmin: !!u.isAdmin,
+    verified: !!u.verified,
+    totpEnabled: !!u.totpEnabled,
+    settings: parseSettings(u)
   };
 }
 
-function signToken(username) {
-  return jwt.sign({ username }, EFFECTIVE_JWT_SECRET, { expiresIn: "14d" });
+function signToken(username, extra = {}) {
+  return jwt.sign({ username, ...extra }, EFFECTIVE_JWT_SECRET, { expiresIn: "14d" });
 }
 
 function verifyAuth(req, res, next) {
@@ -152,6 +206,7 @@ function verifyAuth(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET);
+    if (decoded.purpose) return res.status(401).json({ ok: false, error: "Неверный токен" }); // reject 2FA pending tokens here
     db.get(`SELECT * FROM users WHERE username=?`, [decoded.username], (err, user) => {
       if (!user) return res.status(401).json({ ok: false, error: "Пользователь не найден" });
       if (user.banned) return res.status(403).json({ ok: false, error: "Аккаунт заблокирован" });
@@ -184,9 +239,6 @@ function cleanupStories() {
 setInterval(cleanupStories, 60 * 1000);
 
 // ---------------- SIMPLE RATE LIMITER (auth endpoints) ----------------
-// Basic in-memory sliding window per IP. Good enough to stop naive brute
-// force; swap for `express-rate-limit` + a shared store if you scale to
-// multiple server instances.
 const rateBuckets = new Map();
 function rateLimit(max, windowMs) {
   return (req, res, next) => {
@@ -208,6 +260,66 @@ setInterval(() => {
   const t = now();
   for (const [k, v] of rateBuckets) if (t > v.resetAt) rateBuckets.delete(k);
 }, 5 * 60 * 1000);
+
+// ================================================================
+// TOTP (RFC 6238) — implemented with only the built-in `crypto` module,
+// no extra npm dependency required.
+// ================================================================
+const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+function base32Encode(buf) {
+  let bits = "";
+  for (const byte of buf) bits += byte.toString(2).padStart(8, "0");
+  let out = "";
+  for (let i = 0; i + 5 <= bits.length || i < bits.length; i += 5) {
+    const chunk = bits.substr(i, 5).padEnd(5, "0");
+    out += BASE32_ALPHABET[parseInt(chunk, 2)];
+  }
+  return out;
+}
+
+function base32Decode(str) {
+  const clean = String(str).toUpperCase().replace(/[^A-Z2-7]/g, "");
+  let bits = "";
+  for (const ch of clean) {
+    const idx = BASE32_ALPHABET.indexOf(ch);
+    if (idx === -1) continue;
+    bits += idx.toString(2).padStart(5, "0");
+  }
+  const bytes = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.substr(i, 8), 2));
+  return Buffer.from(bytes);
+}
+
+function generateTotpSecret() {
+  return base32Encode(crypto.randomBytes(20)); // 160-bit secret
+}
+
+function totpAt(secretBase32, timeStepCounter) {
+  const key = base32Decode(secretBase32);
+  const msg = Buffer.alloc(8);
+  msg.writeBigInt64BE(BigInt(timeStepCounter));
+  const hmac = crypto.createHmac("sha1", key).update(msg).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code = ((hmac[offset] & 0x7f) << 24) | (hmac[offset + 1] << 16) | (hmac[offset + 2] << 8) | hmac[offset + 3];
+  return String(code % 1_000_000).padStart(6, "0");
+}
+
+function verifyTotp(secretBase32, code, window = 1) {
+  const cleanCode = String(code || "").trim();
+  if (!/^\d{6}$/.test(cleanCode)) return false;
+  const counter = Math.floor(now() / 1000 / 30);
+  for (let w = -window; w <= window; w++) {
+    if (totpAt(secretBase32, counter + w) === cleanCode) return true;
+  }
+  return false;
+}
+
+function otpauthUrl(username, secret) {
+  const label = encodeURIComponent(`${APP_NAME}:${username}`);
+  const issuer = encodeURIComponent(APP_NAME);
+  return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&digits=6&period=30`;
+}
 
 // ---------------- AUTH ----------------
 app.post("/api/auth/register", rateLimit(10, 60 * 1000), async (req, res) => {
@@ -245,7 +357,63 @@ app.post("/api/auth/login", rateLimit(10, 60 * 1000), (req, res) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(400).json({ ok: false, error: "Неверный пароль" });
 
+    if (user.totpEnabled) {
+      const pendingToken = signToken(usernameRaw, { purpose: "2fa" });
+      return res.json({ ok: true, need2FA: true, pendingToken });
+    }
+
     res.json({ ok: true, token: signToken(usernameRaw), user: safeUser(user) });
+  });
+});
+
+app.post("/api/auth/2fa-verify", rateLimit(15, 60 * 1000), (req, res) => {
+  const pendingToken = String(req.body.pendingToken || "");
+  const code = String(req.body.code || "");
+
+  let decoded;
+  try {
+    decoded = jwt.verify(pendingToken, EFFECTIVE_JWT_SECRET);
+  } catch {
+    return res.status(401).json({ ok: false, error: "Сессия истекла, войди заново" });
+  }
+  if (decoded.purpose !== "2fa") return res.status(401).json({ ok: false, error: "Неверный токен" });
+
+  db.get(`SELECT * FROM users WHERE username=?`, [decoded.username], (err, user) => {
+    if (!user || !user.totpEnabled) return res.status(400).json({ ok: false, error: "2FA не включена" });
+    if (!verifyTotp(user.totpSecret, code)) return res.status(400).json({ ok: false, error: "Неверный код" });
+
+    res.json({ ok: true, token: signToken(user.username), user: safeUser(user) });
+  });
+});
+
+// ---------------- 2FA MANAGEMENT ----------------
+app.post("/api/2fa/setup", verifyAuth, (req, res) => {
+  const secret = generateTotpSecret();
+  db.run(`UPDATE users SET totpSecret=? WHERE username=?`, [secret, req.user.username], (err) => {
+    if (err) return res.status(500).json({ ok: false, error: "Ошибка" });
+    res.json({ ok: true, secret, otpauthUrl: otpauthUrl(req.user.username, secret) });
+  });
+});
+
+app.post("/api/2fa/confirm", verifyAuth, (req, res) => {
+  const code = String(req.body.code || "");
+  if (!req.user.totpSecret) return res.status(400).json({ ok: false, error: "Сначала вызови /api/2fa/setup" });
+  if (!verifyTotp(req.user.totpSecret, code)) return res.status(400).json({ ok: false, error: "Неверный код" });
+
+  db.run(`UPDATE users SET totpEnabled=1 WHERE username=?`, [req.user.username], (err) => {
+    if (err) return res.status(500).json({ ok: false, error: "Ошибка" });
+    res.json({ ok: true });
+  });
+});
+
+app.post("/api/2fa/disable", verifyAuth, async (req, res) => {
+  const password = String(req.body.password || "");
+  const ok = await bcrypt.compare(password, req.user.passwordHash);
+  if (!ok) return res.status(400).json({ ok: false, error: "Неверный пароль" });
+
+  db.run(`UPDATE users SET totpEnabled=0, totpSecret='' WHERE username=?`, [req.user.username], (err) => {
+    if (err) return res.status(500).json({ ok: false, error: "Ошибка" });
+    res.json({ ok: true });
   });
 });
 
@@ -270,13 +438,30 @@ app.put("/api/me", verifyAuth, (req, res) => {
   );
 });
 
+// Theme / wallpaper / accent color — small free-form JSON blob per user,
+// synced across their devices.
+app.put("/api/me/settings", verifyAuth, (req, res) => {
+  const current = parseSettings(req.user);
+  const incoming = req.body && typeof req.body === "object" ? req.body : {};
+  const allowed = ["theme", "wallpaper", "accent"];
+  const merged = { ...current };
+  for (const k of allowed) {
+    if (typeof incoming[k] === "string" && incoming[k].length <= 4000) merged[k] = incoming[k];
+  }
+
+  db.run(`UPDATE users SET settings=? WHERE username=?`, [JSON.stringify(merged), req.user.username], (err) => {
+    if (err) return res.status(500).json({ ok: false, error: "Ошибка сохранения настроек" });
+    res.json({ ok: true, settings: merged });
+  });
+});
+
 // search users
 app.get("/api/users/search", verifyAuth, (req, res) => {
   const q = String(req.query.q || "").trim().replace(/^@+/, "").toLowerCase();
   if (!q) return res.json({ ok: true, users: [] });
 
   db.all(
-    `SELECT username, displayName, bio, avatarUrl
+    `SELECT username, displayName, bio, avatarUrl, verified
      FROM users
      WHERE username LIKE ? AND username != ? AND banned=0
      ORDER BY username ASC LIMIT 20`,
@@ -287,11 +472,9 @@ app.get("/api/users/search", verifyAuth, (req, res) => {
 
 app.get("/api/users/:username", verifyAuth, (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
-  // birthDate is intentionally left out of the public profile lookup —
-  // only the owner sees their own via /api/me. Anyone could otherwise pull
-  // any user's exact date of birth just by knowing their @username.
+  // birthDate is intentionally left out here — only the owner sees it via /api/me.
   db.get(
-    `SELECT username, displayName, bio, avatarUrl FROM users WHERE username=? AND banned=0`,
+    `SELECT username, displayName, bio, avatarUrl, verified FROM users WHERE username=? AND banned=0`,
     [u],
     (err, row) => {
       if (!row) return res.status(404).json({ ok: false, error: "Не найден" });
@@ -300,7 +483,162 @@ app.get("/api/users/:username", verifyAuth, (req, res) => {
   );
 });
 
-// ---------------- CHATS ----------------
+// ---------------- VERIFICATION (official badge) ----------------
+app.post("/api/verification/request", verifyAuth, rateLimit(5, 60 * 60 * 1000), (req, res) => {
+  const orgName = String(req.body.orgName || "").trim().slice(0, 120);
+  const role = String(req.body.role || "").trim().slice(0, 80);
+  const proofUrl = String(req.body.proofUrl || "").trim().slice(0, 300);
+
+  if (!orgName || !role || !proofUrl) {
+    return res.status(400).json({ ok: false, error: "Заполни организацию, должность и ссылку-подтверждение" });
+  }
+  if (!/^https?:\/\//i.test(proofUrl)) {
+    return res.status(400).json({ ok: false, error: "Ссылка должна начинаться с http(s)://" });
+  }
+
+  db.run(
+    `INSERT INTO verification_requests (username, orgName, role, proofUrl, status, createdAt) VALUES (?,?,?,?, 'pending', ?)`,
+    [req.user.username, orgName, role, proofUrl, now()],
+    function (err) {
+      if (err) return res.status(500).json({ ok: false, error: "Ошибка отправки заявки" });
+      res.json({ ok: true, id: this.lastID });
+    }
+  );
+});
+
+app.get("/api/verification/mine", verifyAuth, (req, res) => {
+  db.all(
+    `SELECT * FROM verification_requests WHERE username=? ORDER BY createdAt DESC LIMIT 10`,
+    [req.user.username],
+    (err, rows) => res.json({ ok: true, requests: rows || [] })
+  );
+});
+
+app.get("/api/admin/verification-requests", verifyAuth, verifyAdmin, (req, res) => {
+  db.all(
+    `SELECT * FROM verification_requests WHERE status='pending' ORDER BY createdAt ASC LIMIT 100`,
+    (err, rows) => res.json({ ok: true, requests: rows || [] })
+  );
+});
+
+app.post("/api/admin/verification-requests/:id/approve", verifyAuth, verifyAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  db.get(`SELECT * FROM verification_requests WHERE id=?`, [id], (err, reqRow) => {
+    if (!reqRow || reqRow.status !== "pending") return res.status(404).json({ ok: false, error: "Заявка не найдена" });
+
+    db.run(`UPDATE verification_requests SET status='approved', decidedAt=? WHERE id=?`, [now(), id]);
+    db.run(`UPDATE users SET verified=1 WHERE username=?`, [reqRow.username], (e2) => {
+      if (e2) return res.status(500).json({ ok: false, error: "Ошибка" });
+      res.json({ ok: true });
+    });
+  });
+});
+
+app.post("/api/admin/verification-requests/:id/reject", verifyAuth, verifyAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  db.run(`UPDATE verification_requests SET status='rejected', decidedAt=? WHERE id=? AND status='pending'`, [now(), id], function (err) {
+    if (err || this.changes === 0) return res.status(404).json({ ok: false, error: "Заявка не найдена" });
+    res.json({ ok: true });
+  });
+});
+
+// ================================================================
+// GROUPS & CHANNELS
+// A channel is just a group with isChannel=1: only owner/admins may post,
+// everyone else can only read.
+// ================================================================
+async function isMember(groupId, username) {
+  const row = await dbGet(`SELECT role FROM group_members WHERE groupId=? AND username=?`, [groupId, username]);
+  return row ? row.role : null; // null | 'member' | 'admin' | 'owner'
+}
+
+app.get("/api/groups", verifyAuth, async (req, res) => {
+  const rows = await dbAll(
+    `SELECT g.*, gm.role AS myRole
+     FROM groups g JOIN group_members gm ON gm.groupId=g.id
+     WHERE gm.username=?
+     ORDER BY g.createdAt DESC`,
+    [req.user.username]
+  );
+  res.json({ ok: true, groups: rows });
+});
+
+app.post("/api/groups", verifyAuth, async (req, res) => {
+  const name = String(req.body.name || "").trim().slice(0, 60);
+  const description = String(req.body.description || "").trim().slice(0, 300);
+  const isChannel = req.body.isChannel ? 1 : 0;
+  const members = Array.isArray(req.body.members) ? req.body.members : [];
+
+  if (!name) return res.status(400).json({ ok: false, error: "Название обязательно" });
+
+  const createdAt = now();
+  const result = await dbRun(
+    `INSERT INTO groups (name, description, isChannel, owner, createdAt) VALUES (?,?,?,?,?)`,
+    [name, description, isChannel, req.user.username, createdAt]
+  );
+  const groupId = result.lastID;
+
+  await dbRun(`INSERT INTO group_members (groupId, username, role, joinedAt) VALUES (?,?,'owner',?)`, [groupId, req.user.username, createdAt]);
+
+  const cleanMembers = [...new Set(members.map(m => String(m || "").replace(/^@+/, "").toLowerCase()))].filter(m => m && m !== req.user.username);
+  for (const m of cleanMembers) {
+    const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [m]);
+    if (exists) await dbRun(`INSERT OR IGNORE INTO group_members (groupId, username, role, joinedAt) VALUES (?,?,'member',?)`, [groupId, m, createdAt]);
+  }
+
+  res.json({ ok: true, id: groupId });
+});
+
+app.get("/api/groups/:id", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const role = await isMember(groupId, req.user.username);
+  if (!role) return res.status(403).json({ ok: false, error: "Ты не участник" });
+
+  const group = await dbGet(`SELECT * FROM groups WHERE id=?`, [groupId]);
+  if (!group) return res.status(404).json({ ok: false, error: "Не найдено" });
+
+  const members = await dbAll(
+    `SELECT gm.username, gm.role, u.displayName, u.avatarUrl, u.verified
+     FROM group_members gm JOIN users u ON u.username=gm.username
+     WHERE gm.groupId=? ORDER BY (gm.role='owner') DESC, (gm.role='admin') DESC, gm.username ASC`,
+    [groupId]
+  );
+
+  res.json({ ok: true, group, members, myRole: role });
+});
+
+app.post("/api/groups/:id/members", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const role = await isMember(groupId, req.user.username);
+  if (role !== "owner" && role !== "admin") return res.status(403).json({ ok: false, error: "Недостаточно прав" });
+
+  const username = String(req.body.username || "").replace(/^@+/, "").toLowerCase();
+  const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [username]);
+  if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+
+  await dbRun(`INSERT OR IGNORE INTO group_members (groupId, username, role, joinedAt) VALUES (?,?,'member',?)`, [groupId, username, now()]);
+  res.json({ ok: true });
+});
+
+app.delete("/api/groups/:id/members/:username", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const target = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const role = await isMember(groupId, req.user.username);
+
+  const selfLeave = target === req.user.username;
+  if (!selfLeave && role !== "owner" && role !== "admin") {
+    return res.status(403).json({ ok: false, error: "Недостаточно прав" });
+  }
+  const targetRole = await isMember(groupId, target);
+  if (targetRole === "owner" && !selfLeave) {
+    return res.status(400).json({ ok: false, error: "Нельзя удалить владельца группы" });
+  }
+
+  await dbRun(`DELETE FROM group_members WHERE groupId=? AND username=?`, [groupId, target]);
+  res.json({ ok: true });
+});
+
+// ---------------- CHATS (private list) ----------------
 app.get("/api/chats", verifyAuth, (req, res) => {
   const me = req.user.username;
 
@@ -323,7 +661,7 @@ app.get("/api/chats", verifyAuth, (req, res) => {
 
       const placeholders = others.map(() => "?").join(",");
       db.all(
-        `SELECT username, displayName, avatarUrl FROM users WHERE username IN (${placeholders})`,
+        `SELECT username, displayName, avatarUrl, verified FROM users WHERE username IN (${placeholders})`,
         others,
         (e2, users) => {
           const map = new Map((users || []).map(u => [u.username, u]));
@@ -346,11 +684,12 @@ app.get("/api/chats", verifyAuth, (req, res) => {
               });
 
               const out = others.map(o => {
-                const u = map.get(o) || { username: o, displayName: o, avatarUrl: "" };
+                const u = map.get(o) || { username: o, displayName: o, avatarUrl: "", verified: 0 };
                 return {
                   username: u.username,
                   displayName: u.displayName || u.username,
                   avatarUrl: u.avatarUrl || "",
+                  verified: !!u.verified,
                   preview: preview.get(o) || ""
                 };
               });
@@ -365,20 +704,29 @@ app.get("/api/chats", verifyAuth, (req, res) => {
 });
 
 // ---------------- MESSAGES ----------------
-app.get("/api/messages", verifyAuth, (req, res) => {
+app.get("/api/messages", verifyAuth, async (req, res) => {
   const chat = String(req.query.chat || "global").replace(/^@+/, "").toLowerCase();
   const me = req.user.username;
 
   if (chat === "global") {
-    db.all(
-      `SELECT * FROM messages WHERE chatType='global' ORDER BY createdAt ASC LIMIT 500`,
-      (err, rows) => res.json({ ok: true, messages: rows || [] })
+    const rows = await dbAll(`SELECT * FROM messages WHERE chatType='global' ORDER BY createdAt ASC LIMIT 500`);
+    return res.json({ ok: true, messages: rows });
+  }
+
+  if (chat.startsWith("group:")) {
+    const groupId = Number(chat.slice(6));
+    const role = await isMember(groupId, me);
+    if (!role) return res.status(403).json({ ok: false, error: "Ты не участник этой группы" });
+
+    const rows = await dbAll(
+      `SELECT * FROM messages WHERE chatType='group' AND receiver=? ORDER BY createdAt ASC LIMIT 800`,
+      [chat]
     );
-    return;
+    return res.json({ ok: true, messages: rows });
   }
 
   const other = chat;
-  db.all(
+  const rows = await dbAll(
     `
     SELECT * FROM messages
     WHERE chatType='private'
@@ -386,9 +734,9 @@ app.get("/api/messages", verifyAuth, (req, res) => {
     ORDER BY createdAt ASC
     LIMIT 800
     `,
-    [me, other, other, me],
-    (err, rows) => res.json({ ok: true, messages: rows || [] })
+    [me, other, other, me]
   );
+  res.json({ ok: true, messages: rows });
 });
 
 app.delete("/api/messages/:id", verifyAuth, (req, res) => {
@@ -399,13 +747,35 @@ app.delete("/api/messages/:id", verifyAuth, (req, res) => {
     if (!row) return res.status(404).json({ ok: false, error: "Не найдено" });
     if (row.sender !== me) return res.status(403).json({ ok: false, error: "Можно удалить только своё" });
 
-    db.run(`DELETE FROM messages WHERE id=?`, [id], (e2) => {
+    db.run(`DELETE FROM messages WHERE id=?`, [id], async (e2) => {
       if (e2) return res.status(500).json({ ok: false, error: "Ошибка удаления" });
 
-      broadcastDelete(row, id);
+      await broadcastDelete(row, id);
       res.json({ ok: true });
     });
   });
+});
+
+// Shopping / to-do list toggle (REST fallback; the primary path is via WS,
+// see 'list-toggle' below).
+app.post("/api/messages/:id/list-toggle", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const itemIndex = Number(req.body.itemIndex);
+  const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
+  if (!row || row.mediaType !== "list") return res.status(404).json({ ok: false, error: "Список не найден" });
+
+  const allowed = await canPostTo(row.chatType, row.receiver, req.user.username);
+  if (!allowed.canRead) return res.status(403).json({ ok: false, error: "Нет доступа" });
+
+  let list;
+  try { list = JSON.parse(row.text); } catch { return res.status(500).json({ ok: false, error: "Повреждённые данные" }); }
+  if (!list.items || !list.items[itemIndex]) return res.status(400).json({ ok: false, error: "Неверный пункт" });
+
+  list.items[itemIndex].checked = !list.items[itemIndex].checked;
+  await dbRun(`UPDATE messages SET text=? WHERE id=?`, [JSON.stringify(list), id]);
+
+  await broadcastToChat(row.chatType, row.receiver, req.user.username, { type: "listUpdated", id, list });
+  res.json({ ok: true, list });
 });
 
 // ---------------- UPLOAD ----------------
@@ -414,19 +784,22 @@ app.post("/api/upload", verifyAuth, (req, res, next) => {
     if (err) return res.status(400).json({ ok: false, error: err.message || "Ошибка загрузки" });
     next();
   });
-}, (req, res) => {
+}, async (req, res) => {
   const me = req.user.username;
 
   if (req.user.muted) return res.status(403).json({ ok: false, error: "Тебе временно запрещено отправлять сообщения" });
 
   const receiver = String(req.body.receiver || "global").replace(/^@+/, "").toLowerCase();
-  const chatType = receiver === "global" ? "global" : "private";
+  const chatType = receiver.startsWith("group:") ? "group" : (receiver === "global" ? "global" : "private");
   const text = String(req.body.text || "").trim().slice(0, 2000);
 
   if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
 
+  const perm = await canPostTo(chatType, receiver, me);
+  if (!perm.canPost) return res.status(403).json({ ok: false, error: perm.error || "Нет доступа" });
+
   const mediaType = guessMediaType(req.file.mimetype);
-  const ext = MIME_EXT[req.file.mimetype] || ""; // never trust the client-supplied filename/extension
+  const ext = MIME_EXT[req.file.mimetype] || "";
   const newName = `${req.file.filename}${ext}`;
   fs.renameSync(req.file.path, path.join(uploadsDir, newName));
   const mediaUrl = `/uploads/${newName}`;
@@ -436,21 +809,11 @@ app.post("/api/upload", verifyAuth, (req, res, next) => {
     `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt)
      VALUES (?,?,?,?,?,?,?)`,
     [chatType, me, receiver, text, mediaType, mediaUrl, createdAt],
-    function (err) {
+    async function (err) {
       if (err) return res.status(500).json({ ok: false, error: "Ошибка сохранения" });
 
-      const msg = {
-        id: this.lastID,
-        chatType,
-        sender: me,
-        receiver,
-        text,
-        mediaType,
-        mediaUrl,
-        createdAt
-      };
-
-      broadcastMessage(msg);
+      const msg = { id: this.lastID, chatType, sender: me, receiver, text, mediaType, mediaUrl, createdAt };
+      await broadcastToChat(chatType, receiver, me, { type: "message", message: msg });
       res.json({ ok: true, message: msg });
     }
   );
@@ -461,7 +824,7 @@ app.get("/api/stories", verifyAuth, (req, res) => {
   cleanupStories();
   db.all(
     `
-    SELECT s.*, u.displayName, u.avatarUrl
+    SELECT s.*, u.displayName, u.avatarUrl, u.verified
     FROM stories s
     LEFT JOIN users u ON u.username=s.owner
     WHERE s.expiresAt > ? AND u.banned=0
@@ -529,7 +892,7 @@ app.get("/api/birthdays/today", verifyAuth, (req, res) => {
 app.get("/api/admin/user/:username", verifyAuth, verifyAdmin, (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   db.get(
-    `SELECT username, displayName, bio, avatarUrl, birthDate, banned, muted, isAdmin FROM users WHERE username=?`,
+    `SELECT username, displayName, bio, avatarUrl, birthDate, banned, muted, isAdmin, verified FROM users WHERE username=?`,
     [u],
     (err, row) => {
       if (!row) return res.status(404).json({ ok: false, error: "Не найден" });
@@ -549,7 +912,7 @@ function adminSetFlag(field, value) {
 
       if (field === "banned" && value === 1) {
         const ws = online.get(u);
-        if (ws) ws.close(); // kick a banned user off any live connection immediately
+        if (ws) ws.close();
       }
       res.json({ ok: true });
     });
@@ -570,6 +933,7 @@ app.delete("/api/admin/delete/:username", verifyAuth, verifyAdmin, (req, res) =>
 
     db.run(`DELETE FROM messages WHERE sender=? OR receiver=?`, [u, u]);
     db.run(`DELETE FROM stories WHERE owner=?`, [u]);
+    db.run(`DELETE FROM group_members WHERE username=?`, [u]);
 
     const ws = online.get(u);
     if (ws) ws.close();
@@ -578,7 +942,9 @@ app.delete("/api/admin/delete/:username", verifyAuth, verifyAdmin, (req, res) =>
   });
 });
 
-// ---------------- WEBSOCKET (messages + typing + presence + calls) ----------------
+// ================================================================
+// WEBSOCKET (messages + typing + presence + calls + groups + lists)
+// ================================================================
 const online = new Map(); // username -> ws
 
 function wsSend(ws, payload) {
@@ -594,22 +960,45 @@ function broadcastPresence() {
   broadcastAll({ type: "presence", online: list });
 }
 
-function broadcastMessage(msg) {
-  if (msg.chatType === "global") {
-    broadcastAll({ type: "message", message: msg });
-    return;
+// Central permission check for posting/reading a chat target.
+// chatType: 'global' | 'private' | 'group'; receiver: 'global' | username | 'group:<id>'
+async function canPostTo(chatType, receiver, username) {
+  if (chatType === "global") return { canPost: true, canRead: true };
+  if (chatType === "private") return { canPost: true, canRead: true }; // either side of a DM can always post
+  if (chatType === "group") {
+    const groupId = Number(String(receiver).slice(6));
+    const group = await dbGet(`SELECT * FROM groups WHERE id=?`, [groupId]);
+    if (!group) return { canPost: false, canRead: false, error: "Группа не найдена" };
+    const role = await isMember(groupId, username);
+    if (!role) return { canPost: false, canRead: false, error: "Ты не участник этой группы" };
+    if (group.isChannel && role === "member") return { canPost: false, canRead: true, error: "В этом канале писать могут только администраторы" };
+    return { canPost: true, canRead: true };
   }
-  wsSend(online.get(msg.sender), { type: "message", message: msg });
-  wsSend(online.get(msg.receiver), { type: "message", message: msg });
+  return { canPost: false, canRead: false };
 }
 
-function broadcastDelete(row, id) {
-  if (row.chatType === "global") {
-    broadcastAll({ type: "messageDeleted", id });
-    return;
+async function recipientsFor(chatType, receiver, sender) {
+  if (chatType === "global") return Array.from(online.keys());
+  if (chatType === "private") return [sender, receiver];
+  if (chatType === "group") {
+    const groupId = Number(String(receiver).slice(6));
+    const rows = await dbAll(`SELECT username FROM group_members WHERE groupId=?`, [groupId]);
+    return rows.map(r => r.username);
   }
-  wsSend(online.get(row.sender), { type: "messageDeleted", id });
-  wsSend(online.get(row.receiver), { type: "messageDeleted", id });
+  return [];
+}
+
+async function broadcastToChat(chatType, receiver, sender, payload) {
+  const usernames = await recipientsFor(chatType, receiver, sender);
+  for (const u of usernames) wsSend(online.get(u), payload);
+}
+
+async function broadcastMessage(msg) {
+  await broadcastToChat(msg.chatType, msg.receiver, msg.sender, { type: "message", message: msg });
+}
+
+async function broadcastDelete(row, id) {
+  await broadcastToChat(row.chatType, row.receiver, row.sender, { type: "messageDeleted", id });
 }
 
 wss.on("connection", (ws, req) => {
@@ -617,6 +1006,7 @@ wss.on("connection", (ws, req) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const token = url.searchParams.get("token") || "";
     const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET);
+    if (decoded.purpose) return ws.close(); // reject 2FA pending tokens
     const username = String(decoded.username || "");
 
     db.get(`SELECT * FROM users WHERE username=?`, [username], (err, user) => {
@@ -628,7 +1018,7 @@ wss.on("connection", (ws, req) => {
       wsSend(ws, { type: "ws-ready", username });
       broadcastPresence();
 
-      ws.on("message", (raw) => {
+      ws.on("message", async (raw) => {
         let data;
         try { data = JSON.parse(raw.toString()); } catch { return; }
         if (!data || !data.type) return;
@@ -638,12 +1028,18 @@ wss.on("connection", (ws, req) => {
         // typing indicator
         if (data.type === "typing") {
           const to = String(data.to || "").replace(/^@+/, "").toLowerCase();
-          const target = online.get(to);
-          if (target) wsSend(target, { type: "typing", from, isTyping: !!data.isTyping });
+          if (to.startsWith("group:")) {
+            const groupId = Number(to.slice(6));
+            const members = await dbAll(`SELECT username FROM group_members WHERE groupId=?`, [groupId]);
+            for (const m of members) if (m.username !== from) wsSend(online.get(m.username), { type: "typing", from, to, isTyping: !!data.isTyping });
+          } else {
+            const target = online.get(to);
+            if (target) wsSend(target, { type: "typing", from, isTyping: !!data.isTyping });
+          }
           return;
         }
 
-        // WebRTC audio call signaling
+        // WebRTC audio call signaling (private calls only)
         if (["call-offer", "call-answer", "ice", "call-end", "call-reject"].includes(data.type)) {
           const to = String(data.to || "").replace(/^@+/, "").toLowerCase();
           const target = online.get(to);
@@ -652,39 +1048,75 @@ wss.on("connection", (ws, req) => {
           return;
         }
 
-        // text message
+        // plain text message (works for global / private / group)
         if (data.type === "text-message") {
-          // Re-check mute status live (it may have changed since login).
-          db.get(`SELECT muted, banned FROM users WHERE username=?`, [from], (e0, u) => {
-            if (!u || u.banned || u.muted) return;
+          const user = await dbGet(`SELECT muted, banned FROM users WHERE username=?`, [from]);
+          if (!user || user.banned || user.muted) return;
 
-            const receiver = String(data.receiver || "global").replace(/^@+/, "").toLowerCase();
-            const chatType = receiver === "global" ? "global" : "private";
-            const text = String(data.text || "").trim().slice(0, 2000);
-            if (!text) return;
+          const receiver = String(data.receiver || "global").replace(/^@+/, "").toLowerCase();
+          const chatType = receiver.startsWith("group:") ? "group" : (receiver === "global" ? "global" : "private");
+          const text = String(data.text || "").trim().slice(0, 2000);
+          if (!text) return;
 
-            const createdAt = now();
-            db.run(
-              `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt)
-               VALUES (?,?,?,?,?,?,?)`,
-              [chatType, from, receiver, text, "text", "", createdAt],
-              function (err2) {
-                if (err2) return;
+          const perm = await canPostTo(chatType, receiver, from);
+          if (!perm.canPost) return wsSend(ws, { type: "call-error", message: perm.error || "Нет доступа" });
 
-                const msg = {
-                  id: this.lastID,
-                  chatType,
-                  sender: from,
-                  receiver,
-                  text,
-                  mediaType: "text",
-                  mediaUrl: "",
-                  createdAt
-                };
-                broadcastMessage(msg);
-              }
-            );
-          });
+          const createdAt = now();
+          const result = await dbRun(
+            `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES (?,?,?,?,?,?,?)`,
+            [chatType, from, receiver, text, "text", "", createdAt]
+          );
+          const msg = { id: result.lastID, chatType, sender: from, receiver, text, mediaType: "text", mediaUrl: "", createdAt };
+          await broadcastMessage(msg);
+          return;
+        }
+
+        // shopping / to-do list message: { receiver, title, items: [string, ...] }
+        if (data.type === "list-message") {
+          const user = await dbGet(`SELECT muted, banned FROM users WHERE username=?`, [from]);
+          if (!user || user.banned || user.muted) return;
+
+          const receiver = String(data.receiver || "global").replace(/^@+/, "").toLowerCase();
+          const chatType = receiver.startsWith("group:") ? "group" : (receiver === "global" ? "global" : "private");
+          const title = String(data.title || "Список").trim().slice(0, 80);
+          const items = (Array.isArray(data.items) ? data.items : [])
+            .map(t => String(t || "").trim().slice(0, 200))
+            .filter(Boolean)
+            .slice(0, 50)
+            .map(text => ({ text, checked: false }));
+          if (items.length === 0) return;
+
+          const perm = await canPostTo(chatType, receiver, from);
+          if (!perm.canPost) return wsSend(ws, { type: "call-error", message: perm.error || "Нет доступа" });
+
+          const list = { title, items };
+          const createdAt = now();
+          const result = await dbRun(
+            `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES (?,?,?,?,?,?,?)`,
+            [chatType, from, receiver, JSON.stringify(list), "list", "", createdAt]
+          );
+          const msg = { id: result.lastID, chatType, sender: from, receiver, text: JSON.stringify(list), mediaType: "list", mediaUrl: "", createdAt };
+          await broadcastMessage(msg);
+          return;
+        }
+
+        // toggle one item in a shopping/to-do list
+        if (data.type === "list-toggle") {
+          const id = Number(data.id);
+          const itemIndex = Number(data.itemIndex);
+          const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
+          if (!row || row.mediaType !== "list") return;
+
+          const perm = await canPostTo(row.chatType, row.receiver, from);
+          if (!perm.canRead) return;
+
+          let list;
+          try { list = JSON.parse(row.text); } catch { return; }
+          if (!list.items || !list.items[itemIndex]) return;
+
+          list.items[itemIndex].checked = !list.items[itemIndex].checked;
+          await dbRun(`UPDATE messages SET text=? WHERE id=?`, [JSON.stringify(list), id]);
+          await broadcastToChat(row.chatType, row.receiver, from, { type: "listUpdated", id, list });
           return;
         }
       });
