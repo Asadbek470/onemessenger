@@ -1106,21 +1106,74 @@ async function showBirthdays() {
 }
 
 // ================== AUDIO CALL (WebRTC) ==================
-function openIncoming(text) {
-  document.getElementById("incomingCallText").textContent = text;
+let callTimerInterval = null;
+let callStartedAt = null;
+let isSpeakerOn = false;
+const userInfoCache = new Map();
+
+async function getUserInfo(username) {
+  if (userInfoCache.has(username)) return userInfoCache.get(username);
+  try {
+    const r = await fetch(`/api/users/${encodeURIComponent(username)}`, { headers: authHeaders() });
+    const d = await r.json();
+    const info = d.ok ? d.user : { username, displayName: username, avatarUrl: "" };
+    userInfoCache.set(username, info);
+    return info;
+  } catch {
+    return { username, displayName: username, avatarUrl: "" };
+  }
+}
+
+function renderCallAvatar(el, info) {
+  el.innerHTML = info.avatarUrl
+    ? `<img src="${esc(info.avatarUrl)}" alt="">`
+    : `<span>${esc((info.displayName || info.username)[0].toUpperCase())}</span>`;
+}
+
+async function openIncoming(username) {
+  const info = await getUserInfo(username);
+  document.getElementById("incomingCallText").textContent = `@${username} звонит тебе`;
+  renderCallAvatar(document.getElementById("incomingCallAvatar"), info);
   document.getElementById("incomingCallModal").classList.remove("hidden");
 }
 function closeIncoming() {
   document.getElementById("incomingCallModal").classList.add("hidden");
 }
 
-function openCall(title, status) {
-  document.getElementById("callTitle").textContent = title;
+async function openCall(username, status) {
+  const info = await getUserInfo(username);
+  document.getElementById("callTitle").textContent = info.displayName || `@${username}`;
   document.getElementById("callStatus").textContent = status || "Соединение...";
+  renderCallAvatar(document.getElementById("callAvatar"), info);
+  document.getElementById("callAvatarRing").classList.remove("connected");
+  document.getElementById("callTimer").classList.add("hidden");
   document.getElementById("callModal").classList.remove("hidden");
 }
 function closeCall() {
   document.getElementById("callModal").classList.add("hidden");
+}
+
+function startCallTimer() {
+  callStartedAt = Date.now();
+  document.getElementById("callTimer").classList.remove("hidden");
+  document.getElementById("callAvatarRing").classList.add("connected");
+  clearInterval(callTimerInterval);
+  callTimerInterval = setInterval(() => {
+    const secs = Math.floor((Date.now() - callStartedAt) / 1000);
+    const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+    const ss = String(secs % 60).padStart(2, "0");
+    document.getElementById("callTimer").textContent = `${mm}:${ss}`;
+  }, 1000);
+}
+function stopCallTimer() {
+  clearInterval(callTimerInterval);
+  callTimerInterval = null;
+  callStartedAt = null;
+}
+
+function markConnected() {
+  document.getElementById("callStatus").textContent = "Разговор идёт";
+  if (!callTimerInterval) startCallTimer();
 }
 
 async function startAudioCall() {
@@ -1129,7 +1182,7 @@ async function startAudioCall() {
   if (!ws || ws.readyState !== 1) return alert("WS не подключен");
 
   callPeer = currentChat;
-  openCall(`Аудиозвонок с @${callPeer}`, "Звоним...");
+  await openCall(callPeer, "Звоним...");
 
   try {
     await createPeer(callPeer);
@@ -1151,7 +1204,7 @@ async function onIncomingOffer(data) {
   incomingFrom = data.from;
   incomingOffer = data.offer;
 
-  openIncoming(`@${incomingFrom} звонит тебе`);
+  openIncoming(incomingFrom);
 }
 
 async function acceptIncomingCall() {
@@ -1159,7 +1212,7 @@ async function acceptIncomingCall() {
 
   closeIncoming();
   callPeer = incomingFrom;
-  openCall(`Аудиозвонок с @${callPeer}`, "Подключение...");
+  await openCall(callPeer, "Подключение...");
 
   try {
     await createPeer(callPeer);
@@ -1188,7 +1241,7 @@ function declineIncomingCall() {
 async function onCallAnswer(data) {
   if (!pc) return;
   await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-  document.getElementById("callStatus").textContent = "Разговор начался ✅";
+  markConnected();
 }
 
 async function onIce(data) {
@@ -1197,12 +1250,11 @@ async function onIce(data) {
 }
 
 function onCallEnd() {
-  alert("Звонок завершён");
   cleanupCall();
 }
 function onCallReject(data) {
-  alert(`@${data.from} отклонил звонок`);
-  cleanupCall();
+  document.getElementById("callStatus").textContent = `@${data.from} отклонил звонок`;
+  setTimeout(cleanupCall, 1200);
 }
 
 async function createPeer(peer) {
@@ -1224,12 +1276,12 @@ async function createPeer(peer) {
     ev.streams[0].getTracks().forEach(t => {
       if (!remoteStream.getTracks().some(x => x.id === t.id)) remoteStream.addTrack(t);
     });
-    document.getElementById("callStatus").textContent = "Разговор начался ✅";
+    markConnected();
   };
 
   pc.onconnectionstatechange = () => {
     const st = pc.connectionState;
-    if (st === "connected") document.getElementById("callStatus").textContent = "Разговор начался ✅";
+    if (st === "connected") markConnected();
     if (["failed", "disconnected", "closed"].includes(st)) cleanupCall();
   };
 }
@@ -1238,7 +1290,22 @@ function toggleMute() {
   if (!localStream) return;
   isMuted = !isMuted;
   localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
-  document.getElementById("muteBtn").textContent = isMuted ? "Включить микрофон" : "Выключить микрофон";
+  const btn = document.getElementById("muteBtn");
+  btn.classList.toggle("callbtn-active", isMuted);
+  btn.innerHTML = `<i class="fa-solid ${isMuted ? "fa-microphone-slash" : "fa-microphone"}"></i>`;
+}
+
+async function toggleSpeaker() {
+  const audioEl = document.getElementById("remoteAudio");
+  isSpeakerOn = !isSpeakerOn;
+  const btn = document.getElementById("speakerBtn");
+  btn.classList.toggle("callbtn-active", isSpeakerOn);
+  btn.innerHTML = `<i class="fa-solid ${isSpeakerOn ? "fa-volume-high" : "fa-volume-low"}"></i>`;
+  // setSinkId is only supported in some browsers (mainly desktop Chrome/Edge);
+  // where unsupported this simply becomes a visual toggle with no effect.
+  if (typeof audioEl.setSinkId === "function") {
+    try { await audioEl.setSinkId(isSpeakerOn ? "default" : ""); } catch {}
+  }
 }
 
 function endCall() {
@@ -1251,6 +1318,7 @@ function endCall() {
 function cleanupCall() {
   closeCall();
   closeIncoming();
+  stopCallTimer();
 
   try { pc && pc.close(); } catch {}
   pc = null;
@@ -1265,7 +1333,15 @@ function cleanupCall() {
   incomingFrom = null;
   incomingOffer = null;
   isMuted = false;
+  isSpeakerOn = false;
 
-  document.getElementById("muteBtn").textContent = "Выключить микрофон";
+  const muteBtn = document.getElementById("muteBtn");
+  muteBtn.classList.remove("callbtn-active");
+  muteBtn.innerHTML = `<i class="fa-solid fa-microphone"></i>`;
+
+  const speakerBtn = document.getElementById("speakerBtn");
+  speakerBtn.classList.remove("callbtn-active");
+  speakerBtn.innerHTML = `<i class="fa-solid fa-volume-high"></i>`;
+
   document.getElementById("remoteAudio").srcObject = null;
 }
