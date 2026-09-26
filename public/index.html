@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="auth">
-  <div class="auth-card">
+  <div class="auth-card" id="authCard">
     <div class="brand">
       <div class="logo">OM</div>
       <div>
@@ -16,12 +16,12 @@
       </div>
     </div>
 
-    <div class="tabs">
+    <div class="tabs" id="authTabs">
       <button class="tab active" id="tabLogin" onclick="switchTab('login')">Вход</button>
       <button class="tab" id="tabReg" onclick="switchTab('reg')">Регистрация</button>
     </div>
 
-    <div class="form">
+    <div class="form" id="authForm">
       <label>@username</label>
       <input id="identifier" placeholder="@asadbek000" autocomplete="username" />
 
@@ -29,16 +29,43 @@
       <input id="password" type="password" placeholder="••••" autocomplete="current-password" />
 
       <button class="btn primary full" onclick="submitAuth()">Продолжить</button>
-      <div class="hint">Юзернейм: 4–20 символов (a-z, 0-9, _)</div>
+      <div class="hint">Юзернейм: 4–20 символов (a-z, 0-9, _). Пароль: минимум 6 символов.</div>
+    </div>
+
+    <!-- Shown instead of the form when the account has 2FA enabled -->
+    <div class="form hidden" id="twoFAForm">
+      <label>Код из приложения-аутентификатора</label>
+      <input id="twoFACode" inputmode="numeric" maxlength="6" placeholder="000000" autofocus />
+
+      <button class="btn primary full" onclick="submit2FA()">Войти</button>
+      <button class="btn ghost full" onclick="cancel2FA()">Назад</button>
+      <div class="hint">Открой Google Authenticator / Authy и введи текущий 6-значный код.</div>
     </div>
   </div>
 
   <script>
     let mode = "login";
+    let pendingToken = null;
+
     function switchTab(m){
       mode = m;
       document.getElementById("tabLogin").classList.toggle("active", m==="login");
       document.getElementById("tabReg").classList.toggle("active", m==="reg");
+    }
+
+    function show2FAStep(token){
+      pendingToken = token;
+      document.getElementById("authTabs").classList.add("hidden");
+      document.getElementById("authForm").classList.add("hidden");
+      document.getElementById("twoFAForm").classList.remove("hidden");
+    }
+
+    function cancel2FA(){
+      pendingToken = null;
+      document.getElementById("twoFACode").value = "";
+      document.getElementById("authTabs").classList.remove("hidden");
+      document.getElementById("authForm").classList.remove("hidden");
+      document.getElementById("twoFAForm").classList.add("hidden");
     }
 
     async function submitAuth(){
@@ -58,6 +85,27 @@
       });
       const d = await r.json();
       if(!d.ok) return alert(d.error || "Ошибка");
+
+      if (d.need2FA) {
+        show2FAStep(d.pendingToken);
+        return;
+      }
+
+      localStorage.setItem("token", d.token);
+      location.href = "chat.html";
+    }
+
+    async function submit2FA(){
+      const code = document.getElementById("twoFACode").value.trim();
+      if (!/^\d{6}$/.test(code)) return alert("Введи 6-значный код");
+
+      const r = await fetch("/api/auth/2fa-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pendingToken, code })
+      });
+      const d = await r.json();
+      if (!d.ok) return alert(d.error || "Ошибка");
 
       localStorage.setItem("token", d.token);
       location.href = "chat.html";
