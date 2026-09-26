@@ -3,7 +3,8 @@ const token = localStorage.getItem("token");
 if (!token) location.href = "index.html";
 
 let me = null;
-let currentChat = "global";
+let currentChat = "global"; // 'global' | username | 'group:<id>'
+let currentGroupMeta = null; // populated when currentChat is a group
 let ws = null;
 
 // typing timer
@@ -31,6 +32,9 @@ const rtcCfg = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 // online state
 const onlineSet = new Set();
 
+// list of the user's groups/channels, refreshed alongside private chats
+let myGroups = [];
+
 function esc(s = "") {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -44,10 +48,105 @@ function authHeaders() {
   return { Authorization: `Bearer ${token}` };
 }
 
+function verifiedBadge(isVerified) {
+  return isVerified ? ` <i class="fa-solid fa-circle-check verified-badge" title="Официально подтверждён"></i>` : "";
+}
+
+// ================== PASSCODE LOCK (device-local) ==================
+// This locks the app on THIS device/browser only. It is not an account
+// security feature (that's 2FA below) and is not synced anywhere — it's
+// the same idea as Telegram's local passcode.
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function passcodeEnabled() {
+  return !!localStorage.getItem("passcodeHash");
+}
+
+async function unlockAttempt() {
+  const input = document.getElementById("passcodeInput");
+  const err = document.getElementById("passcodeError");
+  const hash = await sha256Hex(input.value.trim());
+  if (hash === localStorage.getItem("passcodeHash")) {
+    document.getElementById("passcodeOverlay").classList.add("hidden");
+    input.value = "";
+    err.textContent = "";
+    boot();
+  } else {
+    err.textContent = "Неверный код";
+    input.value = "";
+  }
+}
+
+function passcodeKeydown(e) {
+  if (e.key === "Enter") unlockAttempt();
+}
+
+async function setPasscodeFromSettings() {
+  const p1 = document.getElementById("newPasscode").value.trim();
+  const p2 = document.getElementById("newPasscodeConfirm").value.trim();
+  if (!/^\d{4,8}$/.test(p1)) return alert("Код: 4-8 цифр");
+  if (p1 !== p2) return alert("Коды не совпадают");
+  localStorage.setItem("passcodeHash", await sha256Hex(p1));
+  document.getElementById("newPasscode").value = "";
+  document.getElementById("newPasscodeConfirm").value = "";
+  renderPasscodeSection();
+  alert("Код-пароль установлен ✅");
+}
+
+function removePasscodeFromSettings() {
+  if (!confirm("Убрать код-пароль с этого устройства?")) return;
+  localStorage.removeItem("passcodeHash");
+  renderPasscodeSection();
+}
+
+function lockNow() {
+  if (!passcodeEnabled()) return alert("Сначала установи код-пароль");
+  document.getElementById("passcodeOverlay").classList.remove("hidden");
+  closeSettings();
+}
+
+function renderPasscodeSection() {
+  const box = document.getElementById("passcodeSection");
+  if (passcodeEnabled()) {
+    box.innerHTML = `
+      <div class="hint">Код-пароль включён на этом устройстве.</div>
+      <div class="row">
+        <button class="btn ghost" onclick="lockNow()">Заблокировать сейчас</button>
+        <button class="btn danger" onclick="removePasscodeFromSettings()">Убрать код</button>
+      </div>
+    `;
+  } else {
+    box.innerHTML = `
+      <label>Новый код (4-8 цифр)</label>
+      <input id="newPasscode" type="password" inputmode="numeric" maxlength="8">
+      <label>Повтори код</label>
+      <input id="newPasscodeConfirm" type="password" inputmode="numeric" maxlength="8">
+      <button class="btn primary full" onclick="setPasscodeFromSettings()">Установить код-пароль</button>
+    `;
+  }
+}
+
+// ================== BOOT ==================
+window.addEventListener("DOMContentLoaded", () => {
+  if (passcodeEnabled()) {
+    document.getElementById("passcodeOverlay").classList.remove("hidden");
+    document.getElementById("passcodeInput").focus();
+  } else {
+    boot();
+  }
+});
+
+function boot() { initApp(); }
+
 // ================== INIT ==================
 async function initApp() {
   await loadMe();
   if (!me) return; // loadMe already redirected on failure
+
+  applyTheme(me.settings || {});
   connectWS();
 
   await openChat("global");
@@ -83,13 +182,27 @@ function toggleSidebar() {
   document.getElementById("sidebar").classList.toggle("mobile-hidden");
 }
 
+function isGroupChat(chat) {
+  return typeof chat === "string" && chat.startsWith("group:");
+}
+
 function updateHeader() {
   const title = document.getElementById("chatTitle");
   const sub = document.getElementById("chatSub");
-  title.textContent = currentChat === "global" ? "Общий чат" : "@" + currentChat;
-  sub.textContent = currentChat === "global" ? "общение со всеми" : (onlineSet.has(currentChat) ? "в сети" : "не в сети");
 
-  document.getElementById("callBtn").style.display = currentChat === "global" ? "none" : "inline-flex";
+  if (currentChat === "global") {
+    title.textContent = "Общий чат";
+    sub.textContent = "общение со всеми";
+  } else if (isGroupChat(currentChat)) {
+    const g = currentGroupMeta;
+    title.innerHTML = (g ? esc(g.name) : "Группа") + (g && g.isChannel ? ` <i class="fa-solid fa-bullhorn" title="Канал"></i>` : "");
+    sub.textContent = g ? (g.isChannel ? "канал" : `${g.memberCount || ""} участников`.trim()) : "";
+  } else {
+    title.textContent = "@" + currentChat;
+    sub.textContent = onlineSet.has(currentChat) ? "в сети" : "не в сети";
+  }
+
+  document.getElementById("callBtn").style.display = (currentChat !== "global" && !isGroupChat(currentChat)) ? "inline-flex" : "none";
 }
 
 // ================== WS ==================
@@ -109,7 +222,7 @@ function connectWS() {
     }
 
     if (data.type === "typing") {
-      if (currentChat === data.from) {
+      if (currentChat === data.from || (isGroupChat(currentChat) && data.to === currentChat)) {
         const el = document.getElementById("typingLine");
         el.classList.toggle("hidden", !data.isTyping);
       }
@@ -122,13 +235,19 @@ function connectWS() {
       return;
     }
 
+    if (data.type === "listUpdated") {
+      updateListBubble(data.id, data.list);
+      return;
+    }
+
+    if (data.type === "call-error") { if (data.message) alert(data.message); return; }
+
     // calls
     if (data.type === "call-offer") return onIncomingOffer(data);
     if (data.type === "call-answer") return onCallAnswer(data);
     if (data.type === "ice") return onIce(data);
     if (data.type === "call-end") return onCallEnd();
     if (data.type === "call-reject") return onCallReject(data);
-    if (data.type === "call-error") return alert(data.message || "Ошибка звонка");
 
     if (data.type === "message") {
       const msg = data.message;
@@ -148,8 +267,8 @@ function maybeNotify(msg) {
     if (Notification.permission !== "granted") return;
     if (msg.sender === me.username) return;
 
-    const title = msg.chatType === "global" ? "Общий чат" : "@" + msg.sender;
-    const body = msg.mediaType !== "text" ? `[${msg.mediaType}]` : (msg.text || "");
+    const title = msg.chatType === "global" ? "Общий чат" : (msg.chatType === "group" ? "Группа" : "@" + msg.sender);
+    const body = msg.mediaType !== "text" ? (msg.mediaType === "list" ? "[список]" : `[${msg.mediaType}]`) : (msg.text || "");
     new Notification(title, { body });
   } catch {}
 }
@@ -174,13 +293,15 @@ function typing(on) {
 
 function shouldRender(msg) {
   if (msg.chatType === "global") return currentChat === "global";
+  if (msg.chatType === "group") return currentChat === msg.receiver;
   const other = msg.sender === me.username ? msg.receiver : msg.sender;
   return currentChat === other;
 }
 
 // ================== CHAT ==================
 async function openChat(chat) {
-  currentChat = chat === "global" ? "global" : String(chat).replace(/^@+/, "").toLowerCase();
+  currentChat = chat === "global" ? "global" : (isGroupChat(chat) ? chat : String(chat).replace(/^@+/, "").toLowerCase());
+  currentGroupMeta = null;
 
   document.querySelectorAll(".chatitem").forEach(b => b.classList.remove("active"));
   const btn = document.querySelector(`.chatitem[data-chat="${currentChat}"]`);
@@ -189,8 +310,15 @@ async function openChat(chat) {
   if (window.innerWidth <= 900) document.getElementById("sidebar").classList.add("mobile-hidden");
 
   document.getElementById("typingLine").classList.add("hidden");
-  updateHeader();
 
+  if (isGroupChat(currentChat)) {
+    const groupId = currentChat.slice(6);
+    const r = await fetch(`/api/groups/${groupId}`, { headers: authHeaders() });
+    const d = await r.json();
+    if (d.ok) currentGroupMeta = { ...d.group, memberCount: d.members.length, myRole: d.myRole };
+  }
+
+  updateHeader();
   await loadMessages();
 }
 
@@ -222,11 +350,14 @@ function renderMessage(m) {
     body = `<video class="mvid" controls playsinline src="${esc(m.mediaUrl)}"></video>`;
   } else if (m.mediaType === "audio") {
     body = `<audio class="maud" controls src="${esc(m.mediaUrl)}"></audio>`;
+  } else if (m.mediaType === "list") {
+    body = renderListBody(m);
   } else {
     body = `<div class="mtext">${esc(m.text || "")}</div>`;
   }
 
   const del = mine ? `<button class="trash" onclick="deleteMsg(${m.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>` : "";
+  const senderLine = (m.chatType === "global" || m.chatType === "group") ? `<div class="who">${esc(m.sender)}</div>` : "";
 
   const row = document.createElement("div");
   row.className = "mrow " + (mine ? "mine" : "other");
@@ -235,7 +366,7 @@ function renderMessage(m) {
   row.innerHTML = `
     <div class="bubble pop">
       <div class="btop">
-        <div class="who">${esc(m.sender)}</div>
+        ${senderLine}
         ${del}
       </div>
       ${body}
@@ -244,6 +375,40 @@ function renderMessage(m) {
 
   box.appendChild(row);
   scrollBottom();
+}
+
+function renderListBody(m) {
+  let list;
+  try { list = JSON.parse(m.text); } catch { return `<div class="mtext">[список]</div>`; }
+  const items = (list.items || []).map((it, i) => `
+    <li class="listitem ${it.checked ? "checked" : ""}" onclick="toggleListItem(${m.id}, ${i})">
+      <i class="fa-solid ${it.checked ? "fa-square-check" : "fa-square"}"></i>
+      <span>${esc(it.text)}</span>
+    </li>
+  `).join("");
+  return `
+    <div class="listcard" data-list-id="${m.id}">
+      <div class="listtitle"><i class="fa-solid fa-list-check"></i> ${esc(list.title || "Список")}</div>
+      <ul class="listitems">${items}</ul>
+    </div>
+  `;
+}
+
+function updateListBubble(id, list) {
+  const card = document.querySelector(`.listcard[data-list-id="${id}"]`);
+  if (!card) return;
+  const items = (list.items || []).map((it, i) => `
+    <li class="listitem ${it.checked ? "checked" : ""}" onclick="toggleListItem(${id}, ${i})">
+      <i class="fa-solid ${it.checked ? "fa-square-check" : "fa-square"}"></i>
+      <span>${esc(it.text)}</span>
+    </li>
+  `).join("");
+  card.querySelector(".listitems").innerHTML = items;
+}
+
+function toggleListItem(id, itemIndex) {
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: "list-toggle", id, itemIndex }));
 }
 
 async function deleteMsg(id) {
@@ -284,33 +449,101 @@ async function sendMedia(input) {
   input.value = "";
 }
 
+// ---------------- shopping / to-do list composer ----------------
+function openListComposer() {
+  document.getElementById("listModal").classList.remove("hidden");
+  document.getElementById("listTitle").value = "";
+  const rows = document.getElementById("listItemRows");
+  rows.innerHTML = "";
+  addListRow();
+  addListRow();
+}
+function closeListComposer() {
+  document.getElementById("listModal").classList.add("hidden");
+}
+function addListRow() {
+  const rows = document.getElementById("listItemRows");
+  const row = document.createElement("input");
+  row.className = "listRowInput";
+  row.placeholder = "Пункт списка...";
+  rows.appendChild(row);
+  row.focus();
+}
+function publishList() {
+  const title = document.getElementById("listTitle").value.trim() || "Список";
+  const items = [...document.querySelectorAll(".listRowInput")].map(i => i.value.trim()).filter(Boolean);
+  if (items.length === 0) return alert("Добавь хотя бы один пункт");
+  if (!ws || ws.readyState !== 1) return alert("WS не подключен");
+
+  ws.send(JSON.stringify({ type: "list-message", receiver: currentChat, title, items }));
+  closeListComposer();
+}
+
+// ---------------- attach menu (photo/video vs list) ----------------
+function toggleAttachMenu() {
+  document.getElementById("attachMenu").classList.toggle("hidden");
+}
+function attachPickMedia() {
+  document.getElementById("attachMenu").classList.add("hidden");
+  document.getElementById("fileInput").click();
+}
+function attachPickList() {
+  document.getElementById("attachMenu").classList.add("hidden");
+  openListComposer();
+}
+
 async function refreshChats() {
-  const r = await fetch("/api/chats", { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) return;
+  const [chatsRes, groupsRes] = await Promise.all([
+    fetch("/api/chats", { headers: authHeaders() }),
+    fetch("/api/groups", { headers: authHeaders() })
+  ]);
+  const chatsData = await chatsRes.json();
+  const groupsData = await groupsRes.json();
+  if (groupsData.ok) myGroups = groupsData.groups;
 
   const wrap = document.getElementById("privateChats");
   wrap.innerHTML = "";
 
-  d.chats.forEach(c => {
-    const btn = document.createElement("button");
-    btn.className = "chatitem";
-    btn.dataset.chat = c.username;
-    btn.onclick = () => openChat(c.username);
+  if (groupsData.ok) {
+    groupsData.groups.forEach(g => {
+      const chatKey = `group:${g.id}`;
+      const btn = document.createElement("button");
+      btn.className = "chatitem";
+      btn.dataset.chat = chatKey;
+      btn.onclick = () => openChat(chatKey);
+      btn.innerHTML = `
+        <div class="avatar circle group">${g.avatarUrl ? `<img src="${esc(g.avatarUrl)}" alt="">` : `<i class="fa-solid ${g.isChannel ? "fa-bullhorn" : "fa-users"}"></i>`}</div>
+        <div class="meta">
+          <div class="name">${esc(g.name)}</div>
+          <div class="preview">${g.isChannel ? "канал" : "группа"}</div>
+        </div>
+      `;
+      wrap.appendChild(btn);
+    });
+  }
 
-    const isOn = onlineSet.has(c.username);
+  if (chatsData.ok) {
+    chatsData.chats.forEach(c => {
+      const btn = document.createElement("button");
+      btn.className = "chatitem";
+      btn.dataset.chat = c.username;
+      btn.onclick = () => openChat(c.username);
 
-    btn.innerHTML = `
-      <div class="avatar">${c.avatarUrl ? `<img src="${esc(c.avatarUrl)}" alt="">` : `<span>${esc((c.displayName || c.username)[0].toUpperCase())}</span>`}</div>
-      <div class="meta">
-        <div class="name">${esc(c.displayName || c.username)}</div>
-        <div class="preview">${esc(c.preview || "")}</div>
-      </div>
-      <span class="dot ${isOn ? "online" : "offline"}" title="${isOn ? "Онлайн" : "Оффлайн"}"></span>
-    `;
-    wrap.appendChild(btn);
-  });
+      const isOn = onlineSet.has(c.username);
 
+      btn.innerHTML = `
+        <div class="avatar">${c.avatarUrl ? `<img src="${esc(c.avatarUrl)}" alt="">` : `<span>${esc((c.displayName || c.username)[0].toUpperCase())}</span>`}</div>
+        <div class="meta">
+          <div class="name">${esc(c.displayName || c.username)}${verifiedBadge(c.verified)}</div>
+          <div class="preview">${esc(c.preview || "")}</div>
+        </div>
+        <span class="dot ${isOn ? "online" : "offline"}" title="${isOn ? "Онлайн" : "Оффлайн"}"></span>
+      `;
+      wrap.appendChild(btn);
+    });
+  }
+
+  document.querySelectorAll(".chatitem").forEach(b => b.classList.toggle("active", b.dataset.chat === currentChat));
   renderOnlineDots();
 }
 
@@ -323,6 +556,103 @@ function renderOnlineDots() {
     dot.classList.toggle("online", on);
     dot.classList.toggle("offline", !on);
   });
+}
+
+// ================== GROUPS & CHANNELS ==================
+function openCreateGroupModal(isChannel) {
+  document.getElementById("groupModal").classList.remove("hidden");
+  document.getElementById("groupModalTitle").textContent = isChannel ? "Новый канал" : "Новая группа";
+  document.getElementById("groupIsChannel").value = isChannel ? "1" : "0";
+  document.getElementById("groupName").value = "";
+  document.getElementById("groupDesc").value = "";
+  document.getElementById("groupMembers").value = "";
+}
+function closeCreateGroupModal() {
+  document.getElementById("groupModal").classList.add("hidden");
+}
+async function submitCreateGroup() {
+  const name = document.getElementById("groupName").value.trim();
+  const description = document.getElementById("groupDesc").value.trim();
+  const isChannel = document.getElementById("groupIsChannel").value === "1";
+  const members = document.getElementById("groupMembers").value
+    .split(",").map(s => s.trim().replace(/^@+/, "")).filter(Boolean);
+
+  if (!name) return alert("Введи название");
+
+  const r = await fetch("/api/groups", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description, isChannel, members })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка создания");
+
+  closeCreateGroupModal();
+  await refreshChats();
+  openChat(`group:${d.id}`);
+}
+
+async function openGroupInfo() {
+  if (!isGroupChat(currentChat)) return;
+  const groupId = currentChat.slice(6);
+  const r = await fetch(`/api/groups/${groupId}`, { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+
+  const modal = document.getElementById("groupInfoModal");
+  modal.classList.remove("hidden");
+  document.getElementById("groupInfoTitle").textContent = d.group.name + (d.group.isChannel ? " (канал)" : "");
+  document.getElementById("groupInfoDesc").textContent = d.group.description || "";
+
+  const canManage = d.myRole === "owner" || d.myRole === "admin";
+  const list = document.getElementById("groupMembersList");
+  list.innerHTML = d.members.map(mem => `
+    <div class="memberrow">
+      <div class="avatar">${mem.avatarUrl ? `<img src="${esc(mem.avatarUrl)}" alt="">` : `<span>${esc((mem.displayName || mem.username)[0].toUpperCase())}</span>`}</div>
+      <div class="meta">
+        <div class="name">${esc(mem.displayName || mem.username)}${verifiedBadge(mem.verified)}</div>
+        <div class="preview">@${esc(mem.username)} · ${mem.role === "owner" ? "владелец" : mem.role === "admin" ? "админ" : "участник"}</div>
+      </div>
+      ${(canManage && mem.role !== "owner" && mem.username !== me.username) ? `<button class="iconbtn" onclick="removeGroupMember('${groupId}','${esc(mem.username)}')" title="Убрать"><i class="fa-solid fa-user-minus"></i></button>` : ""}
+    </div>
+  `).join("");
+
+  document.getElementById("groupAddMemberRow").classList.toggle("hidden", !canManage);
+  document.getElementById("groupLeaveBtn").onclick = () => removeGroupMember(groupId, me.username, true);
+}
+function closeGroupInfo() {
+  document.getElementById("groupInfoModal").classList.add("hidden");
+}
+async function addGroupMember() {
+  const groupId = currentChat.slice(6);
+  const username = document.getElementById("groupAddMemberInput").value.trim().replace(/^@+/, "");
+  if (!username) return;
+
+  const r = await fetch(`/api/groups/${groupId}/members`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ username })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  document.getElementById("groupAddMemberInput").value = "";
+  openGroupInfo();
+}
+async function removeGroupMember(groupId, username, isSelf = false) {
+  if (isSelf && !confirm("Покинуть группу?")) return;
+  const r = await fetch(`/api/groups/${groupId}/members/${encodeURIComponent(username)}`, {
+    method: "DELETE", headers: authHeaders()
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+
+  if (isSelf) {
+    closeGroupInfo();
+    await refreshChats();
+    openChat("global");
+  } else {
+    openGroupInfo();
+  }
 }
 
 // ================== SEARCH ==================
@@ -348,7 +678,7 @@ async function searchUsers(val) {
     btn.innerHTML = `
       <div class="avatar">${u.avatarUrl ? `<img src="${esc(u.avatarUrl)}" alt="">` : `<span>${esc((u.displayName || u.username)[0].toUpperCase())}</span>`}</div>
       <div class="meta">
-        <div class="name">${esc(u.displayName || u.username)}</div>
+        <div class="name">${esc(u.displayName || u.username)}${verifiedBadge(u.verified)}</div>
         <div class="preview">@${esc(u.username)}</div>
       </div>
       <span class="dot ${onlineSet.has(u.username) ? "online" : "offline"}"></span>
@@ -359,7 +689,8 @@ async function searchUsers(val) {
 
 // ================== PROFILE VIEW ==================
 async function openCurrentProfile() {
-  if (currentChat === "global") {
+  if (currentChat === "global" || isGroupChat(currentChat)) {
+    if (isGroupChat(currentChat)) return openGroupInfo();
     await openProfile(me.username, true);
   } else {
     await openProfile(currentChat, false);
@@ -392,10 +723,10 @@ async function openProfile(username, isMe) {
   }
 
   avatar.innerHTML = p.avatarUrl ? `<img src="${esc(p.avatarUrl)}" alt="">` : `<span>${esc((p.displayName || p.username)[0].toUpperCase())}</span>`;
-  name.textContent = p.displayName || p.username;
+  name.innerHTML = esc(p.displayName || p.username) + verifiedBadge(p.verified);
   user.textContent = "@" + p.username;
   bio.textContent = p.bio ? p.bio : "";
-  birth.textContent = p.birthDate ? ("🎂 " + p.birthDate) : ""; // only ever present when isMe, server no longer exposes others' birthDate
+  birth.textContent = p.birthDate ? ("🎂 " + p.birthDate) : ""; // only ever present when isMe
 
   if (!isMe) {
     const b = document.createElement("button");
@@ -423,6 +754,11 @@ function openSettings() {
   document.getElementById("setBio").value = me.bio || "";
   document.getElementById("setBirthDate").value = me.birthDate || "";
   document.getElementById("setAvatarUrl").value = me.avatarUrl || "";
+
+  renderPasscodeSection();
+  render2FASection();
+  renderWallpaperSection();
+  renderVerificationSection();
 }
 
 function closeSettings() {
@@ -443,11 +779,185 @@ async function saveProfile() {
   const d2 = await r2.json();
   if (!d2.ok) return alert(d2.error || "Ошибка сохранения");
 
-  me = d2.profile;
-  closeSettings();
+  me = { ...me, ...d2.profile };
   alert("Профиль обновлён ✅");
   updateHeader();
   refreshChats();
+}
+
+// ---------------- THEME / WALLPAPER ----------------
+const WALLPAPER_PRESETS = [
+  { id: "default", label: "Стандартные" },
+  { id: "night", label: "Ночь" },
+  { id: "ocean", label: "Океан" },
+  { id: "sunset", label: "Закат" },
+  { id: "forest", label: "Лес" }
+];
+const ACCENT_PRESETS = ["#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff"];
+
+function applyTheme(settings) {
+  document.body.dataset.wallpaper = settings.wallpaper || "default";
+  if (settings.accent) document.documentElement.style.setProperty("--blue", settings.accent);
+}
+
+function renderWallpaperSection() {
+  const box = document.getElementById("wallpaperSection");
+  const current = (me.settings || {}).wallpaper || "default";
+  const currentAccent = (me.settings || {}).accent || "#2a9df4";
+
+  box.innerHTML = `
+    <label>Обои чата</label>
+    <div class="swatchrow">
+      ${WALLPAPER_PRESETS.map(w => `
+        <button class="wallswatch wp-${w.id} ${current === w.id ? "active" : ""}" onclick="pickWallpaper('${w.id}')" title="${w.label}"></button>
+      `).join("")}
+    </div>
+    <label>Акцентный цвет</label>
+    <div class="swatchrow">
+      ${ACCENT_PRESETS.map(c => `
+        <button class="colorswatch ${currentAccent === c ? "active" : ""}" style="background:${c}" onclick="pickAccent('${c}')"></button>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function saveSettingsPatch(patch) {
+  const r = await fetch("/api/me/settings", {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(patch)
+  });
+  const d = await r.json();
+  if (d.ok) {
+    me.settings = d.settings;
+    applyTheme(me.settings);
+  }
+  return d;
+}
+async function pickWallpaper(id) {
+  await saveSettingsPatch({ wallpaper: id });
+  renderWallpaperSection();
+}
+async function pickAccent(color) {
+  await saveSettingsPatch({ accent: color });
+  renderWallpaperSection();
+}
+
+// ---------------- 2FA ----------------
+function render2FASection() {
+  const box = document.getElementById("twoFASection");
+  if (me.totpEnabled) {
+    box.innerHTML = `
+      <div class="hint">Двухэтапная аутентификация включена ✅</div>
+      <label>Пароль (для отключения)</label>
+      <input id="disable2FAPassword" type="password">
+      <button class="btn danger full" onclick="disable2FA()">Отключить 2FA</button>
+    `;
+  } else {
+    box.innerHTML = `
+      <div class="hint">Защити вход кодом из приложения-аутентификатора (Google Authenticator, Authy и т.п.)</div>
+      <button class="btn primary full" onclick="start2FASetup()">Включить 2FA</button>
+      <div id="twoFASetupBox"></div>
+    `;
+  }
+}
+
+async function start2FASetup() {
+  const r = await fetch("/api/2fa/setup", { method: "POST", headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+
+  const box = document.getElementById("twoFASetupBox");
+  box.innerHTML = `
+    <div class="hint">Отсканируй QR в приложении-аутентификаторе или введи ключ вручную:</div>
+    <div id="totpQr" class="totpqr"></div>
+    <div class="totpsecret">${esc(d.secret)}</div>
+    <label>Код из приложения</label>
+    <input id="confirm2FACode" inputmode="numeric" maxlength="6" placeholder="000000">
+    <button class="btn primary full" onclick="confirm2FASetup()">Подтвердить и включить</button>
+  `;
+
+  if (window.QRCode) {
+    new QRCode(document.getElementById("totpQr"), { text: d.otpauthUrl, width: 160, height: 160 });
+  }
+}
+
+async function confirm2FASetup() {
+  const code = document.getElementById("confirm2FACode").value.trim();
+  const r = await fetch("/api/2fa/confirm", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ code })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Неверный код");
+
+  me.totpEnabled = true;
+  alert("2FA включена ✅");
+  render2FASection();
+}
+
+async function disable2FA() {
+  const password = document.getElementById("disable2FAPassword").value;
+  const r = await fetch("/api/2fa/disable", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ password })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+
+  me.totpEnabled = false;
+  alert("2FA отключена");
+  render2FASection();
+}
+
+// ---------------- VERIFICATION (official badge) ----------------
+function renderVerificationSection() {
+  const box = document.getElementById("verificationSection");
+  if (me.verified) {
+    box.innerHTML = `<div class="hint">Аккаунт официально подтверждён ✅</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="hint">Подтверди, что аккаунт представляет реальную организацию — после одобрения появится значок ✅</div>
+    <label>Организация</label>
+    <input id="verOrg" placeholder="ООО Ромашка">
+    <label>Должность</label>
+    <input id="verRole" placeholder="Директор по маркетингу">
+    <label>Ссылка-подтверждение (сайт компании, соцсети и т.п.)</label>
+    <input id="verProof" placeholder="https://...">
+    <button class="btn primary full" onclick="submitVerification()">Отправить заявку</button>
+    <div id="verMineList" class="hint"></div>
+  `;
+  loadMyVerificationRequests();
+}
+
+async function submitVerification() {
+  const orgName = document.getElementById("verOrg").value.trim();
+  const role = document.getElementById("verRole").value.trim();
+  const proofUrl = document.getElementById("verProof").value.trim();
+
+  const r = await fetch("/api/verification/request", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ orgName, role, proofUrl })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка отправки");
+  alert("Заявка отправлена, ожидай решения администратора");
+  loadMyVerificationRequests();
+}
+
+async function loadMyVerificationRequests() {
+  const r = await fetch("/api/verification/mine", { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return;
+  const box = document.getElementById("verMineList");
+  if (!box) return;
+  if (d.requests.length === 0) { box.textContent = ""; return; }
+  const statusRu = { pending: "на рассмотрении", approved: "одобрена", rejected: "отклонена" };
+  box.innerHTML = "Твои заявки: " + d.requests.map(r => `${esc(r.orgName)} — ${statusRu[r.status] || r.status}`).join(", ");
 }
 
 // ================== VOICE (HOLD) ==================
@@ -521,7 +1031,7 @@ async function loadStories() {
     b.onclick = () => viewStory(s);
     b.innerHTML = `
       <div class="storyava">${s.avatarUrl ? `<img src="${esc(s.avatarUrl)}" alt="">` : `<span>${esc((s.displayName || s.owner)[0].toUpperCase())}</span>`}</div>
-      <div class="storyname">${esc((s.displayName || s.owner).split(" ")[0])}</div>
+      <div class="storyname">${esc((s.displayName || s.owner).split(" ")[0])}${verifiedBadge(s.verified)}</div>
     `;
     list.appendChild(b);
   });
@@ -555,7 +1065,6 @@ async function publishStory() {
 }
 
 function viewStory(s) {
-  // textContent avoids any HTML injection via story text
   const msg = document.createElement("div");
   const owner = document.createElement("div");
   owner.textContent = `Сторис @${s.owner}`;
@@ -615,7 +1124,7 @@ function closeCall() {
 }
 
 async function startAudioCall() {
-  if (currentChat === "global") return alert("Звонок только в личном чате");
+  if (currentChat === "global" || isGroupChat(currentChat)) return alert("Звонок только в личном чате");
   if (callPeer) return alert("Звонок уже идет");
   if (!ws || ws.readyState !== 1) return alert("WS не подключен");
 
@@ -702,7 +1211,6 @@ async function createPeer(peer) {
   remoteStream = new MediaStream();
   document.getElementById("remoteAudio").srcObject = remoteStream;
 
-  // getUserMedia requires HTTPS in production (Render provides this by default).
   localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
