@@ -93,7 +93,7 @@ async function setPasscodeFromSettings() {
   document.getElementById("newPasscode").value = "";
   document.getElementById("newPasscodeConfirm").value = "";
   renderPasscodeSection();
-  alert("Код-пароль установлен ✅");
+  toast("Код-пароль установлен ✅");
 }
 
 function removePasscodeFromSettings() {
@@ -398,7 +398,9 @@ function renderMessage(m) {
   }
 
   const del = mine ? `<button class="trash" onclick="deleteMsg(${m.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>` : "";
-  const senderLine = (m.chatType === "global" || m.chatType === "group") ? `<div class="who">${esc(m.sender)}</div>` : "";
+  const senderLine = (m.chatType === "global" || m.chatType === "group")
+    ? `<div class="who clickable" onclick="openProfile('${esc(m.sender)}', ${m.sender === me.username})">${esc(m.sender)}</div>`
+    : "";
 
   const row = document.createElement("div");
   row.className = "mrow " + (mine ? "mine" : "other");
@@ -722,13 +724,13 @@ async function openGroupInfo() {
   const canManage = d.myRole === "owner" || d.myRole === "admin";
   const list = document.getElementById("groupMembersList");
   list.innerHTML = d.members.map(mem => `
-    <div class="memberrow">
+    <div class="memberrow clickable" onclick="openProfile('${esc(mem.username)}', ${mem.username === me.username})">
       <div class="avatar">${mem.avatarUrl ? `<img src="${esc(mem.avatarUrl)}" alt="">` : `<span>${esc((mem.displayName || mem.username)[0].toUpperCase())}</span>`}</div>
       <div class="meta">
         <div class="name">${esc(mem.displayName || mem.username)}${verifiedBadge(mem.verified)}</div>
         <div class="preview">@${esc(mem.username)} · ${mem.role === "owner" ? "владелец" : mem.role === "admin" ? "админ" : "участник"}</div>
       </div>
-      ${(canManage && mem.role !== "owner" && mem.username !== me.username) ? `<button class="iconbtn" onclick="removeGroupMember('${groupId}','${esc(mem.username)}')" title="Убрать"><i class="fa-solid fa-user-minus"></i></button>` : ""}
+      ${(canManage && mem.role !== "owner" && mem.username !== me.username) ? `<button class="iconbtn" onclick="event.stopPropagation(); removeGroupMember('${groupId}','${esc(mem.username)}')" title="Убрать"><i class="fa-solid fa-user-minus"></i></button>` : ""}
     </div>
   `).join("");
 
@@ -874,10 +876,78 @@ function openSettings() {
   render2FASection();
   renderWallpaperSection();
   renderVerificationSection();
+  renderDeleteAccountSection();
+}
+
+// ---------------- DELETE ACCOUNT (tucked away in Settings on purpose) ----------------
+function renderDeleteAccountSection() {
+  const box = document.getElementById("deleteAccountSection");
+  box.innerHTML = `<button class="btn small-link" onclick="revealDeleteAccountForm()">Удалить аккаунт навсегда</button>`;
+}
+
+function revealDeleteAccountForm() {
+  const box = document.getElementById("deleteAccountSection");
+  box.innerHTML = `
+    <div class="hint">Это необратимо: удалятся твой профиль, все сообщения и участие в группах/каналах. Подтверди паролем.</div>
+    <label>Пароль</label>
+    <input id="deleteAccountPassword" type="password">
+    <button class="btn danger full" onclick="confirmDeleteAccount()">Подтвердить удаление</button>
+    <button class="btn ghost full" onclick="renderDeleteAccountSection()">Отмена</button>
+  `;
+}
+
+async function confirmDeleteAccount() {
+  const password = document.getElementById("deleteAccountPassword").value;
+  if (!password) return alert("Введи пароль");
+  if (!confirm("Точно удалить аккаунт навсегда? Это нельзя отменить.")) return;
+
+  const r = await fetch("/api/me", {
+    method: "DELETE",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ password })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка удаления");
+
+  localStorage.removeItem("token");
+  location.href = "index.html";
 }
 
 function closeSettings() {
   document.getElementById("settingsModal").classList.add("hidden");
+}
+
+async function uploadAvatarFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const fd = new FormData();
+  fd.append("file", file);
+
+  const r = await fetch("/api/me/avatar", { method: "POST", headers: authHeaders(), body: fd });
+  const d = await r.json();
+  input.value = "";
+  if (!d.ok) return alert(d.error || "Ошибка загрузки аватара");
+
+  document.getElementById("setAvatarUrl").value = d.avatarUrl;
+  me.avatarUrl = d.avatarUrl;
+  updateHeader();
+  refreshChats();
+  toast("Аватар обновлён ✅");
+}
+
+function toast(text) {
+  let el = document.getElementById("toastBox");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toastBox";
+    el.className = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  requestAnimationFrame(() => el.classList.add("show"));
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
 async function saveProfile() {
@@ -895,7 +965,7 @@ async function saveProfile() {
   if (!d2.ok) return alert(d2.error || "Ошибка сохранения");
 
   me = { ...me, ...d2.profile };
-  alert("Профиль обновлён ✅");
+  toast("Профиль обновлён ✅");
   updateHeader();
   refreshChats();
 }
@@ -1008,7 +1078,7 @@ async function confirm2FASetup() {
   if (!d.ok) return alert(d.error || "Неверный код");
 
   me.totpEnabled = true;
-  alert("2FA включена ✅");
+  toast("2FA включена ✅");
   render2FASection();
 }
 
@@ -1023,7 +1093,7 @@ async function disable2FA() {
   if (!d.ok) return alert(d.error || "Ошибка");
 
   me.totpEnabled = false;
-  alert("2FA отключена");
+  toast("2FA отключена");
   render2FASection();
 }
 
@@ -1060,7 +1130,7 @@ async function submitVerification() {
   });
   const d = await r.json();
   if (!d.ok) return alert(d.error || "Ошибка отправки");
-  alert("Заявка отправлена, ожидай решения администратора");
+  toast("Заявка отправлена, ожидай решения администратора");
   loadMyVerificationRequests();
 }
 
@@ -1176,21 +1246,74 @@ async function publishStory() {
 
   closeStoryComposer();
   await loadStories();
-  alert("Сторис опубликована ✅");
+}
+
+// ---------------- full-screen story viewer (replaces the old plain alert()) ----------------
+let storyTimer = null;
+const STORY_DURATION_MS = 6000; // images/text; a video instead runs for its own length
+
+function closeStoryViewer() {
+  const modal = document.getElementById("storyViewerModal");
+  modal.classList.add("hidden");
+  document.getElementById("storyViewerMedia").innerHTML = "";
+  clearTimeout(storyTimer);
+  storyTimer = null;
 }
 
 function viewStory(s) {
-  const msg = document.createElement("div");
-  const owner = document.createElement("div");
-  owner.textContent = `Сторис @${s.owner}`;
-  msg.appendChild(owner);
-  if (s.text) {
-    const t = document.createElement("div");
-    t.textContent = s.text;
-    msg.appendChild(t);
+  const modal = document.getElementById("storyViewerModal");
+  modal.classList.remove("hidden");
+
+  const avatarBox = document.getElementById("storyViewerAvatar");
+  avatarBox.innerHTML = s.avatarUrl ? `<img src="${esc(s.avatarUrl)}" alt="">` : `<span>${esc((s.displayName || s.owner)[0].toUpperCase())}</span>`;
+  document.getElementById("storyViewerName").innerHTML = esc(s.displayName || s.owner) + verifiedBadge(s.verified);
+  document.getElementById("storyViewerCaption").textContent = s.text || "";
+
+  const mediaBox = document.getElementById("storyViewerMedia");
+  mediaBox.innerHTML = "";
+  clearTimeout(storyTimer);
+
+  const bar = document.getElementById("storyProgressBar");
+  bar.style.transition = "none";
+  bar.style.width = "0%";
+  // force reflow so the next transition actually animates from 0
+  void bar.offsetWidth;
+
+  if (s.mediaType === "video" && s.mediaUrl) {
+    const video = document.createElement("video");
+    video.src = s.mediaUrl;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.className = "storyviewer-video";
+    mediaBox.appendChild(video);
+    video.addEventListener("loadedmetadata", () => {
+      const durMs = isFinite(video.duration) ? video.duration * 1000 : STORY_DURATION_MS;
+      animateStoryProgress(bar, durMs);
+      storyTimer = setTimeout(closeStoryViewer, durMs);
+    });
+  } else if (s.mediaType === "image" && s.mediaUrl) {
+    const img = document.createElement("img");
+    img.src = s.mediaUrl;
+    img.className = "storyviewer-image";
+    mediaBox.appendChild(img);
+    animateStoryProgress(bar, STORY_DURATION_MS);
+    storyTimer = setTimeout(closeStoryViewer, STORY_DURATION_MS);
+  } else {
+    // text-only story: give it a nice gradient card instead of a bare page
+    const card = document.createElement("div");
+    card.className = "storyviewer-textcard";
+    card.textContent = s.text || "";
+    mediaBox.appendChild(card);
+    animateStoryProgress(bar, STORY_DURATION_MS);
+    storyTimer = setTimeout(closeStoryViewer, STORY_DURATION_MS);
   }
-  alert(msg.textContent);
-  if (s.mediaUrl) window.open(s.mediaUrl, "_blank");
+}
+
+function animateStoryProgress(bar, durMs) {
+  requestAnimationFrame(() => {
+    bar.style.transition = `width ${durMs}ms linear`;
+    bar.style.width = "100%";
+  });
 }
 
 // ================== BIRTHDAYS ==================
