@@ -16,14 +16,33 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 
-if (!JWT_SECRET) {
-  console.warn(
-    "[SECURITY WARNING] JWT_SECRET is not set. Set it in your environment " +
-    "(Render -> Environment). Falling back to a random secret for this " +
-    "process only, which means all tokens will become invalid on restart."
-  );
+// If JWT_SECRET isn't set as an environment variable, generate one ONCE and
+// save it next to the database file, then reuse it on every future start.
+// This means logins survive server restarts/sleep-wake cycles without you
+// having to set anything on Render manually. It only resets if the disk
+// itself is wiped (e.g. a fresh deploy on a host with no persistent disk) —
+// setting JWT_SECRET yourself in the environment is still the more durable
+// option, but this removes the need to do that by hand.
+const SECRET_FILE = path.join(__dirname, ".jwt-secret");
+
+function loadOrCreatePersistedSecret() {
+  try {
+    if (fs.existsSync(SECRET_FILE)) {
+      const existing = fs.readFileSync(SECRET_FILE, "utf8").trim();
+      if (existing) return existing;
+    }
+  } catch {}
+
+  const generated = crypto.randomBytes(48).toString("hex");
+  try {
+    fs.writeFileSync(SECRET_FILE, generated, { mode: 0o600 });
+  } catch (e) {
+    console.warn("[SECURITY WARNING] Could not persist a JWT secret to disk:", e.message);
+  }
+  return generated;
 }
-const EFFECTIVE_JWT_SECRET = JWT_SECRET || crypto.randomBytes(32).toString("hex");
+
+const EFFECTIVE_JWT_SECRET = JWT_SECRET || loadOrCreatePersistedSecret();
 const APP_NAME = "One Messenger";
 
 // ---------------- ADMIN CREDENTIALS ----------------
