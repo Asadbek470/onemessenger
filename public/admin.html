@@ -5,64 +5,98 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>One Messenger Admin</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
 </head>
-<body>
-    <div class="admin-container">
-        <h1>One Messenger • Admin Panel</h1>
+<body class="adminbody">
 
-        <div class="admin-search">
-            <input id="searchUser" placeholder="Поиск пользователя @username">
-            <button onclick="searchUser()">Найти</button>
+  <!-- LOGIN SCREEN (separate from any regular user account) -->
+  <div id="adminLoginScreen" class="admin-login-wrap">
+    <div class="auth-card">
+      <div class="brand">
+        <div class="logo">OM</div>
+        <div>
+          <h1>Admin Panel</h1>
+          <p>Отдельный вход, не связан с обычными аккаунтами</p>
         </div>
+      </div>
+      <div class="form">
+        <label>Логин</label>
+        <input id="adminLoginInput" placeholder="admin" autocomplete="off" />
+        <label>Пароль</label>
+        <input id="adminPasswordInput" type="password" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter') adminLogin()" />
+        <button class="btn primary full" onclick="adminLogin()">Войти</button>
+        <div id="adminLoginError" class="passcode-error"></div>
+      </div>
+    </div>
+  </div>
 
-        <div id="userCard" class="user-card hidden">
-            <div class="user-info">
-                <img id="userAvatar">
-                <div>
-                    <h2 id="userName"></h2>
-                    <p id="userUsername"></p>
-                    <p id="userBio"></p>
-                    <p id="userFlags"></p>
-                </div>
-            </div>
-
-            <div class="admin-actions">
-                <button onclick="banUser()" class="danger">Забанить</button>
-                <button onclick="unbanUser()" class="success">Разбанить</button>
-                <button onclick="muteUser()">Мут</button>
-                <button onclick="unmuteUser()">Размут</button>
-                <button onclick="deleteUser()" class="danger">Удалить аккаунт</button>
-            </div>
-        </div>
-
-        <h2 class="admin-section-title">Заявки на официальную верификацию</h2>
-        <div id="verificationList" class="ver-list"></div>
+  <!-- DASHBOARD -->
+  <div id="adminDashboard" class="admin-container hidden">
+    <div class="admin-topbar">
+      <h1>One Messenger • Admin Panel</h1>
+      <button class="btn ghost" onclick="adminLogout()"><i class="fa-solid fa-right-from-bracket"></i> Выйти</button>
     </div>
 
-    <!--
-      The real protection is server-side (every /api/admin/* route requires
-      isAdmin=1). This client-side check just avoids showing the panel's UI
-      to non-admins who happen to open this URL.
-    -->
-    <script>
-      (async function gate() {
-        const token = localStorage.getItem("token");
-        if (!token) { location.href = "index.html"; return; }
+    <div class="admin-tabs">
+      <button class="admintab active" data-tab="users" onclick="switchAdminTab('users')">Пользователи</button>
+      <button class="admintab" data-tab="verification" onclick="switchAdminTab('verification')">Верификация</button>
+    </div>
 
-        try {
-          const r = await fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } });
-          const d = await r.json();
-          if (!d.ok || !d.profile.isAdmin) {
-            alert("Доступ только для администраторов");
-            location.href = "chat.html";
-          } else if (window.loadVerificationRequests) {
-            window.loadVerificationRequests();
-          }
-        } catch {
-          location.href = "chat.html";
-        }
-      })();
-    </script>
-    <script src="admin.js"></script>
+    <!-- USERS TAB -->
+    <div id="tabUsers" class="admintabpanel">
+      <div class="admin-search">
+        <input id="searchUser" placeholder="Поиск @username" onkeydown="if(event.key==='Enter') searchUser()">
+        <button onclick="searchUser()">Найти</button>
+      </div>
+
+      <div id="userList" class="user-list"></div>
+
+      <div id="userCard" class="user-card hidden">
+        <div class="user-info">
+            <img id="userAvatar">
+            <div>
+                <h2 id="userName"></h2>
+                <p id="userUsername"></p>
+                <p id="userBio"></p>
+                <p id="userFlags"></p>
+            </div>
+        </div>
+
+        <div class="admin-actions">
+            <button onclick="banUser()" class="danger">Забанить</button>
+            <button onclick="unbanUser()" class="success">Разбанить</button>
+            <button onclick="muteUser()">Мут</button>
+            <button onclick="unmuteUser()">Размут</button>
+            <button onclick="deleteUser()" class="danger">Удалить аккаунт</button>
+        </div>
+
+        <div class="admin-overview">
+          <div class="overview-col">
+            <h3>Личные переписки</h3>
+            <div id="partnerList" class="partner-list"></div>
+          </div>
+          <div class="overview-col">
+            <h3>Группы и каналы</h3>
+            <div id="groupList" class="partner-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="threadViewer" class="thread-viewer hidden">
+        <div class="thread-head">
+          <h3 id="threadTitle">Переписка</h3>
+          <button class="iconbtn" onclick="closeThread()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="threadMessages" class="thread-messages"></div>
+      </div>
+    </div>
+
+    <!-- VERIFICATION TAB -->
+    <div id="tabVerification" class="admintabpanel hidden">
+      <div id="verificationList" class="ver-list"></div>
+    </div>
+  </div>
+
+  <script src="admin.js"></script>
 </body>
 </html>
