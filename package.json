@@ -1,7 +1,7 @@
 {
   "name": "one-messenger",
-  "version": "3.0.0",
-  "description": "One Messenger (Telegram UI + Stories + Calls)",
+  "version": "3.1.0",
+  "description": "One Messenger (Telegram UI + Stories + Calls + Push)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -12,6 +12,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "sqlite3": "^5.1.6",
+    "web-push": "^3.6.7",
     "ws": "^8.16.0"
   }
 }
