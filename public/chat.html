@@ -277,15 +277,16 @@
 
   <div id="incomingCallModal" class="modal hidden">
     <div class="card callcard">
-      <div class="cardtop">
-        <div class="cardtitle">Входящий звонок</div>
-        <button class="iconbtn" onclick="declineIncomingCall()"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-      <div class="callbody">
+      <div class="callbg"></div>
+      <div class="callbody callbody-incoming">
+        <div class="call-avatar-ring">
+          <div class="call-avatar" id="incomingCallAvatar"></div>
+        </div>
         <div id="incomingCallText" class="callstatus">Кто-то звонит…</div>
-        <div class="row">
-          <button class="btn primary" onclick="acceptIncomingCall()">Принять</button>
-          <button class="btn danger" onclick="declineIncomingCall()">Отклонить</button>
+        <div class="call-sub">Аудиозвонок</div>
+        <div class="row call-actions-row">
+          <button class="callbtn callbtn-reject" onclick="declineIncomingCall()" title="Отклонить"><i class="fa-solid fa-phone-slash"></i></button>
+          <button class="callbtn callbtn-accept" onclick="acceptIncomingCall()" title="Принять"><i class="fa-solid fa-phone"></i></button>
         </div>
       </div>
     </div>
@@ -293,15 +294,18 @@
 
   <div id="callModal" class="modal hidden">
     <div class="card callcard">
-      <div class="cardtop">
-        <div class="cardtitle" id="callTitle">Аудиозвонок</div>
-        <button class="iconbtn" onclick="endCall()"><i class="fa-solid fa-xmark"></i></button>
-      </div>
+      <div class="callbg"></div>
       <div class="callbody">
+        <div class="call-avatar-ring" id="callAvatarRing">
+          <div class="call-avatar" id="callAvatar"></div>
+        </div>
+        <div id="callTitle" class="calltitle">Аудиозвонок</div>
         <div id="callStatus" class="callstatus">Соединение...</div>
-        <div class="row">
-          <button id="muteBtn" class="btn ghost" onclick="toggleMute()">Выключить микрофон</button>
-          <button class="btn danger" onclick="endCall()">Завершить</button>
+        <div id="callTimer" class="call-timer hidden">00:00</div>
+        <div class="row call-actions-row">
+          <button id="muteBtn" class="callbtn callbtn-ghost" onclick="toggleMute()" title="Микрофон"><i class="fa-solid fa-microphone"></i></button>
+          <button class="callbtn callbtn-reject" onclick="endCall()" title="Завершить"><i class="fa-solid fa-phone-slash"></i></button>
+          <button id="speakerBtn" class="callbtn callbtn-ghost" onclick="toggleSpeaker()" title="Звук"><i class="fa-solid fa-volume-high"></i></button>
         </div>
       </div>
     </div>
