@@ -154,13 +154,56 @@ async function initApp() {
 
   document.getElementById("callBtn").style.display = "none";
 
-  try {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
-  } catch {}
+  setupRealPushNotifications();
 
   switchTab("chats");
+}
+
+// ================== REAL PUSH NOTIFICATIONS (arrive even with the site closed) ==================
+// This needs three things working together: a Service Worker registered
+// for the origin, the browser's own Notification permission, and a Push
+// subscription (tied to the server's VAPID key) sent to our backend so it
+// can actually wake the browser up later via sendPushToUser().
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function setupRealPushNotifications() {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+
+    const reg = await navigator.serviceWorker.register("/sw.js");
+
+    if (Notification.permission === "default") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") return;
+    }
+    if (Notification.permission !== "granted") return;
+
+    const keyRes = await fetch("/api/push/public-key", { headers: authHeaders() });
+    const keyData = await keyRes.json();
+    if (!keyData.ok || !keyData.publicKey) return; // server has no VAPID keys configured yet
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyData.publicKey)
+      });
+    }
+
+    await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription: sub.toJSON ? sub.toJSON() : sub })
+    });
+  } catch {
+    // Push is a nice-to-have; any failure here (unsupported browser, denied
+    // permission, no HTTPS, etc.) should never break the rest of the app.
+  }
 }
 
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
@@ -885,7 +928,40 @@ async function openProfile(username, isMe) {
   giftBtn.onclick = () => openGiftPicker(p.username);
   actions.appendChild(giftBtn);
 
+  const friendBtn = document.createElement("button");
+  friendBtn.className = "btn ghost full";
+  friendBtn.innerHTML = `<i class="fa-solid fa-user-plus"></i> Добавить в друзья`;
+  friendBtn.onclick = async () => {
+    const r2 = await fetch("/api/friends", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ username: p.username })
+    });
+    const d2 = await r2.json();
+    if (!d2.ok) return alert(d2.error || "Ошибка");
+    toast(`@${p.username} добавлен(а) в друзья ✅`);
+  };
+  actions.appendChild(friendBtn);
+
   await loadGifts(username, "profileGiftsRow");
+  await loadUserStoriesIntoProfile(username);
+}
+
+async function loadUserStoriesIntoProfile(username) {
+  const box = document.getElementById("profileStoriesGrid");
+  const r = await fetch(`/api/stories/user/${encodeURIComponent(username)}`, { headers: authHeaders() });
+  const d = await r.json();
+
+  if (!d.ok || d.stories.length === 0) { box.innerHTML = ""; return; }
+
+  box.innerHTML = `<h3 class="sectiontitle">Истории</h3><div class="stories-grid">` +
+    d.stories.map(s => {
+      const thumb = s.mediaType === "image" ? `<img src="${esc(s.mediaUrl)}" alt="">`
+        : s.mediaType === "video" ? `<video src="${esc(s.mediaUrl)}" muted></video>`
+        : `<div class="storythumb-text">${esc((s.text || "").slice(0, 40))}</div>`;
+      return `<button class="storythumb" onclick='viewStory(${JSON.stringify(s).replace(/'/g, "&#39;")})'>${thumb}</button>`;
+    }).join("") +
+    `</div>`;
 }
 
 function closeProfile() {
@@ -902,8 +978,88 @@ function openSettings() {
   renderPasscodeSection();
   render2FASection();
   renderWallpaperSection();
+  renderPrivacySection();
+  renderFriendsSection();
   renderVerificationSection();
   renderDeleteAccountSection();
+}
+
+// ---------------- PRIVACY (who sees your bio / stories) ----------------
+function renderPrivacySection() {
+  const box = document.getElementById("privacySection");
+  const s = me.settings || {};
+  const storyPrivacy = s.storyPrivacy || "everyone";
+  const bioPrivacy = s.bioPrivacy || "everyone";
+
+  const opt = (value, current) => `<option value="${value}" ${value === current ? "selected" : ""}>${
+    value === "everyone" ? "Все" : value === "friends" ? "Только друзья" : "Никто"
+  }</option>`;
+
+  box.innerHTML = `
+    <label>Кому показывать мои истории</label>
+    <select id="privStoryPrivacy" onchange="savePrivacy()">
+      ${opt("everyone", storyPrivacy)}${opt("friends", storyPrivacy)}${opt("nobody", storyPrivacy)}
+    </select>
+
+    <label>Кому показывать мою анкету (bio)</label>
+    <select id="privBioPrivacy" onchange="savePrivacy()">
+      ${opt("everyone", bioPrivacy)}${opt("friends", bioPrivacy)}${opt("nobody", bioPrivacy)}
+    </select>
+    <div class="hint">«Друзья» — это список ниже. @username всегда виден всем, иначе поиск и переписка перестанут работать.</div>
+  `;
+}
+
+async function savePrivacy() {
+  const storyPrivacy = document.getElementById("privStoryPrivacy").value;
+  const bioPrivacy = document.getElementById("privBioPrivacy").value;
+  const d = await saveSettingsPatch({ storyPrivacy, bioPrivacy });
+  if (d && d.ok) toast("Приватность обновлена ✅");
+}
+
+// ---------------- FRIENDS (curated list used by privacy settings above) ----------------
+async function renderFriendsSection() {
+  const box = document.getElementById("friendsSection");
+  box.innerHTML = `
+    <div class="row">
+      <input id="addFriendInput" placeholder="@username">
+      <button class="btn ghost" onclick="addFriend()">Добавить</button>
+    </div>
+    <div id="friendsList" class="hint">Загрузка...</div>
+  `;
+
+  const r = await fetch("/api/friends", { headers: authHeaders() });
+  const d = await r.json();
+  const list = document.getElementById("friendsList");
+  if (!d.ok || d.friends.length === 0) { list.innerHTML = `<div class="hint">Список друзей пуст</div>`; return; }
+
+  list.innerHTML = d.friends.map(f => `
+    <div class="memberrow">
+      <div class="avatar">${f.avatarUrl ? `<img src="${esc(f.avatarUrl)}" alt="">` : `<span>${esc((f.displayName || f.username)[0].toUpperCase())}</span>`}</div>
+      <div class="meta">
+        <div class="name">${esc(f.displayName || f.username)}${verifiedBadge(f.verified)}</div>
+        <div class="preview">@${esc(f.username)}</div>
+      </div>
+      <button class="iconbtn" onclick="removeFriend('${esc(f.username)}')" title="Убрать"><i class="fa-solid fa-user-minus"></i></button>
+    </div>
+  `).join("");
+}
+
+async function addFriend() {
+  const username = document.getElementById("addFriendInput").value.trim().replace(/^@+/, "");
+  if (!username) return;
+  const r = await fetch("/api/friends", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ username })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  renderFriendsSection();
+}
+
+async function removeFriend(username) {
+  await fetch(`/api/friends/${encodeURIComponent(username)}`, { method: "DELETE", headers: authHeaders() });
+  renderFriendsSection();
 }
 
 // ---------------- DELETE ACCOUNT (tucked away in Settings on purpose) ----------------
@@ -1245,12 +1401,23 @@ async function loadMyProfileTab() {
       : s.mediaType === "video" ? `<video src="${esc(s.mediaUrl)}" muted></video>`
       : `<div class="storythumb-text">${esc((s.text || "").slice(0, 40))}</div>`;
     return `
-      <button class="storythumb ${s.active ? "" : "expired"}" onclick='viewStory(${JSON.stringify(s).replace(/'/g, "&#39;")})'>
+      <div class="storythumb ${s.active ? "" : "expired"}" onclick='viewStory(${JSON.stringify(s).replace(/'/g, "&#39;")})'>
         ${thumb}
         ${!s.active ? '<span class="storythumb-badge">истекла</span>' : ""}
-      </button>
+        <button class="storythumb-del" onclick="event.stopPropagation(); deleteStory(${s.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>
+      </div>
     `;
   }).join("");
+}
+
+async function deleteStory(id) {
+  if (!confirm("Удалить эту историю?")) return;
+  const r = await fetch(`/api/stories/${id}`, { method: "DELETE", headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка удаления");
+  toast("История удалена");
+  loadMyProfileTab();
+  loadStories();
 }
 
 // ================== GIFTS ==================
