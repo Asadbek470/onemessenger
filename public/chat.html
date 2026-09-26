@@ -20,9 +20,11 @@
     </div>
   </div>
 
-  <div class="app">
-    <aside id="sidebar" class="sidebar">
-      <div class="side-top">
+  <div class="appshell">
+
+    <!-- ================= TAB: CHATS ================= -->
+    <section id="screenChats" class="screen">
+      <div class="screen-header">
         <div class="search">
           <i class="fa-solid fa-magnifying-glass"></i>
           <input id="searchInput" placeholder="Поиск @username..." oninput="searchUsers(this.value)" />
@@ -54,92 +56,30 @@
         <div id="privateChats"></div>
         <div id="searchResults"></div>
       </div>
+    </section>
 
-      <div class="side-bottom">
-        <button class="btn ghost full" onclick="openSettings()">
-          <i class="fa-solid fa-circle-user"></i>
-          Настройки профиля
-        </button>
+    <!-- ================= TAB: MY PROFILE ================= -->
+    <section id="screenProfile" class="screen hidden">
+      <div class="screen-header"><h2 class="screentitle">Профиль</h2></div>
+
+      <div class="profiletab">
+        <div class="avatar big" id="myProfileAvatar"></div>
+        <div class="pname" id="myProfileName"></div>
+        <div class="puser" id="myProfileUser"></div>
+        <div class="pbio" id="myProfileBio"></div>
+
+        <div id="myGiftsRow" class="gifts-row"></div>
+
+        <button class="btn ghost" onclick="switchTab('settings')"><i class="fa-solid fa-pen"></i> Редактировать профиль</button>
+
+        <h3 class="sectiontitle">Мои истории</h3>
+        <div id="myStoriesGrid" class="stories-grid"></div>
       </div>
-    </aside>
+    </section>
 
-    <main class="main">
-      <header class="topbar">
-        <button class="iconbtn mobile" onclick="toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
-
-        <div class="title" onclick="openCurrentProfile()" title="Открыть профиль" style="cursor:pointer;">
-          <div id="chatTitle" class="h">Общий чат</div>
-          <div class="sline">
-            <div id="chatSub" class="s">общение со всеми</div>
-            <div id="typingLine" class="typing hidden">печатает…</div>
-          </div>
-        </div>
-
-        <div class="actions">
-          <button id="callBtn" class="iconbtn" onclick="startAudioCall()" title="Аудиозвонок">
-            <i class="fa-solid fa-phone"></i>
-          </button>
-        </div>
-      </header>
-
-      <div id="birthdayBanner" class="banner hidden"></div>
-
-      <section id="messages" class="messages"></section>
-
-      <footer class="composer">
-        <div class="attachwrap">
-          <button class="iconbtn" onclick="toggleAttachMenu()" title="Прикрепить">
-            <i class="fa-solid fa-paperclip"></i>
-          </button>
-          <div id="attachMenu" class="attachmenu hidden">
-            <button onclick="attachPickMedia()"><i class="fa-solid fa-image"></i> Фото/Видео</button>
-            <button onclick="attachPickList()"><i class="fa-solid fa-list-check"></i> Список (покупки, дела)</button>
-          </div>
-        </div>
-        <input id="fileInput" type="file" hidden accept="image/*,video/*" onchange="sendMedia(this)" />
-
-        <input id="textInput" class="text" placeholder="Сообщение..." onkeydown="onEnter(event)" oninput="typing(true)" />
-
-        <button id="voiceBtn" class="iconbtn" onmousedown="startHoldVoice()" onmouseup="stopHoldVoice()" ontouchstart="startHoldVoice()" ontouchend="stopHoldVoice()" title="Голосовое (удерживай)">
-          <i class="fa-solid fa-microphone"></i>
-        </button>
-
-        <button class="iconbtn send" onclick="sendText()" title="Отправить">
-          <i class="fa-solid fa-arrow-up"></i>
-        </button>
-      </footer>
-    </main>
-  </div>
-
-  <!-- PROFILE MODAL -->
-  <div id="profileModal" class="modal hidden">
-    <div class="card">
-      <div class="cardtop">
-        <div class="cardtitle" id="profileTitle">Профиль</div>
-        <button class="iconbtn" onclick="closeProfile()"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-
-      <div class="profile">
-        <div class="avatar big" id="profileAvatar"></div>
-        <div class="profiletext">
-          <div class="pname" id="profileName"></div>
-          <div class="puser" id="profileUser"></div>
-          <div class="pbio" id="profileBio"></div>
-          <div class="pbirth" id="profileBirth"></div>
-        </div>
-      </div>
-
-      <div id="profileActions" class="row"></div>
-    </div>
-  </div>
-
-  <!-- SETTINGS MODAL -->
-  <div id="settingsModal" class="modal hidden">
-    <div class="card cardwide">
-      <div class="cardtop">
-        <div class="cardtitle">Настройки</div>
-        <button class="iconbtn" onclick="closeSettings()"><i class="fa-solid fa-xmark"></i></button>
-      </div>
+    <!-- ================= TAB: SETTINGS ================= -->
+    <section id="screenSettings" class="screen hidden">
+      <div class="screen-header"><h2 class="screentitle">Настройки</h2></div>
 
       <div class="settingsscroll">
         <div class="settingsblock">
@@ -192,6 +132,97 @@
             <div id="deleteAccountSection"></div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ================= CHAT CONVERSATION (opens over the tabs) ================= -->
+    <section id="screenChat" class="screen chatscreen hidden">
+      <header class="topbar">
+        <button class="iconbtn" onclick="backToChats()" title="Назад"><i class="fa-solid fa-arrow-left"></i></button>
+
+        <div class="title" onclick="openCurrentProfile()" title="Открыть профиль" style="cursor:pointer;">
+          <div id="chatTitle" class="h">Общий чат</div>
+          <div class="sline">
+            <div id="chatSub" class="s">общение со всеми</div>
+            <div id="typingLine" class="typing hidden">печатает…</div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="callBtn" class="iconbtn" onclick="startAudioCall()" title="Аудиозвонок">
+            <i class="fa-solid fa-phone"></i>
+          </button>
+        </div>
+      </header>
+
+      <div id="birthdayBanner" class="banner hidden"></div>
+
+      <section id="messages" class="messages"></section>
+
+      <footer class="composer">
+        <div class="attachwrap">
+          <button class="iconbtn" onclick="toggleAttachMenu()" title="Прикрепить">
+            <i class="fa-solid fa-paperclip"></i>
+          </button>
+          <div id="attachMenu" class="attachmenu hidden">
+            <button onclick="attachPickMedia()"><i class="fa-solid fa-image"></i> Фото/Видео</button>
+            <button onclick="attachPickList()"><i class="fa-solid fa-list-check"></i> Список (покупки, дела)</button>
+          </div>
+        </div>
+        <input id="fileInput" type="file" hidden accept="image/*,video/*" onchange="sendMedia(this)" />
+
+        <input id="textInput" class="text" placeholder="Сообщение..." onkeydown="onEnter(event)" oninput="typing(true)" />
+
+        <button id="voiceBtn" class="iconbtn" onmousedown="startHoldVoice()" onmouseup="stopHoldVoice()" ontouchstart="startHoldVoice()" ontouchend="stopHoldVoice()" title="Голосовое (удерживай)">
+          <i class="fa-solid fa-microphone"></i>
+        </button>
+
+        <button class="iconbtn send" onclick="sendText()" title="Отправить">
+          <i class="fa-solid fa-arrow-up"></i>
+        </button>
+      </footer>
+    </section>
+  </div>
+
+  <!-- BOTTOM NAVIGATION (the only navigation — no side panel) -->
+  <nav id="bottomNav" class="bottomnav">
+    <button class="navbtn active" data-tab="chats" onclick="switchTab('chats')">
+      <i class="fa-solid fa-comments"></i><span>Чаты</span>
+    </button>
+    <button class="navbtn" data-tab="profile" onclick="switchTab('profile')">
+      <i class="fa-solid fa-user"></i><span>Профиль</span>
+    </button>
+    <button class="navbtn" data-tab="settings" onclick="switchTab('settings')">
+      <i class="fa-solid fa-gear"></i><span>Настройки</span>
+    </button>
+  </nav>
+
+  <!-- PROFILE MODAL (for viewing OTHER people; your own profile lives in the Профиль tab) -->
+  <div id="profileModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle" id="profileTitle">Профиль</div>
+        <button class="iconbtn" onclick="closeProfile()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="profile">
+        <div class="avatar big" id="profileAvatar"></div>
+        <div class="profiletext">
+          <div class="pname" id="profileName"></div>
+          <div class="puser" id="profileUser"></div>
+          <div class="pbio" id="profileBio"></div>
+          <div class="pbirth" id="profileBirth"></div>
+          <div id="profileGiftsRow" class="gifts-row"></div>
+        </div>
+      </div>
+
+      <div id="profileActions" class="row"></div>
+
+      <div id="giftPickerBox" class="giftpicker hidden">
+        <div class="hint">Подарить эмодзи-подарок на профиль:</div>
+        <div id="giftEmojiRow" class="gift-emoji-row"></div>
+        <label>Секретный код (не нужен по пятницам)</label>
+        <input id="giftCodeInput" placeholder="•••" maxlength="10">
       </div>
     </div>
   </div>
@@ -261,7 +292,7 @@
     </div>
   </div>
 
-  <!-- STORY VIEWER (full screen, animated, replaces the old plain alert) -->
+  <!-- STORY VIEWER (full screen, animated) -->
   <div id="storyViewerModal" class="modal storyviewer hidden" onclick="if(event.target===this) closeStoryViewer()">
     <div class="storyviewer-inner">
       <div class="storyviewer-progress"><div id="storyProgressBar" class="storyviewer-progress-fill"></div></div>
