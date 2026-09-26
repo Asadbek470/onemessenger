@@ -268,6 +268,10 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 .mrow.mine .bubble{background: rgba(43,82,120,.92)}
 .btop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
 .who{font-size:12px;color:rgba(255,255,255,.75)}
+.who.clickable{cursor:pointer}
+.who.clickable:hover{text-decoration:underline;color:var(--blue)}
+.memberrow.clickable{cursor:pointer;transition:background .15s ease}
+.memberrow.clickable:hover{background:rgba(255,255,255,.04)}
 .trash{
   border:none;background:transparent;color:rgba(255,255,255,.65);
   cursor:pointer;
@@ -392,6 +396,11 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 .btn.danger{
   background:rgba(255,77,77,.22);
   border-color: rgba(255,77,77,.35);
+}
+.btn.small-link{
+  background:transparent;border:none;color:var(--danger);
+  text-decoration:underline;padding:4px 0;font-size:13px;
+  width:auto;display:inline-block;border-radius:0;
 }
 
 /* modal */
@@ -550,6 +559,40 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 }
 .passcode-error{color:var(--danger);font-size:13px;min-height:18px;margin-bottom:8px}
 
+/* toast notifications (replace jarring alert() for success confirmations) */
+.toast{
+  position:fixed; left:50%; bottom:24px; transform:translate(-50%, 20px);
+  background:rgba(20,34,52,.97); color:var(--text);
+  border:1px solid var(--line); border-radius:14px;
+  padding:12px 18px; font-size:14px; box-shadow:var(--shadow);
+  opacity:0; pointer-events:none; z-index:200;
+  transition: opacity .25s ease, transform .25s ease;
+  max-width:min(360px, 90vw); text-align:center;
+}
+.toast.show{opacity:1; transform:translate(-50%, 0)}
+
+/* full-screen story viewer */
+.storyviewer{background:rgba(0,0,0,.85); padding:0}
+.storyviewer-inner{
+  width:min(420px, 100vw); height:100dvh; max-height:100vh;
+  background:#000; position:relative; display:flex; flex-direction:column;
+  animation: modalIn .18s ease;
+}
+.storyviewer-progress{height:3px;background:rgba(255,255,255,.25);margin:10px 12px 0;border-radius:3px;overflow:hidden}
+.storyviewer-progress-fill{height:100%;width:0%;background:#fff}
+.storyviewer-head{display:flex;align-items:center;gap:10px;padding:12px}
+.storyviewer-head .avatar{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.15)}
+.storyviewer-head .name{font-weight:700;color:#fff;font-size:14px}
+.storyviewer-head .iconbtn{margin-left:auto;background:rgba(255,255,255,.12);border-color:transparent}
+.storyviewer-media{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.storyviewer-image, .storyviewer-video{max-width:100%;max-height:100%;object-fit:contain}
+.storyviewer-textcard{
+  width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+  padding:32px;text-align:center;font-size:22px;font-weight:700;color:#fff;
+  background:linear-gradient(160deg, rgba(42,157,244,.55), rgba(120,60,200,.5));
+}
+.storyviewer-caption{color:#fff;padding:10px 16px 20px;font-size:14px;text-align:center;min-height:14px}
+
 /* ---------- ADMIN PANEL ---------- */
 .adminbody{min-height:100vh}
 .admin-login-wrap{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px}
@@ -607,6 +650,52 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
     z-index:20;
     height:100%;
     transition: transform .22s ease;
+    box-shadow: 0 0 40px rgba(0,0,0,.5);
   }
   .sidebar.mobile-hidden{transform:translateX(-110%)}
+
+  /* bigger, easier touch targets */
+  .iconbtn{width:46px;height:46px}
+  .chatitem{padding:12px 10px}
+  .avatar{width:48px;height:48px}
+  .meta .name{font-size:15px}
+  .meta .preview{font-size:13px}
+
+  .side-top{padding:14px 12px 8px}
+  .sidebar-actions .btn.small{padding:11px 10px;font-size:13px;border-radius:14px}
+
+  .topbar{padding:10px 12px}
+  .title .h{font-size:15px}
+  .composer{padding:8px 10px;gap:8px}
+  .text{padding:11px 12px}
+
+  /* modals should never fight the on-screen keyboard / overflow the screen */
+  .modal{align-items:flex-end; padding:0}
+  .card{
+    width:100%; max-width:100%; border-radius:20px 20px 0 0;
+    max-height:92vh; animation: sheetIn .22s ease;
+  }
+  .card.cardwide{max-height:88vh}
+  .settingsscroll{max-height:calc(92vh - 60px)}
+
+  .bubble{max-width:88%}
+
+  .attachmenu{left:0; right:auto; bottom:56px}
+
+  .call-avatar-ring{width:110px;height:110px}
+  .call-avatar{width:92px;height:92px;font-size:30px}
+
+  /* the full-screen story viewer should stay centered/full-bleed, not become a bottom sheet like other modals */
+  .modal.storyviewer{align-items:center; padding:0}
+}
+
+@keyframes sheetIn{
+  from{transform:translateY(24px);opacity:.6}
+  to{transform:translateY(0);opacity:1}
+}
+
+@media (max-width:480px){
+  .admin-overview{grid-template-columns:1fr}
+  .call-actions-row{gap:16px}
+  .callbtn{width:52px;height:52px;font-size:18px}
 }
