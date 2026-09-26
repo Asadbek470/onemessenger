@@ -8,6 +8,16 @@ const crypto = require("crypto");
 const multer = require("multer");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+let webpush = null;
+try {
+  webpush = require("web-push");
+} catch {
+  console.warn(
+    "[PUSH] The 'web-push' package isn't installed yet — run `npm install` " +
+    "after pulling this update (it's now in package.json). Real push " +
+    "notifications will be disabled until then; everything else still works."
+  );
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -43,6 +53,57 @@ function loadOrCreatePersistedSecret() {
 }
 
 const EFFECTIVE_JWT_SECRET = JWT_SECRET || loadOrCreatePersistedSecret();
+
+// ---------------- WEB PUSH (real notifications, even with the site closed) ----------------
+// Same idea as the JWT secret above: generate VAPID keys once, persist them
+// to disk, and reuse them forever after — so subscriptions saved by
+// people's browsers keep working across restarts/redeploys.
+const VAPID_FILE = path.join(__dirname, ".vapid-keys.json");
+let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
+let VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@example.com";
+
+if (webpush && (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY)) {
+  try {
+    if (fs.existsSync(VAPID_FILE)) {
+      const saved = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
+      VAPID_PUBLIC_KEY = saved.publicKey;
+      VAPID_PRIVATE_KEY = saved.privateKey;
+    } else {
+      const generated = webpush.generateVAPIDKeys();
+      VAPID_PUBLIC_KEY = generated.publicKey;
+      VAPID_PRIVATE_KEY = generated.privateKey;
+      fs.writeFileSync(VAPID_FILE, JSON.stringify(generated), { mode: 0o600 });
+    }
+  } catch (e) {
+    console.warn("[PUSH] Could not set up VAPID keys, push notifications disabled:", e.message);
+    webpush = null;
+  }
+}
+if (webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+}
+
+// Sends a real OS-level push notification to every device/browser this
+// user has subscribed from — used specifically for people who are NOT
+// currently connected over the websocket (site/tab actually closed).
+// Expired/invalid subscriptions (410/404 from the push service) are
+// cleaned up automatically.
+async function sendPushToUser(username, payload) {
+  if (!webpush) return;
+  const subs = await dbAll(`SELECT * FROM push_subscriptions WHERE username=?`, [username]);
+  for (const row of subs) {
+    let sub;
+    try { sub = JSON.parse(row.subscriptionJson); } catch { continue; }
+    try {
+      await webpush.sendNotification(sub, JSON.stringify(payload));
+    } catch (err) {
+      if (err && (err.statusCode === 410 || err.statusCode === 404)) {
+        db.run(`DELETE FROM push_subscriptions WHERE endpoint=?`, [row.endpoint]);
+      }
+    }
+  }
+}
 const APP_NAME = "One Messenger";
 
 // ---------------- GIFTS (emoji gifts on profiles) ----------------
@@ -218,6 +279,30 @@ db.serialize(() => {
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_gifts_recipient ON gifts(recipient, createdAt)`);
+
+  // One-directional "friends" list: each user curates their own list of who
+  // counts as a "friend" for THEIR privacy settings (bio/story visibility).
+  // No approval flow — you decide who to add, same as a "close friends" list.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS friends (
+      owner TEXT NOT NULL,
+      friend TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (owner, friend)
+    )
+  `);
+
+  // Real push subscriptions (Web Push), so notifications can arrive even
+  // when the site/tab is completely closed, not just while it's open.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      subscriptionJson TEXT NOT NULL,
+      createdAt INTEGER NOT NULL
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_push_username ON push_subscriptions(username)`);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS verification_requests (
@@ -530,21 +615,99 @@ app.put("/api/me", verifyAuth, (req, res) => {
   );
 });
 
-// Theme / wallpaper / accent color — small free-form JSON blob per user,
-// synced across their devices.
+// Theme / wallpaper / accent color, plus privacy choices (who can see your
+// bio and stories) — all a small free-form JSON blob per user, synced
+// across devices.
 app.put("/api/me/settings", verifyAuth, (req, res) => {
   const current = parseSettings(req.user);
   const incoming = req.body && typeof req.body === "object" ? req.body : {};
-  const allowed = ["theme", "wallpaper", "accent"];
   const merged = { ...current };
-  for (const k of allowed) {
+
+  const freeform = ["theme", "wallpaper", "accent"];
+  for (const k of freeform) {
     if (typeof incoming[k] === "string" && incoming[k].length <= 4000) merged[k] = incoming[k];
+  }
+
+  const privacyEnum = ["everyone", "friends", "nobody"];
+  for (const k of ["storyPrivacy", "bioPrivacy"]) {
+    if (privacyEnum.includes(incoming[k])) merged[k] = incoming[k];
   }
 
   db.run(`UPDATE users SET settings=? WHERE username=?`, [JSON.stringify(merged), req.user.username], (err) => {
     if (err) return res.status(500).json({ ok: false, error: "Ошибка сохранения настроек" });
     res.json({ ok: true, settings: merged });
   });
+});
+
+// ---------------- FRIENDS (your own "who counts as close to me" list) ----------------
+// One-directional by design: you decide who's in this list for the purpose
+// of YOUR OWN privacy settings (bio/story visibility) — no request/approval
+// flow, same as e.g. Instagram's "close friends".
+app.get("/api/friends", verifyAuth, async (req, res) => {
+  const rows = await dbAll(
+    `SELECT u.username, u.displayName, u.avatarUrl, u.verified
+     FROM friends f JOIN users u ON u.username=f.friend
+     WHERE f.owner=? ORDER BY u.username ASC`,
+    [req.user.username]
+  );
+  res.json({ ok: true, friends: rows });
+});
+
+app.post("/api/friends", verifyAuth, async (req, res) => {
+  const friend = String(req.body.username || "").replace(/^@+/, "").toLowerCase();
+  if (friend === req.user.username) return res.status(400).json({ ok: false, error: "Нельзя добавить самого себя" });
+
+  const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [friend]);
+  if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+
+  await dbRun(`INSERT OR IGNORE INTO friends (owner, friend, createdAt) VALUES (?,?,?)`, [req.user.username, friend, now()]);
+  res.json({ ok: true });
+});
+
+app.delete("/api/friends/:username", verifyAuth, async (req, res) => {
+  const friend = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  await dbRun(`DELETE FROM friends WHERE owner=? AND friend=?`, [req.user.username, friend]);
+  res.json({ ok: true });
+});
+
+async function isFriendOf(ownerUsername, viewerUsername) {
+  if (ownerUsername === viewerUsername) return true;
+  const row = await dbGet(`SELECT 1 FROM friends WHERE owner=? AND friend=?`, [ownerUsername, viewerUsername]);
+  return !!row;
+}
+
+// Checks a privacy setting ('everyone'|'friends'|'nobody', default
+// 'everyone') stored on the OWNER's account against who's asking.
+async function isAllowedByPrivacy(ownerUser, viewerUsername, settingKey) {
+  if (ownerUser.username === viewerUsername) return true;
+  const setting = parseSettings(ownerUser)[settingKey] || "everyone";
+  if (setting === "everyone") return true;
+  if (setting === "nobody") return false;
+  return isFriendOf(ownerUser.username, viewerUsername);
+}
+
+// ---------------- WEB PUSH SUBSCRIPTIONS ----------------
+app.get("/api/push/public-key", verifyAuth, (req, res) => {
+  if (!webpush || !VAPID_PUBLIC_KEY) return res.json({ ok: true, publicKey: null });
+  res.json({ ok: true, publicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post("/api/push/subscribe", verifyAuth, async (req, res) => {
+  const sub = req.body && req.body.subscription;
+  if (!sub || !sub.endpoint) return res.status(400).json({ ok: false, error: "Некорректная подписка" });
+
+  await dbRun(
+    `INSERT INTO push_subscriptions (endpoint, username, subscriptionJson, createdAt) VALUES (?,?,?,?)
+     ON CONFLICT(endpoint) DO UPDATE SET username=excluded.username, subscriptionJson=excluded.subscriptionJson`,
+    [sub.endpoint, req.user.username, JSON.stringify(sub), now()]
+  );
+  res.json({ ok: true });
+});
+
+app.post("/api/push/unsubscribe", verifyAuth, async (req, res) => {
+  const endpoint = String(req.body.endpoint || "");
+  if (endpoint) await dbRun(`DELETE FROM push_subscriptions WHERE endpoint=?`, [endpoint]);
+  res.json({ ok: true });
 });
 
 // Upload a profile picture straight from the device's gallery/camera,
@@ -591,17 +754,26 @@ app.get("/api/users/search", verifyAuth, (req, res) => {
   );
 });
 
-app.get("/api/users/:username", verifyAuth, (req, res) => {
+app.get("/api/users/:username", verifyAuth, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   // birthDate is intentionally left out here — only the owner sees it via /api/me.
-  db.get(
-    `SELECT username, displayName, bio, avatarUrl, verified FROM users WHERE username=? AND banned=0`,
-    [u],
-    (err, row) => {
-      if (!row) return res.status(404).json({ ok: false, error: "Не найден" });
-      res.json({ ok: true, user: row });
-    }
+  const row = await dbGet(
+    `SELECT username, displayName, bio, avatarUrl, verified, settings FROM users WHERE username=? AND banned=0`,
+    [u]
   );
+  if (!row) return res.status(404).json({ ok: false, error: "Не найден" });
+
+  const bioAllowed = await isAllowedByPrivacy(row, req.user.username, "bioPrivacy");
+  res.json({
+    ok: true,
+    user: {
+      username: row.username,
+      displayName: row.displayName,
+      avatarUrl: row.avatarUrl,
+      verified: row.verified,
+      bio: bioAllowed ? row.bio : ""
+    }
+  });
 });
 
 // ---------------- VERIFICATION (official badge) ----------------
@@ -941,26 +1113,54 @@ app.post("/api/upload", verifyAuth, (req, res, next) => {
 });
 
 // ---------------- STORIES ----------------
-app.get("/api/stories", verifyAuth, (req, res) => {
+app.get("/api/stories", verifyAuth, async (req, res) => {
   cleanupStories();
-  db.all(
+  const rows = await dbAll(
     `
-    SELECT s.*, u.displayName, u.avatarUrl, u.verified
+    SELECT s.*, u.displayName, u.avatarUrl, u.verified, u.settings AS ownerSettings
     FROM stories s
     LEFT JOIN users u ON u.username=s.owner
     WHERE s.expiresAt > ? AND u.banned=0
     ORDER BY s.createdAt DESC
     LIMIT 200
     `,
-    [now()],
-    (err, rows) => res.json({ ok: true, stories: rows || [] })
+    [now()]
   );
+
+  const visible = [];
+  for (const row of rows) {
+    const ownerLike = { username: row.owner, settings: row.ownerSettings };
+    if (await isAllowedByPrivacy(ownerLike, req.user.username, "storyPrivacy")) {
+      delete row.ownerSettings;
+      visible.push(row);
+    }
+  }
+  res.json({ ok: true, stories: visible });
+});
+
+// A specific person's currently-active stories, for viewing "their full
+// profile with their stories" — respects the same storyPrivacy setting as
+// the main feed above.
+app.get("/api/stories/user/:username", verifyAuth, async (req, res) => {
+  const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const owner = await dbGet(`SELECT username, settings FROM users WHERE username=? AND banned=0`, [u]);
+  if (!owner) return res.status(404).json({ ok: false, error: "Не найден" });
+
+  if (!(await isAllowedByPrivacy(owner, req.user.username, "storyPrivacy"))) {
+    return res.json({ ok: true, stories: [] });
+  }
+
+  const rows = await dbAll(
+    `SELECT * FROM stories WHERE owner=? AND expiresAt > ? ORDER BY createdAt DESC LIMIT 50`,
+    [u, now()]
+  );
+  res.json({ ok: true, stories: rows });
 });
 
 // Full personal archive — every story you've ever posted, active or
 // long expired, so you can always look back at what you shared. Only
 // the owner can see their own archive this way (others still only ever
-// see the 2-hour public preview via /api/stories above).
+// see the active-story preview via the endpoints above).
 app.get("/api/stories/mine", verifyAuth, async (req, res) => {
   const rows = await dbAll(
     `SELECT * FROM stories WHERE owner=? ORDER BY createdAt DESC LIMIT 500`,
@@ -968,6 +1168,16 @@ app.get("/api/stories/mine", verifyAuth, async (req, res) => {
   );
   const withStatus = rows.map(s => ({ ...s, active: s.expiresAt > now() }));
   res.json({ ok: true, stories: withStatus });
+});
+
+app.delete("/api/stories/:id", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const row = await dbGet(`SELECT * FROM stories WHERE id=?`, [id]);
+  if (!row) return res.status(404).json({ ok: false, error: "Не найдена" });
+  if (row.owner !== req.user.username) return res.status(403).json({ ok: false, error: "Можно удалить только свою историю" });
+
+  await dbRun(`DELETE FROM stories WHERE id=?`, [id]);
+  res.json({ ok: true });
 });
 
 app.post("/api/stories", verifyAuth, (req, res, next) => {
@@ -1039,6 +1249,9 @@ app.post("/api/gifts/send", verifyAuth, rateLimit(30, 60 * 1000), async (req, re
   );
 
   wsSendToUser(recipient, { type: "giftReceived", from: req.user.username, emoji });
+  if (!isOnline(recipient)) {
+    sendPushToUser(recipient, { title: "Подарок 🎁", body: `@${req.user.username} подарил тебе ${emoji}`, url: "/chat.html" }).catch(() => {});
+  }
   res.json({ ok: true });
 });
 
@@ -1293,6 +1506,26 @@ async function broadcastToChat(chatType, receiver, sender, payload) {
 
 async function broadcastMessage(msg) {
   await broadcastToChat(msg.chatType, msg.receiver, msg.sender, { type: "message", message: msg });
+  pushNotifyMessage(msg); // fire-and-forget; never blocks the realtime path above
+}
+
+// Real push notifications are only for people who are genuinely offline
+// (no open tab at all) — anyone with the app open already gets it instantly
+// over the websocket. Skipped for the public global chat to avoid spamming
+// every single user on every message there.
+async function pushNotifyMessage(msg) {
+  if (!webpush || msg.chatType === "global") return;
+
+  const recipients = (await recipientsFor(msg.chatType, msg.receiver, msg.sender))
+    .filter(u => u !== msg.sender && !isOnline(u));
+  if (recipients.length === 0) return;
+
+  const body = msg.mediaType !== "text" ? (msg.mediaType === "list" ? "📋 Список" : `[${msg.mediaType}]`) : (msg.text || "");
+  const title = msg.chatType === "group" ? `Группа · @${msg.sender}` : `@${msg.sender}`;
+
+  for (const u of recipients) {
+    sendPushToUser(u, { title, body, url: "/chat.html" }).catch(() => {});
+  }
 }
 
 async function broadcastDelete(row, id) {
