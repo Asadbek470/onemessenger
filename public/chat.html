@@ -6,8 +6,20 @@
   <title>One Messenger</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
-<body onload="initApp()">
+<body>
+  <!-- DEVICE PASSCODE LOCK -->
+  <div id="passcodeOverlay" class="passcode-overlay hidden">
+    <div class="passcode-box">
+      <div class="logo">OM</div>
+      <h2>Введи код-пароль</h2>
+      <input id="passcodeInput" type="password" inputmode="numeric" maxlength="8" autofocus onkeydown="passcodeKeydown(event)">
+      <div id="passcodeError" class="passcode-error"></div>
+      <button class="btn primary full" onclick="unlockAttempt()">Разблокировать</button>
+    </div>
+  </div>
+
   <div class="app">
     <aside id="sidebar" class="sidebar">
       <div class="side-top">
@@ -21,6 +33,11 @@
             <i class="fa-solid fa-plus"></i>
           </button>
           <div id="storiesList" class="stories-list"></div>
+        </div>
+
+        <div class="sidebar-actions">
+          <button class="btn ghost small" onclick="openCreateGroupModal(false)"><i class="fa-solid fa-users"></i> Группа</button>
+          <button class="btn ghost small" onclick="openCreateGroupModal(true)"><i class="fa-solid fa-bullhorn"></i> Канал</button>
         </div>
       </div>
 
@@ -73,9 +90,15 @@
       <section id="messages" class="messages"></section>
 
       <footer class="composer">
-        <button class="iconbtn" onclick="document.getElementById('fileInput').click()" title="Фото/Видео">
-          <i class="fa-solid fa-paperclip"></i>
-        </button>
+        <div class="attachwrap">
+          <button class="iconbtn" onclick="toggleAttachMenu()" title="Прикрепить">
+            <i class="fa-solid fa-paperclip"></i>
+          </button>
+          <div id="attachMenu" class="attachmenu hidden">
+            <button onclick="attachPickMedia()"><i class="fa-solid fa-image"></i> Фото/Видео</button>
+            <button onclick="attachPickList()"><i class="fa-solid fa-list-check"></i> Список (покупки, дела)</button>
+          </div>
+        </div>
         <input id="fileInput" type="file" hidden accept="image/*,video/*" onchange="sendMedia(this)" />
 
         <input id="textInput" class="text" placeholder="Сообщение..." onkeydown="onEnter(event)" oninput="typing(true)" />
@@ -115,26 +138,116 @@
 
   <!-- SETTINGS MODAL -->
   <div id="settingsModal" class="modal hidden">
-    <div class="card">
+    <div class="card cardwide">
       <div class="cardtop">
-        <div class="cardtitle">Настройки профиля</div>
+        <div class="cardtitle">Настройки</div>
         <button class="iconbtn" onclick="closeSettings()"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
+      <div class="settingsscroll">
+        <div class="settingsblock">
+          <div class="blocktitle">Профиль</div>
+          <div class="formgrid">
+            <label>Display name</label>
+            <input id="setDisplayName" placeholder="Имя" />
+
+            <label>Bio</label>
+            <input id="setBio" placeholder="О себе" />
+
+            <label>Дата рождения (YYYY-MM-DD)</label>
+            <input id="setBirthDate" placeholder="2009-01-31" />
+
+            <label>Аватар (URL)</label>
+            <input id="setAvatarUrl" placeholder="https://..." />
+
+            <button class="btn primary full" onclick="saveProfile()">Сохранить профиль</button>
+          </div>
+        </div>
+
+        <div class="settingsblock">
+          <div class="blocktitle">Оформление</div>
+          <div id="wallpaperSection" class="formgrid"></div>
+        </div>
+
+        <div class="settingsblock">
+          <div class="blocktitle">Код-пароль устройства</div>
+          <div id="passcodeSection" class="formgrid"></div>
+        </div>
+
+        <div class="settingsblock">
+          <div class="blocktitle">Двухэтапная аутентификация</div>
+          <div id="twoFASection" class="formgrid"></div>
+        </div>
+
+        <div class="settingsblock">
+          <div class="blocktitle">Официальная верификация</div>
+          <div id="verificationSection" class="formgrid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CREATE GROUP/CHANNEL -->
+  <div id="groupModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle" id="groupModalTitle">Новая группа</div>
+        <button class="iconbtn" onclick="closeCreateGroupModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
       <div class="formgrid">
-        <label>Display name</label>
-        <input id="setDisplayName" placeholder="Имя" />
+        <input id="groupIsChannel" type="hidden" value="0">
+        <label>Название</label>
+        <input id="groupName" placeholder="Например: Семья">
 
-        <label>Bio</label>
-        <input id="setBio" placeholder="О себе" />
+        <label>Описание (не обязательно)</label>
+        <input id="groupDesc" placeholder="Пара слов о группе">
 
-        <label>Дата рождения (YYYY-MM-DD)</label>
-        <input id="setBirthDate" placeholder="2009-01-31" />
+        <label>Друзья/родные для добавления (через запятую, @username)</label>
+        <input id="groupMembers" placeholder="@friend1, @friend2">
 
-        <label>Аватар (URL)</label>
-        <input id="setAvatarUrl" placeholder="https://..." />
+        <button class="btn primary full" onclick="submitCreateGroup()">Создать</button>
+      </div>
+    </div>
+  </div>
 
-        <button class="btn primary full" onclick="saveProfile()">Сохранить</button>
+  <!-- GROUP INFO -->
+  <div id="groupInfoModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle" id="groupInfoTitle">Группа</div>
+        <button class="iconbtn" onclick="closeGroupInfo()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="formgrid">
+        <div id="groupInfoDesc" class="hint"></div>
+
+        <div id="groupAddMemberRow" class="row hidden">
+          <input id="groupAddMemberInput" placeholder="@username">
+          <button class="btn ghost" onclick="addGroupMember()">Добавить</button>
+        </div>
+
+        <div id="groupMembersList"></div>
+
+        <button id="groupLeaveBtn" class="btn danger full">Покинуть группу</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SHOPPING / TO-DO LIST COMPOSER -->
+  <div id="listModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">Новый список</div>
+        <button class="iconbtn" onclick="closeListComposer()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="formgrid">
+        <label>Название списка</label>
+        <input id="listTitle" placeholder="Например: Список покупок">
+
+        <label>Пункты</label>
+        <div id="listItemRows"></div>
+        <button class="btn ghost" onclick="addListRow()"><i class="fa-solid fa-plus"></i> Добавить пункт</button>
+
+        <button class="btn primary full" onclick="publishList()">Отправить список</button>
       </div>
     </div>
   </div>
@@ -189,12 +302,6 @@
         <div class="row">
           <button id="muteBtn" class="btn ghost" onclick="toggleMute()">Выключить микрофон</button>
           <button class="btn danger" onclick="endCall()">Завершить</button>
-          <video id="localVideo" autoplay muted></video>
-<video id="remoteVideo" autoplay></video>
-
-<canvas id="wave"></canvas>
-
-<div id="quality">🟢</div>
         </div>
       </div>
     </div>
