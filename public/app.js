@@ -165,11 +165,52 @@ async function initApp() {
   if (window.innerWidth <= 900) document.getElementById("sidebar").classList.add("mobile-hidden");
 }
 
+function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
+
 async function loadMe() {
-  const r = await fetch("/api/me", { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) return logout();
-  me = d.profile;
+  for (;;) {
+    try {
+      const r = await fetch("/api/me", { headers: authHeaders() });
+
+      // Only a real "your token is invalid/expired" answer should log the
+      // person out. Anything else (server briefly waking up on a free host,
+      // a dropped connection, a non-JSON error page) must NOT wipe the saved
+      // token — that was the bug causing "logged out on every refresh".
+      if (r.status === 401) return logout();
+
+      const d = await r.json();
+      if (!d.ok) {
+        showBootError("Не удалось загрузить профиль, пробую ещё раз...");
+        await sleep(3000);
+        continue;
+      }
+
+      hideBootError();
+      me = d.profile;
+      return;
+    } catch {
+      // Network error / server still starting up (common right after a
+      // free-tier host wakes up) — retry instead of logging out.
+      showBootError("Сервер сейчас недоступен (возможно, ещё запускается). Пробую ещё раз...");
+      await sleep(3000);
+    }
+  }
+}
+
+function showBootError(text) {
+  let box = document.getElementById("bootError");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "bootError";
+    box.className = "banner";
+    box.style.margin = "16px";
+    document.body.prepend(box);
+  }
+  box.textContent = text;
+}
+function hideBootError() {
+  const box = document.getElementById("bootError");
+  if (box) box.remove();
 }
 
 // ================== NAV/UI ==================
@@ -349,7 +390,7 @@ function renderMessage(m) {
   } else if (m.mediaType === "video") {
     body = `<video class="mvid" controls playsinline src="${esc(m.mediaUrl)}"></video>`;
   } else if (m.mediaType === "audio") {
-    body = `<audio class="maud" controls src="${esc(m.mediaUrl)}"></audio>`;
+    body = renderVoiceBody(m);
   } else if (m.mediaType === "list") {
     body = renderListBody(m);
   } else {
@@ -374,7 +415,81 @@ function renderMessage(m) {
   `;
 
   box.appendChild(row);
+  if (m.mediaType === "audio") setupVoicePlayer(m.id);
   scrollBottom();
+}
+
+// ---------------- custom voice message player ----------------
+// A native <audio controls> element renders tiny and inconsistently across
+// browsers, which is exactly the "маленький формат" complaint — so instead
+// we drive a full-width custom play/seek/duration UI off a hidden <audio>.
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function renderVoiceBody(m) {
+  return `
+    <div class="voicecard" data-voice-id="${m.id}">
+      <button class="voiceplay" id="voice-${m.id}-btn" onclick="toggleVoicePlay(${m.id})">
+        <i class="fa-solid fa-play" id="voice-${m.id}-icon"></i>
+      </button>
+      <div class="voicemain">
+        <div class="voicetrack" id="voice-${m.id}-track" onclick="seekVoice(event, ${m.id})">
+          <div class="voiceprogress" id="voice-${m.id}-progress"></div>
+        </div>
+        <div class="voicetime" id="voice-${m.id}-time">0:00</div>
+      </div>
+      <audio id="voice-${m.id}-audio" src="${esc(m.mediaUrl)}" preload="metadata"></audio>
+    </div>
+  `;
+}
+
+function setupVoicePlayer(id) {
+  const audio = document.getElementById(`voice-${id}-audio`);
+  const icon = document.getElementById(`voice-${id}-icon`);
+  const progress = document.getElementById(`voice-${id}-progress`);
+  const time = document.getElementById(`voice-${id}-time`);
+  if (!audio) return;
+
+  audio.addEventListener("loadedmetadata", () => {
+    if (isFinite(audio.duration)) time.textContent = fmtTime(audio.duration);
+  });
+  audio.addEventListener("timeupdate", () => {
+    if (audio.duration) progress.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+    if (!audio.paused) time.textContent = fmtTime(audio.currentTime);
+  });
+  audio.addEventListener("ended", () => {
+    icon.className = "fa-solid fa-play";
+    progress.style.width = "0%";
+    time.textContent = isFinite(audio.duration) ? fmtTime(audio.duration) : "0:00";
+  });
+  audio.addEventListener("pause", () => { icon.className = "fa-solid fa-play"; });
+  audio.addEventListener("play", () => { icon.className = "fa-solid fa-pause"; });
+}
+
+function toggleVoicePlay(id) {
+  const audio = document.getElementById(`voice-${id}-audio`);
+  if (!audio) return;
+
+  // only one voice message plays at a time
+  document.querySelectorAll("audio[id^='voice-'][id$='-audio']").forEach(a => {
+    if (a !== audio && !a.paused) a.pause();
+  });
+
+  if (audio.paused) audio.play(); else audio.pause();
+}
+
+function seekVoice(evt, id) {
+  const audio = document.getElementById(`voice-${id}-audio`);
+  const track = document.getElementById(`voice-${id}-track`);
+  if (!audio || !audio.duration) return;
+
+  const rect = track.getBoundingClientRect();
+  const ratio = Math.min(1, Math.max(0, (evt.clientX - rect.left) / rect.width));
+  audio.currentTime = ratio * audio.duration;
 }
 
 function renderListBody(m) {
