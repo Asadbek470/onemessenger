@@ -302,6 +302,9 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 .iconbtn:hover{background:rgba(255,255,255,.05)}
 .iconbtn:active{transform: scale(.97)}
 .iconbtn.mobile{display:none}
+.iconbtn.danger{background:rgba(255,77,77,.18); border-color:rgba(255,77,77,.35); color:#ff8a8a}
+.iconbtn.danger:hover{background:rgba(255,77,77,.3)}
+.sectiontitle.small{font-size:13px;margin:14px 0 8px}
 .actions{display:flex;gap:10px}
 
 .title .h{font-weight:800;display:flex;align-items:center;gap:6px}
