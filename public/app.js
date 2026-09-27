@@ -306,9 +306,25 @@ function updateHeader() {
 }
 
 // ================== WS ==================
+let wsReconnectAttempts = 0;
+let wsReconnectTimer = null;
+
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}?token=${encodeURIComponent(token)}`);
+
+  ws.onopen = () => {
+    wsReconnectAttempts = 0;
+    clearTimeout(wsReconnectTimer);
+  };
+
+  ws.onclose = () => {
+    scheduleWsReconnect();
+  };
+
+  ws.onerror = () => {
+    try { ws.close(); } catch {}
+  };
 
   ws.onmessage = async (e) => {
     const data = JSON.parse(e.data);
@@ -366,6 +382,25 @@ function connectWS() {
     }
   };
 }
+
+function scheduleWsReconnect() {
+  clearTimeout(wsReconnectTimer);
+  wsReconnectAttempts++;
+  // backs off up to 15s between tries, so a flaky network doesn't hammer the server
+  const delay = Math.min(15000, 1000 * Math.pow(1.6, wsReconnectAttempts));
+  wsReconnectTimer = setTimeout(() => connectWS(), delay);
+}
+
+// If the tab was backgrounded long enough for the browser to drop the
+// socket, reconnect the moment the person comes back instead of waiting
+// out the backoff timer.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && (!ws || ws.readyState > 1)) {
+    wsReconnectAttempts = 0;
+    clearTimeout(wsReconnectTimer);
+    connectWS();
+  }
+});
 
 function maybeNotify(msg) {
   try {
@@ -841,28 +876,56 @@ async function openGroupInfo() {
   const isOwner = d.myRole === "owner";
   const list = document.getElementById("groupMembersList");
   list.innerHTML = d.members.map(mem => {
-    const roleButtons = (isOwner && mem.role !== "owner" && mem.username !== me.username)
+    const isSelf = mem.username === me.username;
+    const outranked = d.myRole === "admin" && mem.role === "admin"; // admins can't touch other admins
+    const roleButtons = (isOwner && mem.role !== "owner" && !isSelf)
       ? (mem.role === "admin"
           ? `<button class="iconbtn" onclick="event.stopPropagation(); setGroupMemberRole('${groupId}','${esc(mem.username)}','member')" title="Снять админку"><i class="fa-solid fa-user-minus"></i></button>`
-          : `<button class="iconbtn" onclick="event.stopPropagation(); setGroupMemberRole('${groupId}','${esc(mem.username)}','admin')" title="Сделать админом"><i class="fa-solid fa-user-shield"></i></button>`)
+          : `<button class="iconbtn" onclick="event.stopPropagation(); setGroupMemberRole('${groupId}','${esc(mem.username)}','admin')" title="Сделать админом (модератор)"><i class="fa-solid fa-user-shield"></i></button>`)
       : "";
-    const removeButton = (canManage && mem.role !== "owner" && mem.username !== me.username)
+    const removeButton = (canManage && mem.role !== "owner" && !isSelf && !outranked)
       ? `<button class="iconbtn" onclick="event.stopPropagation(); removeGroupMember('${groupId}','${esc(mem.username)}')" title="Убрать"><i class="fa-solid fa-user-xmark"></i></button>`
       : "";
+    const banButton = (canManage && mem.role !== "owner" && !isSelf && !outranked)
+      ? `<button class="iconbtn danger" onclick="event.stopPropagation(); banGroupMember('${groupId}','${esc(mem.username)}')" title="Забанить"><i class="fa-solid fa-ban"></i></button>`
+      : "";
     return `
-      <div class="memberrow clickable" onclick="openProfile('${esc(mem.username)}', ${mem.username === me.username})">
+      <div class="memberrow clickable" onclick="openProfile('${esc(mem.username)}', ${isSelf})">
         <div class="avatar">${mem.avatarUrl ? `<img src="${esc(mem.avatarUrl)}" alt="">` : `<span>${esc((mem.displayName || mem.username)[0].toUpperCase())}</span>`}</div>
         <div class="meta">
           <div class="name">${esc(mem.displayName || mem.username)}${verifiedBadge(mem.verified)}</div>
-          <div class="preview">@${esc(mem.username)} · ${mem.role === "owner" ? "владелец" : mem.role === "admin" ? "админ" : "участник"}</div>
+          <div class="preview">@${esc(mem.username)} · ${mem.role === "owner" ? "владелец" : mem.role === "admin" ? "админ (модератор)" : "участник"}</div>
         </div>
-        ${roleButtons}${removeButton}
+        ${roleButtons}${removeButton}${banButton}
       </div>
     `;
   }).join("");
 
+  const bansBox = document.getElementById("groupBansList");
+  if (canManage && d.bans && d.bans.length > 0) {
+    bansBox.classList.remove("hidden");
+    bansBox.innerHTML = `<h4 class="sectiontitle small">Забаненные</h4>` + d.bans.map(b => `
+      <div class="memberrow">
+        <div class="avatar">${b.avatarUrl ? `<img src="${esc(b.avatarUrl)}" alt="">` : `<span>${esc((b.displayName || b.username)[0].toUpperCase())}</span>`}</div>
+        <div class="meta">
+          <div class="name">${esc(b.displayName || b.username)}</div>
+          <div class="preview">@${esc(b.username)} · забанил @${esc(b.bannedBy)}</div>
+        </div>
+        <button class="iconbtn" onclick="unbanGroupMember('${groupId}','${esc(b.username)}')" title="Разбанить"><i class="fa-solid fa-rotate-left"></i></button>
+      </div>
+    `).join("");
+  } else {
+    bansBox.classList.add("hidden");
+    bansBox.innerHTML = "";
+  }
+
   document.getElementById("groupAddMemberRow").classList.toggle("hidden", !canManage);
   document.getElementById("groupLeaveBtn").onclick = () => removeGroupMember(groupId, me.username, true);
+
+  const deleteBtn = document.getElementById("groupDeleteBtn");
+  deleteBtn.classList.toggle("hidden", !isOwner);
+  deleteBtn.textContent = d.group.isChannel ? "Удалить канал" : "Удалить группу";
+  deleteBtn.onclick = () => deleteGroup(groupId, d.group.isChannel);
 }
 async function setGroupMemberRole(groupId, username, role) {
   const r = await fetch(`/api/groups/${groupId}/members/${encodeURIComponent(username)}/role`, {
@@ -874,6 +937,38 @@ async function setGroupMemberRole(groupId, username, role) {
   if (!d.ok) return alert(d.error || "Ошибка");
   toast(role === "admin" ? `@${username} теперь админ` : `@${username} больше не админ`);
   openGroupInfo();
+}
+async function banGroupMember(groupId, username) {
+  if (!confirm(`Забанить @${username} в этой группе/канале?`)) return;
+  const r = await fetch(`/api/groups/${groupId}/members/${encodeURIComponent(username)}/ban`, {
+    method: "POST", headers: authHeaders()
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast(`@${username} забанен(а)`);
+  openGroupInfo();
+}
+async function unbanGroupMember(groupId, username) {
+  const r = await fetch(`/api/groups/${groupId}/members/${encodeURIComponent(username)}/unban`, {
+    method: "POST", headers: authHeaders()
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast(`@${username} разбанен(а)`);
+  openGroupInfo();
+}
+async function deleteGroup(groupId, isChannel) {
+  const label = isChannel ? "канал" : "группу";
+  if (!confirm(`Удалить этот ${label} навсегда? Это действие необратимо для всех участников.`)) return;
+
+  const r = await fetch(`/api/groups/${groupId}`, { method: "DELETE", headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка удаления");
+
+  closeGroupInfo();
+  await refreshChats();
+  backToChats();
+  toast(`${label[0].toUpperCase()}${label.slice(1)} удалён(а)`);
 }
 function closeGroupInfo() {
   document.getElementById("groupInfoModal").classList.add("hidden");
