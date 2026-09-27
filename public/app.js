@@ -289,6 +289,9 @@ function updateHeader() {
   if (currentChat === "global") {
     title.textContent = "Общий чат";
     sub.textContent = "общение со всеми";
+  } else if (currentChat === "support") {
+    title.textContent = "🛟 Поддержка";
+    sub.textContent = "One Messenger Support";
   } else if (isGroupChat(currentChat)) {
     const g = currentGroupMeta;
     title.innerHTML = (g ? esc(g.name) : "Группа") + (g && g.isChannel ? ` <i class="fa-solid fa-bullhorn" title="Канал"></i>` : "");
@@ -298,7 +301,8 @@ function updateHeader() {
     sub.textContent = onlineSet.has(currentChat) ? "в сети" : "не в сети";
   }
 
-  document.getElementById("callBtn").style.display = (currentChat !== "global" && !isGroupChat(currentChat)) ? "inline-flex" : "none";
+  const isCallable = currentChat !== "global" && currentChat !== "support" && !isGroupChat(currentChat);
+  document.getElementById("callBtn").style.display = isCallable ? "inline-flex" : "none";
 }
 
 // ================== WS ==================
@@ -761,6 +765,7 @@ async function submitCreateGroup() {
   const name = document.getElementById("groupName").value.trim();
   const description = document.getElementById("groupDesc").value.trim();
   const isChannel = document.getElementById("groupIsChannel").value === "1";
+  const discoverable = document.getElementById("groupDiscoverable").checked;
   const members = document.getElementById("groupMembers").value
     .split(",").map(s => s.trim().replace(/^@+/, "")).filter(Boolean);
 
@@ -769,7 +774,7 @@ async function submitCreateGroup() {
   const r = await fetch("/api/groups", {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ name, description, isChannel, members })
+    body: JSON.stringify({ name, description, isChannel, discoverable, members })
   });
   const d = await r.json();
   if (!d.ok) return alert(d.error || "Ошибка создания");
@@ -777,6 +782,47 @@ async function submitCreateGroup() {
   closeCreateGroupModal();
   await refreshChats();
   openChat(`group:${d.id}`);
+}
+
+// ---------------- DISCOVER (public groups/channels) ----------------
+function openDiscoverModal() {
+  document.getElementById("discoverModal").classList.remove("hidden");
+  document.getElementById("discoverSearchInput").value = "";
+  searchDiscover("");
+}
+function closeDiscoverModal() {
+  document.getElementById("discoverModal").classList.add("hidden");
+}
+let discoverDebounce = null;
+function searchDiscover(q) {
+  clearTimeout(discoverDebounce);
+  discoverDebounce = setTimeout(async () => {
+    const r = await fetch(`/api/groups/discover?q=${encodeURIComponent(q.trim())}`, { headers: authHeaders() });
+    const d = await r.json();
+    const box = document.getElementById("discoverList");
+    if (!d.ok || d.groups.length === 0) { box.innerHTML = `<div class="hint">Ничего не нашлось</div>`; return; }
+
+    box.innerHTML = d.groups.map(g => `
+      <div class="chatitem">
+        <div class="avatar circle ${g.isChannel ? "" : "group"}">${g.avatarUrl ? `<img src="${esc(g.avatarUrl)}" alt="">` : `<i class="fa-solid ${g.isChannel ? "fa-bullhorn" : "fa-users"}"></i>`}</div>
+        <div class="meta">
+          <div class="name">${esc(g.name)}</div>
+          <div class="preview">${g.isChannel ? "канал" : "группа"} · ${g.memberCount} участников</div>
+        </div>
+        <button class="btn ghost small" onclick="joinDiscoveredGroup(${g.id})">Вступить</button>
+      </div>
+    `).join("");
+  }, 250);
+}
+async function joinDiscoveredGroup(groupId) {
+  const r = await fetch(`/api/groups/${groupId}/join`, { method: "POST", headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка вступления");
+
+  closeDiscoverModal();
+  await refreshChats();
+  openChat(`group:${groupId}`);
+  toast("Вступил(а) в группу ✅");
 }
 
 async function openGroupInfo() {
@@ -792,20 +838,42 @@ async function openGroupInfo() {
   document.getElementById("groupInfoDesc").textContent = d.group.description || "";
 
   const canManage = d.myRole === "owner" || d.myRole === "admin";
+  const isOwner = d.myRole === "owner";
   const list = document.getElementById("groupMembersList");
-  list.innerHTML = d.members.map(mem => `
-    <div class="memberrow clickable" onclick="openProfile('${esc(mem.username)}', ${mem.username === me.username})">
-      <div class="avatar">${mem.avatarUrl ? `<img src="${esc(mem.avatarUrl)}" alt="">` : `<span>${esc((mem.displayName || mem.username)[0].toUpperCase())}</span>`}</div>
-      <div class="meta">
-        <div class="name">${esc(mem.displayName || mem.username)}${verifiedBadge(mem.verified)}</div>
-        <div class="preview">@${esc(mem.username)} · ${mem.role === "owner" ? "владелец" : mem.role === "admin" ? "админ" : "участник"}</div>
+  list.innerHTML = d.members.map(mem => {
+    const roleButtons = (isOwner && mem.role !== "owner" && mem.username !== me.username)
+      ? (mem.role === "admin"
+          ? `<button class="iconbtn" onclick="event.stopPropagation(); setGroupMemberRole('${groupId}','${esc(mem.username)}','member')" title="Снять админку"><i class="fa-solid fa-user-minus"></i></button>`
+          : `<button class="iconbtn" onclick="event.stopPropagation(); setGroupMemberRole('${groupId}','${esc(mem.username)}','admin')" title="Сделать админом"><i class="fa-solid fa-user-shield"></i></button>`)
+      : "";
+    const removeButton = (canManage && mem.role !== "owner" && mem.username !== me.username)
+      ? `<button class="iconbtn" onclick="event.stopPropagation(); removeGroupMember('${groupId}','${esc(mem.username)}')" title="Убрать"><i class="fa-solid fa-user-xmark"></i></button>`
+      : "";
+    return `
+      <div class="memberrow clickable" onclick="openProfile('${esc(mem.username)}', ${mem.username === me.username})">
+        <div class="avatar">${mem.avatarUrl ? `<img src="${esc(mem.avatarUrl)}" alt="">` : `<span>${esc((mem.displayName || mem.username)[0].toUpperCase())}</span>`}</div>
+        <div class="meta">
+          <div class="name">${esc(mem.displayName || mem.username)}${verifiedBadge(mem.verified)}</div>
+          <div class="preview">@${esc(mem.username)} · ${mem.role === "owner" ? "владелец" : mem.role === "admin" ? "админ" : "участник"}</div>
+        </div>
+        ${roleButtons}${removeButton}
       </div>
-      ${(canManage && mem.role !== "owner" && mem.username !== me.username) ? `<button class="iconbtn" onclick="event.stopPropagation(); removeGroupMember('${groupId}','${esc(mem.username)}')" title="Убрать"><i class="fa-solid fa-user-minus"></i></button>` : ""}
-    </div>
-  `).join("");
+    `;
+  }).join("");
 
   document.getElementById("groupAddMemberRow").classList.toggle("hidden", !canManage);
   document.getElementById("groupLeaveBtn").onclick = () => removeGroupMember(groupId, me.username, true);
+}
+async function setGroupMemberRole(groupId, username, role) {
+  const r = await fetch(`/api/groups/${groupId}/members/${encodeURIComponent(username)}/role`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ role })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast(role === "admin" ? `@${username} теперь админ` : `@${username} больше не админ`);
+  openGroupInfo();
 }
 function closeGroupInfo() {
   document.getElementById("groupInfoModal").classList.add("hidden");
@@ -981,7 +1049,35 @@ function openSettings() {
   renderPrivacySection();
   renderFriendsSection();
   renderVerificationSection();
+  renderSessionsSection();
   renderDeleteAccountSection();
+}
+
+// ---------------- SESSIONS (login history for this account) ----------------
+async function renderSessionsSection() {
+  const box = document.getElementById("sessionsSection");
+  box.innerHTML = `<div class="hint">Загрузка...</div>`;
+
+  const r = await fetch("/api/me/sessions", { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok || d.sessions.length === 0) { box.innerHTML = `<div class="hint">Пока нет истории входов</div>`; return; }
+
+  box.innerHTML = d.sessions.map(s => `
+    <div class="memberrow">
+      <div class="meta">
+        <div class="name">${new Date(s.createdAt).toLocaleString("ru-RU")}</div>
+        <div class="preview">${esc(s.ip || "IP неизвестен")} · ${esc(shortenUA(s.userAgent))}</div>
+      </div>
+    </div>
+  `).join("");
+}
+function shortenUA(ua) {
+  if (!ua) return "устройство неизвестно";
+  if (ua.includes("iPhone")) return "iPhone";
+  if (ua.includes("Android")) return "Android";
+  if (ua.includes("Macintosh")) return "Mac";
+  if (ua.includes("Windows")) return "Windows";
+  return ua.slice(0, 40);
 }
 
 // ---------------- PRIVACY (who sees your bio / stories) ----------------
@@ -1679,7 +1775,7 @@ function markConnected() {
 }
 
 async function startAudioCall() {
-  if (currentChat === "global" || isGroupChat(currentChat)) return alert("Звонок только в личном чате");
+  if (currentChat === "global" || currentChat === "support" || isGroupChat(currentChat)) return alert("Звонок только в личном чате");
   if (callPeer) return alert("Звонок уже идет");
   if (!ws || ws.readyState !== 1) return alert("WS не подключен");
 
