@@ -1,7 +1,7 @@
 const express = require("express");
 const http = require("http");
 const WebSocket = require("ws");
-const sqlite3 = require("sqlite3").verbose();
+const { createClient } = require("@libsql/client");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -24,65 +24,16 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET;
-
-// If JWT_SECRET isn't set as an environment variable, generate one ONCE and
-// save it next to the database file, then reuse it on every future start.
-// This means logins survive server restarts/sleep-wake cycles without you
-// having to set anything on Render manually. It only resets if the disk
-// itself is wiped (e.g. a fresh deploy on a host with no persistent disk) —
-// setting JWT_SECRET yourself in the environment is still the more durable
-// option, but this removes the need to do that by hand.
-const SECRET_FILE = path.join(__dirname, ".jwt-secret");
-
-function loadOrCreatePersistedSecret() {
-  try {
-    if (fs.existsSync(SECRET_FILE)) {
-      const existing = fs.readFileSync(SECRET_FILE, "utf8").trim();
-      if (existing) return existing;
-    }
-  } catch {}
-
-  const generated = crypto.randomBytes(48).toString("hex");
-  try {
-    fs.writeFileSync(SECRET_FILE, generated, { mode: 0o600 });
-  } catch (e) {
-    console.warn("[SECURITY WARNING] Could not persist a JWT secret to disk:", e.message);
-  }
-  return generated;
-}
-
-const EFFECTIVE_JWT_SECRET = JWT_SECRET || loadOrCreatePersistedSecret();
-
-// ---------------- WEB PUSH (real notifications, even with the site closed) ----------------
-// Same idea as the JWT secret above: generate VAPID keys once, persist them
-// to disk, and reuse them forever after — so subscriptions saved by
-// people's browsers keep working across restarts/redeploys.
-const VAPID_FILE = path.join(__dirname, ".vapid-keys.json");
-let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
-let VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@example.com";
 
-if (webpush && (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY)) {
-  try {
-    if (fs.existsSync(VAPID_FILE)) {
-      const saved = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
-      VAPID_PUBLIC_KEY = saved.publicKey;
-      VAPID_PRIVATE_KEY = saved.privateKey;
-    } else {
-      const generated = webpush.generateVAPIDKeys();
-      VAPID_PUBLIC_KEY = generated.publicKey;
-      VAPID_PRIVATE_KEY = generated.privateKey;
-      fs.writeFileSync(VAPID_FILE, JSON.stringify(generated), { mode: 0o600 });
-    }
-  } catch (e) {
-    console.warn("[PUSH] Could not set up VAPID keys, push notifications disabled:", e.message);
-    webpush = null;
-  }
-}
-if (webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-}
+// JWT secret and VAPID (push) keys used to live in local files — which was
+// wrong for the exact same reason database.db was: Render's free tier wipes
+// that disk on every restart. They now live in Turso too (a tiny key-value
+// table), generated once and reused forever after. An explicit env var, if
+// you set one, always takes priority.
+let EFFECTIVE_JWT_SECRET = process.env.JWT_SECRET || "";
+let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
+let VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
 
 // Sends a real OS-level push notification to every device/browser this
 // user has subscribed from — used specifically for people who are NOT
@@ -149,10 +100,6 @@ function timingSafeStrEqual(a, b) {
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-const uploadsDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-app.use("/uploads", express.static(uploadsDir));
-
 // ---------------- UPLOAD SAFETY ----------------
 // Never trust the extension the client sends. Map from the sniffed mimetype
 // instead, so a crafted filename can never end up inside an
@@ -177,13 +124,113 @@ function fileFilter(req, file, cb) {
   cb(new Error("Недопустимый тип файла"));
 }
 
+// Files are kept in memory only (never written to Render's ephemeral disk)
+// and handed straight to saveUploadedFile() below, which stores them as
+// blobs in Turso — the exact same always-on database everything else in
+// this file already relies on. No separate storage provider to sign up for.
 const upload = multer({
-  dest: uploadsDir,
+  storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 25 * 1024 * 1024, files: 1 } // 25MB
+  limits: { fileSize: 20 * 1024 * 1024, files: 1 } // 20MB — see note by the /media/:id route below
 });
 
-const db = new sqlite3.Database("database.db");
+// ---------------- FILE STORAGE (blobs inside Turso, no external service) ----------------
+// Saves a file as a row in Turso and returns a URL (/media/<id>) that the
+// GET route further down serves it back from. Since Turso IS the database
+// this whole app already depends on, this needs no extra account, no extra
+// env vars, and survives restarts exactly as well as everything else does.
+async function saveUploadedFile(buffer, mimetype, keyPrefix) {
+  const id = `${keyPrefix}-${crypto.randomBytes(16).toString("hex")}`;
+  await dbRun(
+    `INSERT INTO media_blobs (id, mimetype, data, createdAt) VALUES (?,?,?,?)`,
+    [id, mimetype, buffer, now()]
+  );
+  return `/media/${id}`;
+}
+
+// Serves a previously uploaded file back out of Turso. No auth required —
+// this plays the same public role the old /uploads static folder did (an
+// <img>/<video>/<audio> src has to be fetchable without extra headers).
+// IDs are random 32-hex-char tokens, so this isn't browsable/guessable.
+app.get("/media/:id", async (req, res) => {
+  const id = String(req.params.id || "");
+  if (!/^[a-z]+-[0-9a-f]{32}$/.test(id)) return res.status(404).end();
+
+  try {
+    const row = await dbGet(`SELECT mimetype, data FROM media_blobs WHERE id=?`, [id]);
+    if (!row) return res.status(404).end();
+
+    res.setHeader("Content-Type", row.mimetype);
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable"); // ids are random & content never changes
+    res.send(Buffer.from(row.data));
+  } catch {
+    res.status(500).end();
+  }
+});
+
+// ================================================================
+// DATABASE — Turso (libSQL), not a local file.
+//
+// Render's Free plan wipes the whole local disk every time the service
+// spins down from inactivity (~15 min) — that includes database.db itself,
+// which is exactly why accounts/messages/sessions kept disappearing. Turso
+// is a separate, always-on, SQLite-compatible database with a generous free
+// tier, so data now survives restarts, redeploys, and sleep/wake cycles.
+//
+// Create one at https://turso.tech (free), then set on Render:
+//   TURSO_DATABASE_URL   e.g. libsql://your-db-name.turso.io
+//   TURSO_AUTH_TOKEN     the token Turso gives you for that database
+//
+// Everything below this block (db.run/db.get/db.all, dbRun/dbGet/dbAll)
+// keeps the exact same shape as before — this is a compatibility shim, so
+// none of the ~50 queries elsewhere in this file needed to change.
+// ================================================================
+const TURSO_DATABASE_URL = process.env.TURSO_DATABASE_URL || "";
+const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN || "";
+
+if (!TURSO_DATABASE_URL || !TURSO_AUTH_TOKEN) {
+  console.error(
+    "[FATAL] TURSO_DATABASE_URL and/or TURSO_AUTH_TOKEN are not set. " +
+    "Create a free database at https://turso.tech and set both in Render " +
+    "-> Environment. Without them, nothing can be saved anywhere."
+  );
+}
+
+const turso = createClient({ url: TURSO_DATABASE_URL, authToken: TURSO_AUTH_TOKEN });
+
+function toArgs(params) {
+  return Array.isArray(params) ? params : [];
+}
+
+const db = {
+  run(sql, params, callback) {
+    if (typeof params === "function") { callback = params; params = []; }
+    turso.execute({ sql, args: toArgs(params) })
+      .then((result) => {
+        if (callback) {
+          const ctx = { lastID: Number(result.lastInsertRowid || 0), changes: result.rowsAffected || 0 };
+          callback.call(ctx, null);
+        }
+      })
+      .catch((err) => { if (callback) callback(err); else console.error("[DB] run error:", err.message); });
+  },
+  get(sql, params, callback) {
+    if (typeof params === "function") { callback = params; params = []; }
+    turso.execute({ sql, args: toArgs(params) })
+      .then((result) => callback(null, result.rows[0]))
+      .catch((err) => callback(err));
+  },
+  all(sql, params, callback) {
+    if (typeof params === "function") { callback = params; params = []; }
+    turso.execute({ sql, args: toArgs(params) })
+      .then((result) => callback(null, result.rows))
+      .catch((err) => callback(err));
+  },
+  // sqlite3's serialize() just queued callbacks in order; the schema setup
+  // below now awaits each statement directly instead, so this is a no-op
+  // kept only so nothing else calling db.serialize(...) breaks.
+  serialize(fn) { fn(); }
+};
 
 const now = () => Date.now();
 const dbAll = (sql, params = []) => new Promise((res, rej) => db.all(sql, params, (e, r) => e ? rej(e) : res(r || [])));
@@ -192,8 +239,30 @@ const dbRun = function (sql, params = []) {
   return new Promise((res, rej) => db.run(sql, params, function (e) { e ? rej(e) : res(this); }));
 };
 
-db.serialize(() => {
-  db.run(`
+// Schema setup — sequential and awaited (unlike sqlite3's fire-and-forget
+// .serialize(), a remote database needs each CREATE/ALTER to actually finish
+// before the next one that might depend on it runs).
+async function initSchema() {
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS app_secrets (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  // Uploaded photos/videos/voice notes/avatars, stored as blobs right here
+  // in Turso — no separate storage provider needed. Served back by the
+  // GET /media/:id route further down.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS media_blobs (
+      id TEXT PRIMARY KEY,
+      mimetype TEXT NOT NULL,
+      data BLOB NOT NULL,
+      createdAt INTEGER NOT NULL
+    )
+  `);
+
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE,
@@ -208,17 +277,17 @@ db.serialize(() => {
     )
   `);
 
-  // Safe to run repeatedly against an existing DB; SQLite errors if a column
+  // Safe to run repeatedly against an existing DB; errors if a column
   // already exists, which we just swallow.
-  const addCol = (col, def) => db.run(`ALTER TABLE users ADD COLUMN ${col} ${def}`, () => {});
-  addCol("banned", "INTEGER NOT NULL DEFAULT 0");
-  addCol("muted", "INTEGER NOT NULL DEFAULT 0");
-  addCol("verified", "INTEGER NOT NULL DEFAULT 0");
-  addCol("totpSecret", "TEXT NOT NULL DEFAULT ''");
-  addCol("totpEnabled", "INTEGER NOT NULL DEFAULT 0");
-  addCol("settings", "TEXT NOT NULL DEFAULT '{}'"); // { theme, wallpaper, accent }
+  const addCol = async (col, def) => { try { await dbRun(`ALTER TABLE users ADD COLUMN ${col} ${def}`); } catch {} };
+  await addCol("banned", "INTEGER NOT NULL DEFAULT 0");
+  await addCol("muted", "INTEGER NOT NULL DEFAULT 0");
+  await addCol("verified", "INTEGER NOT NULL DEFAULT 0");
+  await addCol("totpSecret", "TEXT NOT NULL DEFAULT ''");
+  await addCol("totpEnabled", "INTEGER NOT NULL DEFAULT 0");
+  await addCol("settings", "TEXT NOT NULL DEFAULT '{}'"); // { theme, wallpaper, accent, storyPrivacy, bioPrivacy }
 
-  db.run(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chatType TEXT NOT NULL,          -- global|private|group
@@ -231,7 +300,7 @@ db.serialize(() => {
     )
   `);
 
-  db.run(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS stories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       owner TEXT NOT NULL,
@@ -243,7 +312,7 @@ db.serialize(() => {
     )
   `);
 
-  db.run(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS groups (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -255,7 +324,7 @@ db.serialize(() => {
     )
   `);
 
-  db.run(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS group_members (
       groupId INTEGER NOT NULL,
       username TEXT NOT NULL,
@@ -269,7 +338,7 @@ db.serialize(() => {
   // Gating (Friday / secret code) lives entirely in application code below,
   // never in the schema — so changing the code or the day rule later never
   // touches this table or any existing row in it.
-  db.run(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS gifts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       sender TEXT NOT NULL,
@@ -278,12 +347,12 @@ db.serialize(() => {
       createdAt INTEGER NOT NULL
     )
   `);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_gifts_recipient ON gifts(recipient, createdAt)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_gifts_recipient ON gifts(recipient, createdAt)`);
 
   // One-directional "friends" list: each user curates their own list of who
   // counts as a "friend" for THEIR privacy settings (bio/story visibility).
   // No approval flow — you decide who to add, same as a "close friends" list.
-  db.run(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS friends (
       owner TEXT NOT NULL,
       friend TEXT NOT NULL,
@@ -294,7 +363,7 @@ db.serialize(() => {
 
   // Real push subscriptions (Web Push), so notifications can arrive even
   // when the site/tab is completely closed, not just while it's open.
-  db.run(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY,
       username TEXT NOT NULL,
@@ -302,9 +371,9 @@ db.serialize(() => {
       createdAt INTEGER NOT NULL
     )
   `);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_push_username ON push_subscriptions(username)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_push_username ON push_subscriptions(username)`);
 
-  db.run(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS verification_requests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL,
@@ -317,10 +386,50 @@ db.serialize(() => {
     )
   `);
 
-  db.run(`CREATE INDEX IF NOT EXISTS idx_msg ON messages(chatType, sender, receiver, createdAt)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_st_exp ON stories(expiresAt)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_gm_user ON group_members(username)`);
-});
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_msg ON messages(chatType, sender, receiver, createdAt)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_st_exp ON stories(expiresAt)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_gm_user ON group_members(username)`);
+}
+
+const schemaReady = initSchema()
+  .then(() => console.log("[DB] Turso schema ready"))
+  .catch((e) => console.error("[DB] Schema initialization failed:", e.message));
+
+// Load (or generate, once) the JWT secret and VAPID push keys from that
+// app_secrets table, instead of local disk files. An env var, if set,
+// always wins and skips the DB entirely for that one value.
+async function getOrCreateSecret(key, generator) {
+  const row = await dbGet(`SELECT value FROM app_secrets WHERE key=?`, [key]);
+  if (row && row.value) return row.value;
+
+  const value = generator();
+  await dbRun(`INSERT INTO app_secrets (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`, [key, value]);
+  // Someone else (a concurrent boot) may have inserted first — re-read to
+  // make sure every instance ends up agreeing on the same secret.
+  const confirmed = await dbGet(`SELECT value FROM app_secrets WHERE key=?`, [key]);
+  return confirmed ? confirmed.value : value;
+}
+
+const secretsReady = schemaReady.then(async () => {
+  if (!EFFECTIVE_JWT_SECRET) {
+    EFFECTIVE_JWT_SECRET = await getOrCreateSecret("jwt_secret", () => crypto.randomBytes(48).toString("hex"));
+  }
+
+  if (webpush && (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY)) {
+    const stored = await getOrCreateSecret("vapid_keys", () => JSON.stringify(webpush.generateVAPIDKeys()));
+    try {
+      const parsed = JSON.parse(stored);
+      VAPID_PUBLIC_KEY = parsed.publicKey;
+      VAPID_PRIVATE_KEY = parsed.privateKey;
+    } catch (e) {
+      console.warn("[PUSH] Could not parse stored VAPID keys, push disabled:", e.message);
+    }
+  }
+  if (webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  }
+}).catch((e) => console.error("[SECRETS] Failed to load/create secrets:", e.message));
+
 
 function parseSettings(u) {
   try { return JSON.parse(u.settings || "{}"); } catch { return {}; }
@@ -720,18 +829,14 @@ app.post("/api/me/avatar", verifyAuth, (req, res, next) => {
     if (err) return res.status(400).json({ ok: false, error: err.message || "Ошибка загрузки" });
     next();
   });
-}, (req, res) => {
+}, async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
 
   if (guessMediaType(req.file.mimetype) !== "image") {
-    fs.unlink(req.file.path, () => {});
     return res.status(400).json({ ok: false, error: "Аватар должен быть изображением" });
   }
 
-  const ext = MIME_EXT[req.file.mimetype] || "";
-  const newName = `avatar-${req.file.filename}${ext}`;
-  fs.renameSync(req.file.path, path.join(uploadsDir, newName));
-  const avatarUrl = `/uploads/${newName}`;
+  const avatarUrl = await saveUploadedFile(req.file.buffer, req.file.mimetype, "avatar");
 
   db.run(`UPDATE users SET avatarUrl=? WHERE username=?`, [avatarUrl, req.user.username], (err) => {
     if (err) return res.status(500).json({ ok: false, error: "Ошибка сохранения" });
@@ -1092,10 +1197,7 @@ app.post("/api/upload", verifyAuth, (req, res, next) => {
   if (!perm.canPost) return res.status(403).json({ ok: false, error: perm.error || "Нет доступа" });
 
   const mediaType = guessMediaType(req.file.mimetype);
-  const ext = MIME_EXT[req.file.mimetype] || "";
-  const newName = `${req.file.filename}${ext}`;
-  fs.renameSync(req.file.path, path.join(uploadsDir, newName));
-  const mediaUrl = `/uploads/${newName}`;
+  const mediaUrl = await saveUploadedFile(req.file.buffer, req.file.mimetype, "msg");
 
   const createdAt = now();
   db.run(
@@ -1185,7 +1287,7 @@ app.post("/api/stories", verifyAuth, (req, res, next) => {
     if (err) return res.status(400).json({ ok: false, error: err.message || "Ошибка загрузки" });
     next();
   });
-}, (req, res) => {
+}, async (req, res) => {
   const me = req.user.username;
   if (req.user.muted) return res.status(403).json({ ok: false, error: "Тебе временно запрещено публиковать сторис" });
 
@@ -1199,10 +1301,7 @@ app.post("/api/stories", verifyAuth, (req, res, next) => {
 
   if (req.file) {
     mediaType = guessMediaType(req.file.mimetype);
-    const ext = MIME_EXT[req.file.mimetype] || "";
-    const newName = `story-${req.file.filename}${ext}`;
-    fs.renameSync(req.file.path, path.join(uploadsDir, newName));
-    mediaUrl = `/uploads/${newName}`;
+    mediaUrl = await saveUploadedFile(req.file.buffer, req.file.mimetype, "story");
   }
 
   if (!text && !mediaUrl) return res.status(400).json({ ok: false, error: "Сторис пустая" });
@@ -1660,4 +1759,8 @@ wss.on("connection", (ws, req) => {
   }
 });
 
-server.listen(PORT, () => console.log("Server running on", PORT));
+// Wait for the schema AND the JWT/VAPID secrets before accepting any
+// traffic — matters most on a brand-new Turso database's very first boot.
+secretsReady.finally(() => {
+  server.listen(PORT, () => console.log("Server running on", PORT));
+});
