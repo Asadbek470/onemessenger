@@ -319,10 +319,13 @@ async function initSchema() {
       description TEXT DEFAULT '',
       avatarUrl TEXT DEFAULT '',
       isChannel INTEGER NOT NULL DEFAULT 0,
+      discoverable INTEGER NOT NULL DEFAULT 0,
       owner TEXT NOT NULL,
       createdAt INTEGER NOT NULL
     )
   `);
+  { const addGroupCol = async (col, def) => { try { await dbRun(`ALTER TABLE groups ADD COLUMN ${col} ${def}`); } catch {} };
+    await addGroupCol("discoverable", "INTEGER NOT NULL DEFAULT 0"); }
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS group_members (
@@ -360,6 +363,19 @@ async function initSchema() {
       PRIMARY KEY (owner, friend)
     )
   `);
+
+  // A login record per successful sign-in — powers the admin panel's
+  // "sessions" view (who logged in, from what device/IP, when).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL,
+      ip TEXT DEFAULT '',
+      userAgent TEXT DEFAULT '',
+      createdAt INTEGER NOT NULL
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username, createdAt)`);
 
   // Real push subscriptions (Web Push), so notifications can arrive even
   // when the site/tab is completely closed, not just while it's open.
@@ -492,6 +508,16 @@ function verifySuperAdmin(req, res, next) {
   }
 }
 
+// 'support' is a reserved pseudo-account (see RESERVED_USERNAMES) — talking
+// to it works exactly like a private DM, except the other party isn't a
+// real row in `users`; admin replies use sender='support'.
+function resolveChatType(receiver) {
+  if (receiver.startsWith("group:")) return "group";
+  if (receiver === "global") return "global";
+  if (receiver === "support") return "support";
+  return "private";
+}
+
 function guessMediaType(mime) {
   const m = String(mime || "").toLowerCase();
   if (m.startsWith("image/")) return "image";
@@ -589,12 +615,17 @@ function otpauthUrl(username, secret) {
 }
 
 // ---------------- AUTH ----------------
+const RESERVED_USERNAMES = ["global", "support", "admin", "one", "onemessenger"];
+
 app.post("/api/auth/register", rateLimit(10, 60 * 1000), async (req, res) => {
   const usernameRaw = String(req.body.username || "").trim().replace(/^@+/, "").toLowerCase();
   const password = String(req.body.password || "").trim();
 
   if (!/^[a-z0-9_]{4,20}$/.test(usernameRaw)) {
     return res.status(400).json({ ok: false, error: "Юзернейм 4-20: a-z 0-9 _" });
+  }
+  if (RESERVED_USERNAMES.includes(usernameRaw)) {
+    return res.status(400).json({ ok: false, error: "Этот юзернейм зарезервирован системой" });
   }
   if (password.length < 6) return res.status(400).json({ ok: false, error: "Пароль минимум 6 символов" });
 
@@ -607,11 +638,18 @@ app.post("/api/auth/register", rateLimit(10, 60 * 1000), async (req, res) => {
       if (err) return res.status(400).json({ ok: false, error: "Юзернейм занят" });
 
       db.get(`SELECT * FROM users WHERE username=?`, [usernameRaw], (e2, user) => {
+        recordSession(req, usernameRaw);
         res.json({ ok: true, token: signToken(usernameRaw), user: safeUser(user) });
       });
     }
   );
 });
+
+function recordSession(req, username) {
+  const ip = String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
+  const userAgent = String(req.headers["user-agent"] || "").slice(0, 300);
+  dbRun(`INSERT INTO sessions (username, ip, userAgent, createdAt) VALUES (?,?,?,?)`, [username, ip, userAgent, now()]).catch(() => {});
+}
 
 app.post("/api/auth/login", rateLimit(10, 60 * 1000), (req, res) => {
   const usernameRaw = String(req.body.identifier || req.body.username || "").trim().replace(/^@+/, "").toLowerCase();
@@ -629,6 +667,7 @@ app.post("/api/auth/login", rateLimit(10, 60 * 1000), (req, res) => {
       return res.json({ ok: true, need2FA: true, pendingToken });
     }
 
+    recordSession(req, usernameRaw);
     res.json({ ok: true, token: signToken(usernameRaw), user: safeUser(user) });
   });
 });
@@ -649,6 +688,7 @@ app.post("/api/auth/2fa-verify", rateLimit(15, 60 * 1000), (req, res) => {
     if (!user || !user.totpEnabled) return res.status(400).json({ ok: false, error: "2FA не включена" });
     if (!verifyTotp(user.totpSecret, code)) return res.status(400).json({ ok: false, error: "Неверный код" });
 
+    recordSession(req, user.username);
     res.json({ ok: true, token: signToken(user.username), user: safeUser(user) });
   });
 });
@@ -965,14 +1005,15 @@ app.post("/api/groups", verifyAuth, async (req, res) => {
   const name = String(req.body.name || "").trim().slice(0, 60);
   const description = String(req.body.description || "").trim().slice(0, 300);
   const isChannel = req.body.isChannel ? 1 : 0;
+  const discoverable = req.body.discoverable ? 1 : 0;
   const members = Array.isArray(req.body.members) ? req.body.members : [];
 
   if (!name) return res.status(400).json({ ok: false, error: "Название обязательно" });
 
   const createdAt = now();
   const result = await dbRun(
-    `INSERT INTO groups (name, description, isChannel, owner, createdAt) VALUES (?,?,?,?,?)`,
-    [name, description, isChannel, req.user.username, createdAt]
+    `INSERT INTO groups (name, description, isChannel, discoverable, owner, createdAt) VALUES (?,?,?,?,?,?)`,
+    [name, description, isChannel, discoverable, req.user.username, createdAt]
   );
   const groupId = result.lastID;
 
@@ -985,6 +1026,37 @@ app.post("/api/groups", verifyAuth, async (req, res) => {
   }
 
   res.json({ ok: true, id: groupId });
+});
+
+// Public discovery: popular public groups/channels (owner opted in via
+// "discoverable"), ranked by member count, with optional name search.
+// Excludes ones the person is already in.
+app.get("/api/groups/discover", verifyAuth, async (req, res) => {
+  const q = String(req.query.q || "").trim().toLowerCase();
+  const rows = await dbAll(
+    `
+    SELECT g.id, g.name, g.description, g.avatarUrl, g.isChannel,
+           (SELECT COUNT(*) FROM group_members gm2 WHERE gm2.groupId=g.id) AS memberCount
+    FROM groups g
+    WHERE g.discoverable=1
+      AND g.id NOT IN (SELECT groupId FROM group_members WHERE username=?)
+      AND (? = '' OR LOWER(g.name) LIKE '%' || ? || '%')
+    ORDER BY memberCount DESC
+    LIMIT 50
+    `,
+    [req.user.username, q, q]
+  );
+  res.json({ ok: true, groups: rows });
+});
+
+app.post("/api/groups/:id/join", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const group = await dbGet(`SELECT * FROM groups WHERE id=?`, [groupId]);
+  if (!group) return res.status(404).json({ ok: false, error: "Не найдено" });
+  if (!group.discoverable) return res.status(403).json({ ok: false, error: "Эта группа закрытая — нужно приглашение" });
+
+  await dbRun(`INSERT OR IGNORE INTO group_members (groupId, username, role, joinedAt) VALUES (?,?,'member',?)`, [groupId, req.user.username, now()]);
+  res.json({ ok: true });
 });
 
 app.get("/api/groups/:id", verifyAuth, async (req, res) => {
@@ -1033,6 +1105,27 @@ app.delete("/api/groups/:id/members/:username", verifyAuth, async (req, res) => 
   }
 
   await dbRun(`DELETE FROM group_members WHERE groupId=? AND username=?`, [groupId, target]);
+  res.json({ ok: true });
+});
+
+// Promote a member to admin, or demote an admin back to member. Only the
+// group's owner can do this — admins granting/revoking other admins would
+// let them lock the owner out, so it's kept a single-person decision.
+app.post("/api/groups/:id/members/:username/role", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const target = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const newRole = String(req.body.role || "");
+
+  if (!["admin", "member"].includes(newRole)) return res.status(400).json({ ok: false, error: "Недопустимая роль" });
+
+  const myRole = await isMember(groupId, req.user.username);
+  if (myRole !== "owner") return res.status(403).json({ ok: false, error: "Менять роли может только владелец" });
+
+  const targetRole = await isMember(groupId, target);
+  if (!targetRole) return res.status(404).json({ ok: false, error: "Не участник группы" });
+  if (targetRole === "owner") return res.status(400).json({ ok: false, error: "Нельзя менять роль владельца" });
+
+  await dbRun(`UPDATE group_members SET role=? WHERE groupId=? AND username=?`, [newRole, groupId, target]);
   res.json({ ok: true });
 });
 
@@ -1123,6 +1216,14 @@ app.get("/api/messages", verifyAuth, async (req, res) => {
     return res.json({ ok: true, messages: rows });
   }
 
+  if (chat === "support") {
+    const rows = await dbAll(
+      `SELECT * FROM messages WHERE chatType='support' AND ((sender=? AND receiver='support') OR (sender='support' AND receiver=?)) ORDER BY createdAt ASC LIMIT 500`,
+      [me, me]
+    );
+    return res.json({ ok: true, messages: rows });
+  }
+
   const other = chat;
   const rows = await dbAll(
     `
@@ -1188,7 +1289,7 @@ app.post("/api/upload", verifyAuth, (req, res, next) => {
   if (req.user.muted) return res.status(403).json({ ok: false, error: "Тебе временно запрещено отправлять сообщения" });
 
   const receiver = String(req.body.receiver || "global").replace(/^@+/, "").toLowerCase();
-  const chatType = receiver.startsWith("group:") ? "group" : (receiver === "global" ? "global" : "private");
+  const chatType = resolveChatType(receiver);
   const text = String(req.body.text || "").trim().slice(0, 2000);
 
   if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
@@ -1450,6 +1551,75 @@ app.get("/api/admin/user/:username/overview", verifySuperAdmin, async (req, res)
   res.json({ ok: true, partners, groups, globalMessageCount: globalCount.c });
 });
 
+// All logins across every user — a global "sessions" feed for the admin
+// panel: who logged in, when, and from what IP/device.
+app.get("/api/admin/sessions", verifySuperAdmin, async (req, res) => {
+  const q = String(req.query.q || "").trim().toLowerCase();
+  const rows = await dbAll(
+    q
+      ? `SELECT * FROM sessions WHERE username LIKE ? ORDER BY createdAt DESC LIMIT 200`
+      : `SELECT * FROM sessions ORDER BY createdAt DESC LIMIT 200`,
+    q ? [`%${q}%`] : []
+  );
+  const withOnline = rows.map(r => ({ ...r, online: isOnline(r.username) }));
+  res.json({ ok: true, sessions: withOnline });
+});
+
+// One user's own login history (used by the account-level "Sessions" view
+// in Settings, not just the admin panel).
+app.get("/api/me/sessions", verifyAuth, async (req, res) => {
+  const rows = await dbAll(`SELECT * FROM sessions WHERE username=? ORDER BY createdAt DESC LIMIT 50`, [req.user.username]);
+  res.json({ ok: true, sessions: rows });
+});
+
+// ---------------- SUPPORT (tied into the admin panel) ----------------
+// Every user can message the reserved 'support' pseudo-account from their
+// own chat list; every conversation shows up here for an admin to answer.
+app.get("/api/admin/support/conversations", verifySuperAdmin, async (req, res) => {
+  const rows = await dbAll(
+    `
+    SELECT other AS username, MAX(createdAt) AS lastAt, COUNT(*) AS total,
+           SUM(CASE WHEN sender != 'support' THEN 1 ELSE 0 END) AS fromUser
+    FROM (
+      SELECT CASE WHEN sender='support' THEN receiver ELSE sender END AS other, sender, createdAt
+      FROM messages WHERE chatType='support'
+    )
+    GROUP BY other
+    ORDER BY lastAt DESC
+    LIMIT 100
+    `
+  );
+  res.json({ ok: true, conversations: rows });
+});
+
+app.get("/api/admin/support/:username", verifySuperAdmin, async (req, res) => {
+  const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const rows = await dbAll(
+    `SELECT * FROM messages WHERE chatType='support' AND ((sender=? AND receiver='support') OR (sender='support' AND receiver=?)) ORDER BY createdAt ASC LIMIT 500`,
+    [u, u]
+  );
+  res.json({ ok: true, messages: rows });
+});
+
+app.post("/api/admin/support/:username/reply", verifySuperAdmin, async (req, res) => {
+  const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const text = String(req.body.text || "").trim().slice(0, 2000);
+  if (!text) return res.status(400).json({ ok: false, error: "Пустое сообщение" });
+
+  const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [u]);
+  if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+
+  const createdAt = now();
+  const result = await dbRun(
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES ('support','support',?,?,?,?,?)`,
+    [u, text, "text", "", createdAt]
+  );
+  const msg = { id: result.lastID, chatType: "support", sender: "support", receiver: u, text, mediaType: "text", mediaUrl: "", createdAt };
+
+  await broadcastMessage(msg);
+  res.json({ ok: true, message: msg });
+});
+
 // Full thread between two specific users — the actual "переписка" view.
 app.get("/api/admin/messages/private/:userA/:userB", verifySuperAdmin, async (req, res) => {
   const a = String(req.params.userA || "").replace(/^@+/, "").toLowerCase();
@@ -1574,7 +1744,7 @@ function broadcastPresence() {
 // chatType: 'global' | 'private' | 'group'; receiver: 'global' | username | 'group:<id>'
 async function canPostTo(chatType, receiver, username) {
   if (chatType === "global") return { canPost: true, canRead: true };
-  if (chatType === "private") return { canPost: true, canRead: true }; // either side of a DM can always post
+  if (chatType === "private" || chatType === "support") return { canPost: true, canRead: true }; // either side of a DM (or support thread) can always post
   if (chatType === "group") {
     const groupId = Number(String(receiver).slice(6));
     const group = await dbGet(`SELECT * FROM groups WHERE id=?`, [groupId]);
@@ -1589,7 +1759,7 @@ async function canPostTo(chatType, receiver, username) {
 
 async function recipientsFor(chatType, receiver, sender) {
   if (chatType === "global") return Array.from(online.keys());
-  if (chatType === "private") return [sender, receiver];
+  if (chatType === "private" || chatType === "support") return [sender, receiver];
   if (chatType === "group") {
     const groupId = Number(String(receiver).slice(6));
     const rows = await dbAll(`SELECT username FROM group_members WHERE groupId=?`, [groupId]);
@@ -1682,7 +1852,7 @@ wss.on("connection", (ws, req) => {
           if (!user || user.banned || user.muted) return;
 
           const receiver = String(data.receiver || "global").replace(/^@+/, "").toLowerCase();
-          const chatType = receiver.startsWith("group:") ? "group" : (receiver === "global" ? "global" : "private");
+          const chatType = resolveChatType(receiver);
           const text = String(data.text || "").trim().slice(0, 2000);
           if (!text) return;
 
@@ -1705,7 +1875,7 @@ wss.on("connection", (ws, req) => {
           if (!user || user.banned || user.muted) return;
 
           const receiver = String(data.receiver || "global").replace(/^@+/, "").toLowerCase();
-          const chatType = receiver.startsWith("group:") ? "group" : (receiver === "global" ? "global" : "private");
+          const chatType = resolveChatType(receiver);
           const title = String(data.title || "Список").trim().slice(0, 80);
           const items = (Array.isArray(data.items) ? data.items : [])
             .map(t => String(t || "").trim().slice(0, 200))
