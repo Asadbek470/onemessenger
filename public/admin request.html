@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>One Messenger | Заявки к официальным аккаунтам</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="/icon-192.png" />
+  <style>
+    .req-text{white-space:pre-wrap;word-break:break-word;margin:8px 0;padding:10px;border-radius:10px;background:rgba(0,0,0,.2)}
+    .req-meta{font-size:13px;color:var(--muted)}
+    .empty{color:var(--muted);padding:20px 0}
+  </style>
+</head>
+<body class="adminbody">
+  <div id="loginBox" class="admin-login-wrap">
+    <div class="auth-card">
+      <div class="brand">
+        <div class="logo">OM</div>
+        <div><h1>Администрация</h1><p>Заявки на связь с официальными аккаунтами</p></div>
+      </div>
+      <div class="form">
+        <label>Логин админа</label>
+        <input id="adminLogin" autocomplete="username" />
+        <label>Пароль</label>
+        <input id="adminPassword" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()" />
+        <button class="btn primary full" style="margin-top:14px" onclick="login()">Войти</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel" class="admin-container hidden">
+    <div class="admin-topbar">
+      <h1>Заявки к официальным аккаунтам ✅</h1>
+      <div class="admin-actions" style="margin:0">
+        <button onclick="loadRequests()">Обновить</button>
+        <button onclick="logout()">Выйти</button>
+      </div>
+    </div>
+    <p class="hint">Когда человек хочет написать аккаунту с галочкой, заявка приходит сюда. «Передать» — сообщение уходит владельцу, и дальше человек может писать ему напрямую. «Отклонить» — человеку придёт уведомление в «Поддержку».</p>
+    <div id="list" class="ver-list"></div>
+  </div>
+
+  <script>
+    const KEY = "omAdminRequestsToken";
+    let token = sessionStorage.getItem(KEY);
+
+    function esc(s = "") {
+      return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+    }
+
+    function show() {
+      document.getElementById("loginBox").classList.toggle("hidden", !!token);
+      document.getElementById("panel").classList.toggle("hidden", !token);
+      if (token) loadRequests();
+    }
+
+    async function login() {
+      const r = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          login: document.getElementById("adminLogin").value.trim(),
+          password: document.getElementById("adminPassword").value
+        })
+      });
+      const d = await r.json();
+      if (!d.ok) return alert(d.error || "Ошибка входа");
+      token = d.token;
+      sessionStorage.setItem(KEY, token);
+      show();
+    }
+
+    function logout() {
+      sessionStorage.removeItem(KEY);
+      token = null;
+      show();
+    }
+
+    async function api(url, opts = {}) {
+      const r = await fetch(url, { ...opts, headers: { Authorization: `Bearer ${token}`, ...(opts.headers || {}) } });
+      if (r.status === 401) { logout(); throw new Error("auth"); }
+      return r.json();
+    }
+
+    async function loadRequests() {
+      const box = document.getElementById("list");
+      box.innerHTML = `<div class="empty">Загрузка...</div>`;
+      const d = await api("/api/admin/contact-requests");
+      if (!d.ok || d.requests.length === 0) { box.innerHTML = `<div class="empty">Новых заявок нет</div>`; return; }
+      box.innerHTML = d.requests.map(r => `
+        <div class="ver-item">
+          <div><b>@${esc(r.fromUser)}</b> → <b>@${esc(r.toUser)}</b> ✅</div>
+          <div class="req-meta">${new Date(r.createdAt).toLocaleString("ru-RU")}</div>
+          <div class="req-text">${esc(r.text)}</div>
+          <div class="ver-actions">
+            <button class="success" onclick="decide(${r.id}, 'approve')">Передать</button>
+            <button class="danger" onclick="decide(${r.id}, 'reject')">Отклонить</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function decide(id, action) {
+      if (action === "reject" && !confirm("Отклонить заявку?")) return;
+      const d = await api(`/api/admin/contact-requests/${id}/${action}`, { method: "POST" });
+      if (!d.ok) return alert(d.error || "Ошибка");
+      loadRequests();
+    }
+
+    show();
+  </script>
+</body>
+</html>
