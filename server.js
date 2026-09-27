@@ -337,6 +337,18 @@ async function initSchema() {
     )
   `);
 
+  // Bans are separate from just removing someone: a banned username can't
+  // rejoin a discoverable group or be re-added by an admin until unbanned.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS group_bans (
+      groupId INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      bannedBy TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (groupId, username)
+    )
+  `);
+
   // Purely cosmetic emoji "gifts" people can send to each other's profile.
   // Gating (Friday / secret code) lives entirely in application code below,
   // never in the schema — so changing the code or the day rule later never
@@ -1049,11 +1061,17 @@ app.get("/api/groups/discover", verifyAuth, async (req, res) => {
   res.json({ ok: true, groups: rows });
 });
 
+async function isBanned(groupId, username) {
+  const row = await dbGet(`SELECT 1 FROM group_bans WHERE groupId=? AND username=?`, [groupId, username]);
+  return !!row;
+}
+
 app.post("/api/groups/:id/join", verifyAuth, async (req, res) => {
   const groupId = Number(req.params.id);
   const group = await dbGet(`SELECT * FROM groups WHERE id=?`, [groupId]);
   if (!group) return res.status(404).json({ ok: false, error: "Не найдено" });
   if (!group.discoverable) return res.status(403).json({ ok: false, error: "Эта группа закрытая — нужно приглашение" });
+  if (await isBanned(groupId, req.user.username)) return res.status(403).json({ ok: false, error: "Ты забанен(а) в этой группе" });
 
   await dbRun(`INSERT OR IGNORE INTO group_members (groupId, username, role, joinedAt) VALUES (?,?,'member',?)`, [groupId, req.user.username, now()]);
   res.json({ ok: true });
@@ -1074,7 +1092,17 @@ app.get("/api/groups/:id", verifyAuth, async (req, res) => {
     [groupId]
   );
 
-  res.json({ ok: true, group, members, myRole: role });
+  let bans = [];
+  if (role === "owner" || role === "admin") {
+    bans = await dbAll(
+      `SELECT gb.username, gb.bannedBy, gb.createdAt, u.displayName, u.avatarUrl
+       FROM group_bans gb LEFT JOIN users u ON u.username=gb.username
+       WHERE gb.groupId=? ORDER BY gb.createdAt DESC`,
+      [groupId]
+    );
+  }
+
+  res.json({ ok: true, group, members, bans, myRole: role });
 });
 
 app.post("/api/groups/:id/members", verifyAuth, async (req, res) => {
@@ -1085,6 +1113,7 @@ app.post("/api/groups/:id/members", verifyAuth, async (req, res) => {
   const username = String(req.body.username || "").replace(/^@+/, "").toLowerCase();
   const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [username]);
   if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+  if (await isBanned(groupId, username)) return res.status(403).json({ ok: false, error: "Этот пользователь забанен — сначала разбань его" });
 
   await dbRun(`INSERT OR IGNORE INTO group_members (groupId, username, role, joinedAt) VALUES (?,?,'member',?)`, [groupId, username, now()]);
   res.json({ ok: true });
@@ -1103,8 +1132,59 @@ app.delete("/api/groups/:id/members/:username", verifyAuth, async (req, res) => 
   if (targetRole === "owner" && !selfLeave) {
     return res.status(400).json({ ok: false, error: "Нельзя удалить владельца группы" });
   }
+  // Admins ("moderators") may only manage regular members — not each other,
+  // and never the owner. Only the owner outranks another admin.
+  if (!selfLeave && role === "admin" && targetRole === "admin") {
+    return res.status(403).json({ ok: false, error: "Админ не может убрать другого админа — только владелец" });
+  }
 
   await dbRun(`DELETE FROM group_members WHERE groupId=? AND username=?`, [groupId, target]);
+  res.json({ ok: true });
+});
+
+// Ban = remove + block from rejoining/being re-added, until unbanned.
+// Same escalation rule as removing: an admin can ban regular members but
+// not other admins or the owner; the owner can ban anyone but themselves.
+app.post("/api/groups/:id/members/:username/ban", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const target = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const role = await isMember(groupId, req.user.username);
+  if (role !== "owner" && role !== "admin") return res.status(403).json({ ok: false, error: "Недостаточно прав" });
+  if (target === req.user.username) return res.status(400).json({ ok: false, error: "Нельзя забанить самого себя" });
+
+  const targetRole = await isMember(groupId, target);
+  if (targetRole === "owner") return res.status(400).json({ ok: false, error: "Нельзя забанить владельца группы" });
+  if (role === "admin" && targetRole === "admin") return res.status(403).json({ ok: false, error: "Админ не может забанить другого админа" });
+
+  await dbRun(`DELETE FROM group_members WHERE groupId=? AND username=?`, [groupId, target]);
+  await dbRun(
+    `INSERT INTO group_bans (groupId, username, bannedBy, createdAt) VALUES (?,?,?,?)
+     ON CONFLICT(groupId, username) DO UPDATE SET bannedBy=excluded.bannedBy, createdAt=excluded.createdAt`,
+    [groupId, target, req.user.username, now()]
+  );
+  res.json({ ok: true });
+});
+
+app.post("/api/groups/:id/members/:username/unban", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const target = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const role = await isMember(groupId, req.user.username);
+  if (role !== "owner" && role !== "admin") return res.status(403).json({ ok: false, error: "Недостаточно прав" });
+
+  await dbRun(`DELETE FROM group_bans WHERE groupId=? AND username=?`, [groupId, target]);
+  res.json({ ok: true });
+});
+
+// Deletes the whole group/channel — owner only, irreversible.
+app.delete("/api/groups/:id", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const role = await isMember(groupId, req.user.username);
+  if (role !== "owner") return res.status(403).json({ ok: false, error: "Удалить может только владелец" });
+
+  await dbRun(`DELETE FROM messages WHERE chatType='group' AND receiver=?`, [`group:${groupId}`]);
+  await dbRun(`DELETE FROM group_members WHERE groupId=?`, [groupId]);
+  await dbRun(`DELETE FROM group_bans WHERE groupId=?`, [groupId]);
+  await dbRun(`DELETE FROM groups WHERE id=?`, [groupId]);
   res.json({ ok: true });
 });
 
