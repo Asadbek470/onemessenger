@@ -11,15 +11,55 @@
   --danger:#ff4d4d;
   --shadow: 0 12px 40px rgba(0,0,0,.35);
   --r:16px;
+
+  /* Liquid Glass tokens */
+  --glass-bg: rgba(20,32,50,.52);
+  --glass-bg-strong: rgba(20,32,50,.72);
+  --glass-border: rgba(255,255,255,.14);
+  --glass-highlight: rgba(255,255,255,.22);
+  --glass-blur: 22px;
 }
 
 *{box-sizing:border-box}
 html,body{height:100%}
+
+/* Slowly drifting colour blobs behind everything — the "liquid" the glass
+   surfaces blur and refract. Pure CSS, no JS/canvas needed. */
+body::before, body::after{
+  content:"";
+  position:fixed;
+  z-index:-1;
+  width:60vmax; height:60vmax;
+  border-radius:50%;
+  filter: blur(90px);
+  opacity:.55;
+  pointer-events:none;
+}
+body::before{
+  top:-20vmax; left:-15vmax;
+  background: radial-gradient(circle, rgba(42,157,244,.55), transparent 65%);
+  animation: driftA 26s ease-in-out infinite alternate;
+}
+body::after{
+  bottom:-25vmax; right:-15vmax;
+  background: radial-gradient(circle, rgba(140,80,220,.4), transparent 65%);
+  animation: driftB 30s ease-in-out infinite alternate;
+}
+@keyframes driftA{
+  from{ transform: translate(0,0) scale(1); }
+  to{ transform: translate(8vmax, 6vmax) scale(1.15); }
+}
+@keyframes driftB{
+  from{ transform: translate(0,0) scale(1); }
+  to{ transform: translate(-6vmax, -8vmax) scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce){
+  body::before, body::after{ animation: none; }
+}
+
 body{
   margin:0;
-  background: radial-gradient(1200px 900px at 70% 10%, rgba(42,157,244,.18), transparent 60%),
-              radial-gradient(900px 900px at 10% 70%, rgba(255,255,255,.06), transparent 60%),
-              var(--bg);
+  background: var(--bg);
   color:var(--text);
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
@@ -80,12 +120,33 @@ body.auth{display:flex;align-items:center;justify-content:center;padding:16px}
   min-height:0;
   display:flex;
   flex-direction:column;
-  background: rgba(15,29,46,.9);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
 }
 .screen.hidden{display:none}
 .screen-header{padding:14px 12px 10px}
 .screentitle{margin:6px 4px 4px;font-size:20px;font-weight:800}
 .sectiontitle{margin:22px 4px 10px;font-size:15px;font-weight:800;color:var(--muted)}
+
+/* On anything wider than a phone, the app becomes a centered "device
+   frame" with real edges — a full-bleed mobile layout stretched across a
+   desktop monitor is exactly what looked "raw" before. */
+@media (min-width:641px){
+  body{ display:flex; align-items:center; justify-content:center; padding:24px }
+  .appshell{
+    width:min(480px, 92vw);
+    height:min(880px, 92vh);
+    border-radius:32px;
+    overflow:hidden;
+    border:1px solid var(--glass-border);
+    box-shadow: 0 30px 90px rgba(0,0,0,.55), inset 0 1px 0 var(--glass-highlight);
+  }
+  .bottomnav{ border-radius:0 0 32px 32px }
+}
+@media (min-width:1100px){
+  .appshell{ width:min(560px, 40vw) }
+}
 
 .search{
   display:flex;align-items:center;gap:10px;
@@ -163,8 +224,9 @@ body.auth{display:flex;align-items:center;justify-content:center;padding:16px}
   position:relative;
   transition: background .15s ease, transform .15s ease;
 }
-.chatitem:hover{background:rgba(255,255,255,.04)}
-.chatitem.active{background:rgba(42,157,244,.14); border-color: rgba(42,157,244,.22)}
+.chatitem:hover{background:rgba(255,255,255,.06)}
+.chatitem.active{background:rgba(42,157,244,.16); border-color: rgba(42,157,244,.3); box-shadow: inset 0 1px 0 rgba(255,255,255,.1)}
+.chatitem:active{transform:scale(.985)}
 .avatar{
   width:44px;height:44px;border-radius:50%;
   background:rgba(255,255,255,.06);
@@ -190,9 +252,11 @@ body.auth{display:flex;align-items:center;justify-content:center;padding:16px}
 /* bottom tab bar — the ONLY navigation chrome; no side panel anywhere */
 .bottomnav{
   display:flex;
-  border-top:1px solid var(--line);
-  background: rgba(10,18,29,.98);
-  backdrop-filter: blur(10px);
+  border-top:1px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   z-index:30;
 }
@@ -264,8 +328,10 @@ body.auth{display:flex;align-items:center;justify-content:center;padding:16px}
 
 /* ---------- MAIN (chat conversation screen) ---------- */
 .chatscreen{
-  position:fixed; inset:0; z-index:25;
-  background: rgba(12,23,38,.98);
+  position:absolute; inset:0; z-index:25;
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
 }
 .main{
   flex:1;
@@ -287,13 +353,18 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
   align-items:center;
   justify-content:space-between;
   padding:12px 14px;
-  border-bottom:1px solid var(--line);
-  backdrop-filter: blur(10px);
+  border-bottom:1px solid var(--glass-border);
+  background: rgba(255,255,255,.03);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
 }
 .iconbtn{
   width:42px;height:42px;border-radius:14px;
-  border:1px solid var(--line);
-  background:rgba(0,0,0,.18);
+  border:1px solid var(--glass-border);
+  background:rgba(255,255,255,.06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
   color:var(--text);
   cursor:pointer;
   display:grid;place-items:center;
@@ -339,11 +410,13 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
   max-width:min(560px, 86%);
   border-radius:18px;
   padding:10px 10px;
-  border:1px solid rgba(255,255,255,.06);
-  background: rgba(24,37,51,.92);
-  box-shadow: 0 10px 26px rgba(0,0,0,.25);
+  border:1px solid var(--glass-border);
+  background: rgba(24,37,51,.6);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: 0 10px 26px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.1);
 }
-.mrow.mine .bubble{background: rgba(43,82,120,.92)}
+.mrow.mine .bubble{background: rgba(43,82,120,.62)}
 .btop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
 .who{font-size:12px;color:rgba(255,255,255,.75)}
 .who.clickable{cursor:pointer}
@@ -405,7 +478,10 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 /* composer */
 .composer{
   padding:10px 12px;
-  border-top:1px solid var(--line);
+  border-top:1px solid var(--glass-border);
+  background: rgba(255,255,255,.03);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
   display:flex;
   gap:10px;
   align-items:center;
@@ -458,17 +534,22 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 
 /* buttons */
 .btn{
-  border:1px solid var(--line);
-  background:rgba(0,0,0,.18);
+  border:1px solid var(--glass-border);
+  background:rgba(255,255,255,.06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color:var(--text);
   padding:12px 14px;
   border-radius:16px;
   cursor:pointer;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  transition: transform .12s ease, background .15s ease;
 }
+.btn:active{transform:scale(.97)}
 .btn.full{width:100%}
 .btn.primary{
-  background:rgba(42,157,244,.22);
-  border-color: rgba(42,157,244,.35);
+  background:linear-gradient(160deg, rgba(42,157,244,.4), rgba(42,157,244,.18));
+  border-color: rgba(42,157,244,.5);
 }
 .btn.ghost{background:rgba(255,255,255,.04)}
 .btn.danger{
@@ -492,10 +573,12 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 }
 .card{
   width:min(520px, 94vw);
-  background: rgba(15,29,46,.94);
-  border:1px solid var(--line);
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  border:1px solid var(--glass-border);
   border-radius:24px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--glass-highlight);
   overflow:hidden;
   animation: modalIn .18s ease;
 }
@@ -727,7 +810,7 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 .ver-actions{display:flex;gap:8px;margin-top:8px}
 
 /* responsive */
-@media (max-width:900px){
+@media (max-width:640px){
   .iconbtn.mobile{display:grid}
   .sidebar{
     position:absolute;
