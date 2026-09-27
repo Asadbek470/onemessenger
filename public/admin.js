@@ -74,7 +74,11 @@ function switchAdminTab(tab) {
   document.querySelectorAll(".admintab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
   document.getElementById("tabUsers").classList.toggle("hidden", tab !== "users");
   document.getElementById("tabVerification").classList.toggle("hidden", tab !== "verification");
+  document.getElementById("tabSupport").classList.toggle("hidden", tab !== "support");
+  document.getElementById("tabSessions").classList.toggle("hidden", tab !== "sessions");
   if (tab === "verification") loadVerificationRequests();
+  if (tab === "support") loadSupportConversations();
+  if (tab === "sessions") loadAdminSessions();
 }
 
 // ---------------- USER SEARCH / LIST ----------------
@@ -299,4 +303,93 @@ async function decideVerification(id, action) {
   const data = await res.json();
   if (!data.ok) return alert(data.error || "Ошибка");
   loadVerificationRequests();
+}
+
+// ---------------- SUPPORT ----------------
+let currentSupportUser = null;
+
+async function loadSupportConversations() {
+  const box = document.getElementById("supportConversations");
+  const res = await fetch("/api/admin/support/conversations", { headers: adminHeaders() });
+  const data = await res.json();
+  if (!data.ok) { box.innerHTML = "<p>Ошибка загрузки</p>"; return; }
+
+  if (data.conversations.length === 0) {
+    box.innerHTML = "<p class='hint'>Обращений пока нет</p>";
+    return;
+  }
+
+  box.innerHTML = data.conversations.map(c => `
+    <button class="chatitem" onclick="openSupportThread('${esc(c.username)}')">
+      <div class="meta">
+        <div class="name">@${esc(c.username)} ${c.fromUser > 0 ? "" : "<span class='hint'>(отвечено)</span>"}</div>
+        <div class="preview">${c.total} сообщени${pluralRu(c.total)} · последнее ${new Date(c.lastAt).toLocaleString("ru-RU")}</div>
+      </div>
+    </button>
+  `).join("");
+}
+
+async function openSupportThread(username) {
+  currentSupportUser = username;
+  const res = await fetch(`/api/admin/support/${encodeURIComponent(username)}`, { headers: adminHeaders() });
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || "Ошибка");
+
+  document.getElementById("supportThreadViewer").classList.remove("hidden");
+  document.getElementById("supportThreadTitle").textContent = `Обращение @${username}`;
+
+  const box = document.getElementById("supportThreadMessages");
+  box.innerHTML = data.messages.map(m => `
+    <div class="thread-msg">
+      <div class="thread-meta"><b>${m.sender === "support" ? "Поддержка" : "@" + esc(m.sender)}</b>
+        <span class="hint">${new Date(m.createdAt).toLocaleString("ru-RU")}</span></div>
+      <div class="thread-body">${esc(m.text || "")}</div>
+    </div>
+  `).join("");
+}
+
+function closeSupportThread() {
+  document.getElementById("supportThreadViewer").classList.add("hidden");
+  currentSupportUser = null;
+}
+
+async function sendSupportReply() {
+  if (!currentSupportUser) return;
+  const input = document.getElementById("supportReplyInput");
+  const text = input.value.trim();
+  if (!text) return;
+
+  const res = await fetch(`/api/admin/support/${encodeURIComponent(currentSupportUser)}/reply`, {
+    method: "POST",
+    headers: { ...adminHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || "Ошибка отправки");
+
+  input.value = "";
+  openSupportThread(currentSupportUser);
+  loadSupportConversations();
+}
+
+// ---------------- SESSIONS ----------------
+async function loadAdminSessions() {
+  const q = document.getElementById("searchSessions").value.trim();
+  const res = await fetch(`/api/admin/sessions?q=${encodeURIComponent(q)}`, { headers: adminHeaders() });
+  const data = await res.json();
+  const box = document.getElementById("sessionsList");
+  if (!data.ok) { box.innerHTML = "<p>Ошибка загрузки</p>"; return; }
+
+  if (data.sessions.length === 0) {
+    box.innerHTML = "<p class='hint'>Сессий не найдено</p>";
+    return;
+  }
+
+  box.innerHTML = data.sessions.map(s => `
+    <div class="ver-item">
+      <div><b>@${esc(s.username)}</b> ${s.online ? "<span style='color:#29d17d'>● онлайн</span>" : "<span class='hint'>оффлайн</span>"}</div>
+      <div class="hint">${new Date(s.createdAt).toLocaleString("ru-RU")} · ${esc(s.ip || "IP неизвестен")}</div>
+      <div class="hint">${esc((s.userAgent || "").slice(0, 90))}</div>
+    </div>
+  `).join("");
 }
