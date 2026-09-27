@@ -809,7 +809,7 @@ app.put("/api/me/settings", verifyAuth, (req, res) => {
   const incoming = req.body && typeof req.body === "object" ? req.body : {};
   const merged = { ...current };
 
-  const freeform = ["theme", "wallpaper", "accent"];
+  const freeform = ["theme", "wallpaper", "accent", "language"];
   for (const k of freeform) {
     if (typeof incoming[k] === "string" && incoming[k].length <= 4000) merged[k] = incoming[k];
   }
