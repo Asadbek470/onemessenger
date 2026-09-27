@@ -387,9 +387,17 @@ async function loadAdminSessions() {
 
   box.innerHTML = data.sessions.map(s => `
     <div class="ver-item">
-      <div><b>@${esc(s.username)}</b> ${s.online ? "<span style='color:#29d17d'>● онлайн</span>" : "<span class='hint'>оффлайн</span>"}</div>
+      <div><b>@${esc(s.username)}</b> ${s.online ? "<span style='color:#29d17d'>● онлайн</span>" : "<span class='hint'>оффлайн</span>"} ${s.revoked ? "<span class='hint'>· завершена</span>" : ""}</div>
       <div class="hint">${new Date(s.createdAt).toLocaleString("ru-RU")} · ${esc(s.ip || "IP неизвестен")}</div>
       <div class="hint">${esc((s.userAgent || "").slice(0, 90))}</div>
+      ${!s.revoked ? `<div class="ver-actions"><button class="danger" onclick="revokeAdminSession(${s.id})">Завершить сессию</button></div>` : ""}
     </div>
   `).join("");
+}
+
+async function revokeAdminSession(id) {
+  const res = await fetch(`/api/admin/sessions/${id}/revoke`, { method: "POST", headers: adminHeaders() });
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || "Ошибка");
+  loadAdminSessions();
 }
