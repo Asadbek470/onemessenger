@@ -40,6 +40,7 @@
         <div class="sidebar-actions">
           <button class="btn ghost small" onclick="openCreateGroupModal(false)"><i class="fa-solid fa-users"></i> Группа</button>
           <button class="btn ghost small" onclick="openCreateGroupModal(true)"><i class="fa-solid fa-bullhorn"></i> Канал</button>
+          <button class="btn ghost small" onclick="openDiscoverModal()"><i class="fa-solid fa-compass"></i> Популярное</button>
         </div>
       </div>
 
@@ -51,6 +52,14 @@
             <div class="preview">общение со всеми</div>
           </div>
           <span class="dot online" title="Онлайн"></span>
+        </button>
+
+        <button class="chatitem" data-chat="support" onclick="openChat('support')">
+          <div class="avatar circle"><i class="fa-solid fa-life-ring"></i></div>
+          <div class="meta">
+            <div class="name">Поддержка</div>
+            <div class="preview">One Messenger Support</div>
+          </div>
         </button>
 
         <div id="privateChats"></div>
@@ -133,6 +142,11 @@
         <div class="settingsblock">
           <div class="blocktitle">Официальная верификация</div>
           <div id="verificationSection" class="formgrid"></div>
+        </div>
+
+        <div class="settingsblock">
+          <div class="blocktitle">Мои сессии</div>
+          <div id="sessionsSection" class="formgrid"></div>
         </div>
 
         <div class="settingsblock">
@@ -257,7 +271,23 @@
         <label>Друзья/родные для добавления (через запятую, @username)</label>
         <input id="groupMembers" placeholder="@friend1, @friend2">
 
+        <label class="checkrow"><input type="checkbox" id="groupDiscoverable"> Показывать в публичном поиске (популярное)</label>
+
         <button class="btn primary full" onclick="submitCreateGroup()">Создать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DISCOVER PUBLIC GROUPS/CHANNELS -->
+  <div id="discoverModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">Популярные группы и каналы</div>
+        <button class="iconbtn" onclick="closeDiscoverModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="formgrid">
+        <input id="discoverSearchInput" placeholder="Поиск по названию..." oninput="searchDiscover(this.value)">
+        <div id="discoverList" class="partner-list"></div>
       </div>
     </div>
   </div>
