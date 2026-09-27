@@ -212,20 +212,21 @@
         </button>
       </footer>
     </section>
-  </div>
 
-  <!-- BOTTOM NAVIGATION (the only navigation — no side panel) -->
-  <nav id="bottomNav" class="bottomnav">
-    <button class="navbtn active" data-tab="chats" onclick="switchTab('chats')">
-      <i class="fa-solid fa-comments"></i><span data-i18n="nav.chats">Чаты</span>
-    </button>
-    <button class="navbtn" data-tab="profile" onclick="switchTab('profile')">
-      <i class="fa-solid fa-user"></i><span data-i18n="nav.profile">Профиль</span>
-    </button>
-    <button class="navbtn" data-tab="settings" onclick="switchTab('settings')">
-      <i class="fa-solid fa-gear"></i><span data-i18n="nav.settings">Настройки</span>
-    </button>
-  </nav>
+    <!-- BOTTOM NAVIGATION lives INSIDE the app frame now — it's the bottom
+         bar of the device card, not a separate floating element. -->
+    <nav id="bottomNav" class="bottomnav">
+      <button class="navbtn active" data-tab="chats" onclick="switchTab('chats')">
+        <i class="fa-solid fa-comments"></i><span data-i18n="nav.chats">Чаты</span>
+      </button>
+      <button class="navbtn" data-tab="profile" onclick="switchTab('profile')">
+        <i class="fa-solid fa-user"></i><span data-i18n="nav.profile">Профиль</span>
+      </button>
+      <button class="navbtn" data-tab="settings" onclick="switchTab('settings')">
+        <i class="fa-solid fa-gear"></i><span data-i18n="nav.settings">Настройки</span>
+      </button>
+    </nav>
+  </div>
 
   <!-- PROFILE MODAL (for viewing OTHER people; your own profile lives in the Профиль tab) -->
   <div id="profileModal" class="modal hidden">
