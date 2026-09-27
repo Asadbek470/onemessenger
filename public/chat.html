@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>One Messenger</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="features.css" />
+  <link rel="icon" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b1420" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
@@ -45,6 +50,8 @@
         </div>
       </div>
 
+      <div id="birthdayBanner" class="banner bdaybanner hidden"></div>
+
       <div class="chatlist" id="chatList">
         <button class="chatitem active" data-chat="global" onclick="openChat('global')">
           <div class="avatar circle"><i class="fa-solid fa-earth-americas"></i></div>
@@ -56,7 +63,7 @@
         </button>
 
         <button class="chatitem" data-chat="support" onclick="openChat('support')">
-          <div class="avatar circle"><i class="fa-solid fa-life-ring"></i></div>
+          <div class="avatar circle"><img src="/icon-192.png" alt="OM"></div>
           <div class="meta">
             <div class="name" data-i18n="chats.support">Поддержка</div>
             <div class="preview">One Messenger Support</div>
@@ -73,6 +80,7 @@
       <div class="screen-header"><h2 class="screentitle" data-i18n="profile.title">Профиль</h2></div>
 
       <div class="profiletab">
+        <div id="myProfileBanner" class="profilebanner hidden"></div>
         <div class="avatar big" id="myProfileAvatar"></div>
         <div class="pname" id="myProfileName"></div>
         <div class="puser" id="myProfileUser"></div>
@@ -102,7 +110,7 @@
             <input id="setBio" placeholder="О себе" />
 
             <label data-i18n="settings.birthDate">Дата рождения (YYYY-MM-DD)</label>
-            <input id="setBirthDate" placeholder="2009-01-31" />
+            <input id="setBirthDate" type="date" />
 
             <label data-i18n="settings.avatar">Аватар</label>
             <div class="row">
@@ -118,6 +126,16 @@
         <div class="settingsblock">
           <div class="blocktitle" data-i18n="settings.appearance">Оформление</div>
           <div id="wallpaperSection" class="formgrid"></div>
+        </div>
+
+        <div class="settingsblock">
+          <div class="blocktitle" data-i18n="settings.personalize">Цвет имени и профиля</div>
+          <div id="personalizeSection" class="formgrid"></div>
+        </div>
+
+        <div class="settingsblock">
+          <div class="blocktitle" data-i18n="settings.emojiStatus">Эмодзи-статус</div>
+          <div id="emojiStatusSection" class="formgrid"></div>
         </div>
 
         <div class="settingsblock">
@@ -179,15 +197,21 @@
         </div>
 
         <div class="actions">
+          <button class="iconbtn" onclick="openChatWallpaperModal()" title="Обои чата">
+            <i class="fa-solid fa-palette"></i>
+          </button>
           <button id="callBtn" class="iconbtn" onclick="startAudioCall()" title="Аудиозвонок">
             <i class="fa-solid fa-phone"></i>
           </button>
         </div>
       </header>
 
-      <div id="birthdayBanner" class="banner hidden"></div>
+      <div id="gateNotice" class="gatenotice hidden"></div>
+      <div id="favTagBar" class="favtagbar hidden"></div>
 
       <section id="messages" class="messages"></section>
+
+      <div id="emojiPanel" class="emojipanel hidden"></div>
 
       <footer class="composer">
         <div class="attachwrap">
@@ -196,10 +220,18 @@
           </button>
           <div id="attachMenu" class="attachmenu hidden">
             <button onclick="attachPickMedia()"><i class="fa-solid fa-image"></i> Фото/Видео</button>
+            <button onclick="attachPickGif()"><i class="fa-solid fa-film"></i> GIF</button>
+            <button onclick="attachPickDoc()"><i class="fa-solid fa-file-lines"></i> Файл (Word, Excel, PDF...)</button>
             <button onclick="attachPickList()"><i class="fa-solid fa-list-check"></i> Список (покупки, дела)</button>
           </div>
         </div>
         <input id="fileInput" type="file" hidden accept="image/*,video/*" onchange="sendMedia(this)" />
+        <input id="gifInput" type="file" hidden accept="image/gif" onchange="sendMedia(this)" />
+        <input id="docInput" type="file" hidden onchange="sendMedia(this)" />
+
+        <button class="iconbtn" onclick="toggleEmojiPanel()" title="Эмодзи">
+          <i class="fa-regular fa-face-smile"></i>
+        </button>
 
         <input id="textInput" class="text" data-i18n-placeholder="common.messagePlaceholder" placeholder="Сообщение..." onkeydown="onEnter(event)" oninput="typing(true)" />
 
@@ -236,12 +268,15 @@
         <button class="iconbtn" onclick="closeProfile()"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
+      <div id="profileBanner" class="profilebanner hidden"></div>
       <div class="profile">
         <div class="avatar big" id="profileAvatar"></div>
         <div class="profiletext">
           <div class="pname" id="profileName"></div>
           <div class="puser" id="profileUser"></div>
           <div class="pbio" id="profileBio"></div>
+          <div class="plastseen" id="profileLastSeen"></div>
+          <div class="pofficial hidden" id="profileOfficial"></div>
           <div class="pbirth" id="profileBirth"></div>
           <div id="profileGiftsRow" class="gifts-row"></div>
         </div>
@@ -376,6 +411,55 @@
         <input id="storyText" maxlength="120" data-i18n-placeholder="story.text" placeholder="Текст..." />
 
         <button class="btn primary full" onclick="publishStory()" data-i18n="story.publish">Опубликовать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ОБОИ ДЛЯ ЧАТА -->
+  <div id="wallpaperModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">Обои для этого чата</div>
+        <button class="iconbtn" onclick="closeChatWallpaperModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="formgrid">
+        <label>Готовые</label>
+        <div id="wpPresetRow" class="swatchrow"></div>
+
+        <button class="btn ghost full" onclick="document.getElementById('chatWpInput').click()"><i class="fa-solid fa-image"></i> Своё фото из галереи</button>
+        <input id="chatWpInput" type="file" hidden accept="image/*" onchange="uploadChatWallpaper(this)" />
+
+        <label id="wpForBothRow" class="checkrow"><input type="checkbox" id="wpForBoth"> Поставить эти обои и собеседнику</label>
+
+        <button class="btn ghost full" onclick="saveChatWallpaper('')">Сбросить обои чата</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ЗАЯВКА ОФИЦИАЛЬНОМУ АККАУНТУ ЧЕРЕЗ АДМИНИСТРАЦИЮ -->
+  <div id="contactRequestModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle" id="contactRequestTitle">Написать</div>
+        <button class="iconbtn" onclick="closeContactRequest()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="formgrid">
+        <div class="hint">Этот аккаунт официально подтверждён. Напиши сообщение — администрация проверит его и передаст. Ответ придёт в чат «Поддержка».</div>
+        <textarea id="contactRequestText" class="requestarea" maxlength="1000" rows="5" placeholder="Здравствуйте! Пишу по вопросу..."></textarea>
+        <button class="btn primary full" onclick="submitContactRequest()"><i class="fa-solid fa-paper-plane"></i> Отправить через администрацию</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ПОЗДРАВЛЕНИЕ С ДНЁМ РОЖДЕНИЯ -->
+  <div id="bdayModal" class="modal hidden">
+    <div class="card bdaycard">
+      <div id="confetti" class="confetti"></div>
+      <div class="bdaybody">
+        <div class="bdaycake">🎂</div>
+        <h2 id="bdayTitle">С днём рождения!</h2>
+        <p>One Messenger поздравляет тебя! Пусть этот год будет самым счастливым 🎉</p>
+        <button class="btn primary full" onclick="closeBdayModal()">Спасибо! 🎈</button>
       </div>
     </div>
   </div>
