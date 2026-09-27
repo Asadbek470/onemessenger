@@ -3,37 +3,39 @@ const token = localStorage.getItem("token");
 if (!token) location.href = "index.html";
 
 let me = null;
-let currentChat = "global"; // 'global' | username | 'group:<id>'
-let currentGroupMeta = null; // populated when currentChat is a group
+let currentChat = "global"; // 'global' | 'support' | username | 'group:<id>' | me.username (Избранное)
+let currentGroupMeta = null;
 let ws = null;
 
-// typing timer
 let typingTimer = null;
 let isTypingNow = false;
 
-// audio recorder (hold)
 let mediaRecorder = null;
 let chunks = [];
 let holding = false;
 
-// WebRTC audio call
 let pc = null;
 let localStream = null;
 let remoteStream = null;
 let callPeer = null;
 let isMuted = false;
 
-// incoming offer buffer
 let incomingOffer = null;
 let incomingFrom = null;
 
 const rtcCfg = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
-// online state
 const onlineSet = new Set();
+const lastSeenMap = new Map();       // username -> timestamp (живые обновления)
+const userInfoCache = new Map();     // username -> карточка (аватар, цвет имени, статус...)
 
-// list of the user's groups/channels, refreshed alongside private chats
 let myGroups = [];
+let lastSentText = "";               // чтобы подставить текст в заявку, если аккаунт официальный
+let activeTagFilter = null;          // фильтр по #тегу в Избранном
+let pendingTagFilter = null;
+
+const OM_ICON = "/icon-192.png";
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 function esc(s = "") {
   return String(s)
@@ -52,10 +54,77 @@ function verifiedBadge(isVerified) {
   return isVerified ? ` <i class="fa-solid fa-circle-check verified-badge" title="Официально подтверждён"></i>` : "";
 }
 
+// ================== ПЕРСОНАЛИЗАЦИЯ: аватар, цвет имени, статус ==================
+const LETTER_COLORS = ["#e17076", "#faa774", "#a695e7", "#7bc862", "#6ec9cb", "#65aadd", "#ee7aae", "#f5b041"];
+
+function safeColor(c) {
+  return /^#[0-9a-fA-F]{6}$/.test(String(c || "")) ? c : "";
+}
+function colorFromName(name) {
+  let h = 0;
+  for (const ch of String(name || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return LETTER_COLORS[h % LETTER_COLORS.length];
+}
+function isSelfChat(c) {
+  return !!me && c === me.username;
+}
+function isPrivateChat(c) {
+  return c !== "global" && c !== "support" && !isGroupChat(c) && !isSelfChat(c);
+}
+
+// Аватар: фото → если нет, цветной кружок с первой буквой.
+// У «Поддержки» — фирменный значок OM.
+function avatarHtml(info) {
+  info = info || {};
+  if (info.username === "support") return `<img src="${OM_ICON}" alt="OM">`;
+  if (info.avatarUrl) return `<img src="${esc(info.avatarUrl)}" alt="">`;
+  const letter = esc(String(info.displayName || info.username || "?")[0].toUpperCase());
+  const bg = safeColor(info.nameColor) || colorFromName(info.username);
+  return `<span class="letterava" style="background:${bg}">${letter}</span>`;
+}
+
+// Имя: цвет имени + эмодзи-статус + галочка + 🎂 в день рождения
+function nameHtml(info, opts = {}) {
+  info = info || {};
+  const color = safeColor(info.nameColor);
+  const name = esc(info.displayName || info.username || "");
+  const status = info.emojiStatus ? `<span class="emojistatus" title="Статус">${esc(info.emojiStatus)}</span>` : "";
+  const bday = info.birthdayToday ? `<span class="bdaymark" title="Сегодня день рождения">🎂</span>` : "";
+  return `<span class="uname"${color ? ` style="color:${color}"` : ""}>${name}</span>${status}${verifiedBadge(info.verified)}${opts.noBday ? "" : bday}`;
+}
+
+function mergeUserInfo(username, info) {
+  if (!username || !info) return;
+  userInfoCache.set(username, { ...(userInfoCache.get(username) || {}), ...info, username });
+}
+
+function fmtSize(bytes) {
+  const b = Number(bytes || 0);
+  if (b < 1024) return `${b} Б`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} КБ`;
+  return `${(b / 1024 / 1024).toFixed(1)} МБ`;
+}
+
+function lastSeenText(info) {
+  const u = info && info.username;
+  if (u && onlineSet.has(u)) return "в сети";
+  const ts = (u && lastSeenMap.get(u)) || (info && info.lastSeen);
+  if (!ts) return info && info.lastSeenHidden ? "был(а) недавно" : "не в сети";
+
+  const diff = Date.now() - ts;
+  if (diff < 60 * 1000) return "был(а) только что";
+  if (diff < 60 * 60 * 1000) return `был(а) ${Math.floor(diff / 60000)} мин. назад`;
+
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const today = new Date();
+  const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return `был(а) сегодня в ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return `был(а) вчера в ${time}`;
+  return `был(а) ${d.toLocaleDateString("ru-RU")} в ${time}`;
+}
+
 // ================== PASSCODE LOCK (device-local) ==================
-// This locks the app on THIS device/browser only. It is not an account
-// security feature (that's 2FA below) and is not synced anywhere — it's
-// the same idea as Telegram's local passcode.
 async function sha256Hex(str) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -140,7 +209,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
 function boot() { initApp(); }
 
-// ================== INIT ==================
 // ================== I18N (ru / en / uz) ==================
 const LANG = {
   ru: {
@@ -151,13 +219,14 @@ const LANG = {
     "chats.support": "Поддержка", "chats.supportSub": "One Messenger Support",
     "profile.title": "Профиль", "profile.editProfile": "Редактировать профиль", "profile.myStories": "Мои истории",
     "settings.title": "Настройки", "settings.profileBlock": "Профиль",
-    "settings.displayName": "Display name", "settings.bio": "Bio", "settings.birthDate": "Дата рождения (YYYY-MM-DD)",
+    "settings.displayName": "Display name", "settings.bio": "Bio", "settings.birthDate": "Дата рождения",
     "settings.avatar": "Аватар", "settings.fromGallery": "Из галереи", "settings.saveProfile": "Сохранить профиль",
     "settings.appearance": "Оформление", "settings.language": "Язык",
     "settings.privacy": "Приватность", "settings.friends": "Друзья",
     "settings.passcode": "Код-пароль устройства", "settings.twoFA": "Двухэтапная аутентификация",
     "settings.verification": "Официальная верификация", "settings.sessions": "Мои сессии", "settings.account": "Аккаунт",
     "settings.logout": "Выйти из аккаунта", "settings.addFriendPlaceholder": "@username", "settings.add": "Добавить",
+    "settings.personalize": "Цвет имени и профиля", "settings.emojiStatus": "Эмодзи-статус",
     "group.newGroup": "Новая группа", "group.newChannel": "Новый канал", "group.name": "Название",
     "group.desc": "Описание (не обязательно)", "group.members": "Друзья/родные для добавления (через запятую, @username)",
     "group.discoverableLabel": "Показывать в публичном поиске (популярное)", "group.create": "Создать",
@@ -178,13 +247,14 @@ const LANG = {
     "chats.support": "Support", "chats.supportSub": "One Messenger Support",
     "profile.title": "Profile", "profile.editProfile": "Edit profile", "profile.myStories": "My stories",
     "settings.title": "Settings", "settings.profileBlock": "Profile",
-    "settings.displayName": "Display name", "settings.bio": "Bio", "settings.birthDate": "Birth date (YYYY-MM-DD)",
+    "settings.displayName": "Display name", "settings.bio": "Bio", "settings.birthDate": "Birth date",
     "settings.avatar": "Avatar", "settings.fromGallery": "From gallery", "settings.saveProfile": "Save profile",
     "settings.appearance": "Appearance", "settings.language": "Language",
     "settings.privacy": "Privacy", "settings.friends": "Friends",
     "settings.passcode": "Device passcode", "settings.twoFA": "Two-factor authentication",
     "settings.verification": "Official verification", "settings.sessions": "My sessions", "settings.account": "Account",
     "settings.logout": "Log out", "settings.addFriendPlaceholder": "@username", "settings.add": "Add",
+    "settings.personalize": "Name and profile color", "settings.emojiStatus": "Emoji status",
     "group.newGroup": "New group", "group.newChannel": "New channel", "group.name": "Name",
     "group.desc": "Description (optional)", "group.members": "Friends/family to add (comma-separated, @username)",
     "group.discoverableLabel": "Show in public search (Discover)", "group.create": "Create",
@@ -205,13 +275,14 @@ const LANG = {
     "chats.support": "Yordam", "chats.supportSub": "One Messenger Support",
     "profile.title": "Profil", "profile.editProfile": "Profilni tahrirlash", "profile.myStories": "Mening hikoyalarim",
     "settings.title": "Sozlamalar", "settings.profileBlock": "Profil",
-    "settings.displayName": "Ko'rsatiladigan ism", "settings.bio": "O'zim haqimda", "settings.birthDate": "Tug'ilgan sana (YYYY-MM-DD)",
+    "settings.displayName": "Ko'rsatiladigan ism", "settings.bio": "O'zim haqimda", "settings.birthDate": "Tug'ilgan sana",
     "settings.avatar": "Avatar", "settings.fromGallery": "Galereyadan", "settings.saveProfile": "Profilni saqlash",
     "settings.appearance": "Ko'rinish", "settings.language": "Til",
     "settings.privacy": "Maxfiylik", "settings.friends": "Do'stlar",
     "settings.passcode": "Qurilma kodi", "settings.twoFA": "Ikki bosqichli autentifikatsiya",
     "settings.verification": "Rasmiy tasdiqlash", "settings.sessions": "Mening seanslarim", "settings.account": "Hisob",
     "settings.logout": "Hisobdan chiqish", "settings.addFriendPlaceholder": "@username", "settings.add": "Qo'shish",
+    "settings.personalize": "Ism va profil rangi", "settings.emojiStatus": "Emoji-status",
     "group.newGroup": "Yangi guruh", "group.newChannel": "Yangi kanal", "group.name": "Nomi",
     "group.desc": "Tavsif (ixtiyoriy)", "group.members": "Qo'shiladigan do'stlar/oila a'zolari (vergul bilan, @username)",
     "group.discoverableLabel": "Ommaviy qidiruvda ko'rsatish (Ommabop)", "group.create": "Yaratish",
@@ -272,7 +343,7 @@ function renderLanguageSection() {
 
 async function initApp() {
   await loadMe();
-  if (!me) return; // loadMe already redirected on failure
+  if (!me) return;
 
   applyTheme(me.settings || {});
   applyLanguage((me.settings && me.settings.language) || currentLang);
@@ -287,13 +358,31 @@ async function initApp() {
   setupRealPushNotifications();
 
   switchTab("chats");
+
+  // обновляем «был(а) N мин. назад» в шапке раз в минуту
+  setInterval(() => { if (isPrivateChat(currentChat)) updateHeader(); }, 60 * 1000);
 }
 
-// ================== REAL PUSH NOTIFICATIONS (arrive even with the site closed) ==================
-// This needs three things working together: a Service Worker registered
-// for the origin, the browser's own Notification permission, and a Push
-// subscription (tied to the server's VAPID key) sent to our backend so it
-// can actually wake the browser up later via sendPushToUser().
+function myCard() {
+  const s = (me && me.settings) || {};
+  return {
+    username: me.username,
+    displayName: me.displayName || me.username,
+    avatarUrl: me.avatarUrl || "",
+    verified: !!me.verified,
+    nameColor: s.nameColor || "",
+    emojiStatus: s.emojiStatus || "",
+    birthdayToday: isMyBirthdayToday()
+  };
+}
+
+function isMyBirthdayToday() {
+  if (!me || !me.birthDate) return false;
+  const d = new Date();
+  return me.birthDate.slice(5, 10) === `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// ================== REAL PUSH NOTIFICATIONS ==================
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -315,7 +404,7 @@ async function setupRealPushNotifications() {
 
     const keyRes = await fetch("/api/push/public-key", { headers: authHeaders() });
     const keyData = await keyRes.json();
-    if (!keyData.ok || !keyData.publicKey) return; // server has no VAPID keys configured yet
+    if (!keyData.ok || !keyData.publicKey) return;
 
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
@@ -331,8 +420,7 @@ async function setupRealPushNotifications() {
       body: JSON.stringify({ subscription: sub.toJSON ? sub.toJSON() : sub })
     });
   } catch {
-    // Push is a nice-to-have; any failure here (unsupported browser, denied
-    // permission, no HTTPS, etc.) should never break the rest of the app.
+    // push — не обязательная функция
   }
 }
 
@@ -342,11 +430,6 @@ async function loadMe() {
   for (;;) {
     try {
       const r = await fetch("/api/me", { headers: authHeaders() });
-
-      // Only a real "your token is invalid/expired" answer should log the
-      // person out. Anything else (server briefly waking up on a free host,
-      // a dropped connection, a non-JSON error page) must NOT wipe the saved
-      // token — that was the bug causing "logged out on every refresh".
       if (r.status === 401) return logout();
 
       const d = await r.json();
@@ -358,10 +441,9 @@ async function loadMe() {
 
       hideBootError();
       me = d.profile;
+      mergeUserInfo(me.username, myCard());
       return;
     } catch {
-      // Network error / server still starting up (common right after a
-      // free-tier host wakes up) — retry instead of logging out.
       showBootError("Сервер сейчас недоступен (возможно, ещё запускается). Пробую ещё раз...");
       await sleep(3000);
     }
@@ -390,9 +472,6 @@ function logout() {
   location.href = "index.html";
 }
 
-// Bottom-tab navigation replaces the old left sidebar entirely. There are
-// three tabs (chats / profile / settings) plus a fourth "screen" — an open
-// chat conversation — that slides in over everything and hides the tab bar.
 let activeTab = "chats";
 
 function switchTab(tab) {
@@ -420,19 +499,22 @@ function updateHeader() {
     title.textContent = "Общий чат";
     sub.textContent = "общение со всеми";
   } else if (currentChat === "support") {
-    title.textContent = "🛟 Поддержка";
+    title.innerHTML = `Поддержка${verifiedBadge(true)}`;
     sub.textContent = "One Messenger Support";
+  } else if (isSelfChat(currentChat)) {
+    title.innerHTML = `<i class="fa-solid fa-bookmark"></i> Избранное`;
+    sub.textContent = "сохранённые сообщения и #теги";
   } else if (isGroupChat(currentChat)) {
     const g = currentGroupMeta;
     title.innerHTML = (g ? esc(g.name) : "Группа") + (g && g.isChannel ? ` <i class="fa-solid fa-bullhorn" title="Канал"></i>` : "");
     sub.textContent = g ? (g.isChannel ? "канал" : `${g.memberCount || ""} участников`.trim()) : "";
   } else {
-    title.textContent = "@" + currentChat;
-    sub.textContent = onlineSet.has(currentChat) ? "в сети" : "не в сети";
+    const info = userInfoCache.get(currentChat) || { username: currentChat, displayName: currentChat };
+    title.innerHTML = nameHtml(info);
+    sub.textContent = lastSeenText(info);
   }
 
-  const isCallable = currentChat !== "global" && currentChat !== "support" && !isGroupChat(currentChat);
-  document.getElementById("callBtn").style.display = isCallable ? "inline-flex" : "none";
+  document.getElementById("callBtn").style.display = isPrivateChat(currentChat) ? "inline-flex" : "none";
 }
 
 // ================== WS ==================
@@ -467,6 +549,12 @@ function connectWS() {
       return;
     }
 
+    if (data.type === "lastSeen") {
+      lastSeenMap.set(data.username, data.at);
+      if (currentChat === data.username) updateHeader();
+      return;
+    }
+
     if (data.type === "typing") {
       if (currentChat === data.from || (isGroupChat(currentChat) && data.to === currentChat)) {
         const el = document.getElementById("typingLine");
@@ -492,9 +580,26 @@ function connectWS() {
       return;
     }
 
+    if (data.type === "post-error") {
+      if (data.gated) openContactRequest(data.to, lastSentText);
+      else if (data.message) alert(data.message);
+      return;
+    }
+
+    if (data.type === "wallpaperChanged") {
+      if (currentChat === data.chat) applyChatWallpaper(data.value);
+      toast(data.value ? `🖼 @${data.by} поставил(а) новые обои в ваш чат` : `@${data.by} сбросил(а) обои чата`);
+      return;
+    }
+
+    if (data.type === "birthday") {
+      toast(`🎂 Сегодня день рождения у ${data.displayName || "@" + data.username}!`);
+      showBirthdays();
+      return;
+    }
+
     if (data.type === "call-error") { if (data.message) alert(data.message); return; }
 
-    // calls
     if (data.type === "call-offer") return onIncomingOffer(data);
     if (data.type === "call-answer") return onCallAnswer(data);
     if (data.type === "ice") return onIce(data);
@@ -503,7 +608,11 @@ function connectWS() {
 
     if (data.type === "message") {
       const msg = data.message;
-      if (shouldRender(msg)) renderMessage(msg);
+      if (msg.senderInfo) mergeUserInfo(msg.sender, msg.senderInfo);
+      if (shouldRender(msg)) {
+        renderMessage(msg);
+        if (isSelfChat(currentChat)) { renderFavTags(); applyTagFilter(); }
+      }
 
       if (!shouldRender(msg) || document.hidden) maybeNotify(msg);
 
@@ -516,14 +625,10 @@ function connectWS() {
 function scheduleWsReconnect() {
   clearTimeout(wsReconnectTimer);
   wsReconnectAttempts++;
-  // backs off up to 15s between tries, so a flaky network doesn't hammer the server
   const delay = Math.min(15000, 1000 * Math.pow(1.6, wsReconnectAttempts));
   wsReconnectTimer = setTimeout(() => connectWS(), delay);
 }
 
-// If the tab was backgrounded long enough for the browser to drop the
-// socket, reconnect the moment the person comes back instead of waiting
-// out the backoff timer.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && (!ws || ws.readyState > 1)) {
     wsReconnectAttempts = 0;
@@ -532,21 +637,33 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+function msgPreview(msg) {
+  if (msg.mediaType === "list") return "📋 Список";
+  if (msg.mediaType === "file") return "📎 " + (msg.fileName || "Файл");
+  if (msg.mediaType === "image") return "🖼 Фото";
+  if (msg.mediaType === "video") return "🎬 Видео";
+  if (msg.mediaType === "audio") return "🎤 Голосовое";
+  return msg.text || "";
+}
+
 function maybeNotify(msg) {
   try {
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
     if (msg.sender === me.username) return;
 
-    const title = msg.chatType === "global" ? "Общий чат" : (msg.chatType === "group" ? "Группа" : "@" + msg.sender);
-    const body = msg.mediaType !== "text" ? (msg.mediaType === "list" ? "[список]" : `[${msg.mediaType}]`) : (msg.text || "");
-    new Notification(title, { body });
+    const info = msg.senderInfo || userInfoCache.get(msg.sender) || {};
+    const title = msg.chatType === "global" ? "Общий чат"
+      : msg.chatType === "group" ? "Группа"
+      : msg.chatType === "support" ? "One Messenger"
+      : (info.displayName || "@" + msg.sender);
+    new Notification(title, { body: msgPreview(msg), icon: info.avatarUrl || OM_ICON });
   } catch {}
 }
 
 function typing(on) {
   if (!ws || ws.readyState !== 1) return;
-  if (currentChat === "global") return;
+  if (currentChat === "global" || isSelfChat(currentChat)) return;
 
   if (on && isTypingNow) return;
 
@@ -570,35 +687,58 @@ function shouldRender(msg) {
 }
 
 // ================== CHAT ==================
+async function getUserInfo(username, force = false) {
+  if (!force && userInfoCache.has(username) && userInfoCache.get(username).fetched) return userInfoCache.get(username);
+  try {
+    const r = await fetch(`/api/users/${encodeURIComponent(username)}`, { headers: authHeaders() });
+    const d = await r.json();
+    const info = d.ok ? { ...d.user, fetched: true } : { username, displayName: username, avatarUrl: "" };
+    mergeUserInfo(username, info);
+    return userInfoCache.get(username);
+  } catch {
+    return userInfoCache.get(username) || { username, displayName: username, avatarUrl: "" };
+  }
+}
+
 async function openChat(chat) {
   currentChat = chat === "global" ? "global" : (isGroupChat(chat) ? chat : String(chat).replace(/^@+/, "").toLowerCase());
   currentGroupMeta = null;
+  activeTagFilter = pendingTagFilter;
+  pendingTagFilter = null;
 
   document.querySelectorAll(".chatitem").forEach(b => b.classList.remove("active"));
   const btn = document.querySelector(`.chatitem[data-chat="${currentChat}"]`);
   if (btn) btn.classList.add("active");
 
   document.getElementById("typingLine").classList.add("hidden");
+  document.getElementById("gateNotice").classList.add("hidden");
+  closeEmojiPanel();
 
-  // opening a chat slides its own full-screen conversation over the tabs
   document.querySelectorAll(".screen").forEach(s => s.classList.add("hidden"));
   document.getElementById("screenChat").classList.remove("hidden");
   document.getElementById("bottomNav").classList.add("hidden");
+
+  updateHeader();
 
   if (isGroupChat(currentChat)) {
     const groupId = currentChat.slice(6);
     const r = await fetch(`/api/groups/${groupId}`, { headers: authHeaders() });
     const d = await r.json();
     if (d.ok) currentGroupMeta = { ...d.group, memberCount: d.members.length, myRole: d.myRole };
+  } else if (isPrivateChat(currentChat)) {
+    const info = await getUserInfo(currentChat, true);
+    if (info.dmGated && !info.canMessage) showGateNotice(currentChat);
   }
 
   updateHeader();
+  loadChatWallpaper();
   await loadMessages();
 }
 
 function backToChats() {
   document.getElementById("screenChat").classList.add("hidden");
   document.getElementById("bottomNav").classList.remove("hidden");
+  closeEmojiPanel();
   switchTab("chats");
 }
 
@@ -610,7 +750,19 @@ async function loadMessages() {
   const d = await r.json();
   if (!d.ok) return;
 
+  if (d.users) Object.entries(d.users).forEach(([u, info]) => mergeUserInfo(u, info));
   d.messages.forEach(renderMessage);
+
+  const tagBar = document.getElementById("favTagBar");
+  if (isSelfChat(currentChat)) {
+    renderFavTags();
+    applyTagFilter();
+    if (d.messages.length === 0) {
+      box.innerHTML = `<div class="emptyhint"><i class="fa-regular fa-bookmark"></i><div>Сохраняй сюда сообщения звёздочкой ☆ в любом чате или пиши заметки себе. Добавляй #теги, чтобы потом быстро находить.</div></div>`;
+    }
+  } else {
+    tagBar.classList.add("hidden");
+  }
   scrollBottom();
 }
 
@@ -619,39 +771,116 @@ function scrollBottom() {
   box.scrollTop = box.scrollHeight;
 }
 
+// Сообщение только из 1–3 эмодзи показывается крупно и с анимацией
+const EMOJI_ONLY_RE = /^(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}])*\s*){1,3}$/u;
+const HASHTAG_RE = /(^|\s)#([\p{L}\p{N}_]{1,40})/gu;
+
+function extractTags(text) {
+  const out = [];
+  String(text || "").replace(HASHTAG_RE, (m, sp, tag) => { out.push(tag.toLowerCase()); return m; });
+  return out;
+}
+
+function formatText(text) {
+  return esc(text).replace(HASHTAG_RE, (m, sp, tag) =>
+    `${sp}<span class="hashtag" onclick="openTag('${tag.toLowerCase()}')">#${tag}</span>`
+  );
+}
+
+function fileIcon(name) {
+  const ext = (String(name || "").split(".").pop() || "").toLowerCase();
+  if (["doc", "docx", "rtf", "odt"].includes(ext)) return ["fa-file-word", "word"];
+  if (["xls", "xlsx", "csv", "ods"].includes(ext)) return ["fa-file-excel", "excel"];
+  if (["ppt", "pptx", "odp"].includes(ext)) return ["fa-file-powerpoint", "ppt"];
+  if (ext === "pdf") return ["fa-file-pdf", "pdf"];
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return ["fa-file-zipper", "zip"];
+  if (["txt", "md", "json", "log"].includes(ext)) return ["fa-file-lines", "txt"];
+  if (["mp3", "wav", "ogg", "m4a", "flac", "aac"].includes(ext)) return ["fa-file-audio", "audio"];
+  if (["mp4", "mov", "avi", "mkv", "webm"].includes(ext)) return ["fa-file-video", "video"];
+  if (["jpg", "jpeg", "png", "gif", "webp", "heic", "svg", "bmp"].includes(ext)) return ["fa-file-image", "image"];
+  if (["apk", "exe", "dmg", "msi"].includes(ext)) return ["fa-box-archive", "app"];
+  return ["fa-file", "other"];
+}
+
+function renderFileBody(m) {
+  const name = m.fileName || "файл";
+  const ext = (name.includes(".") ? name.split(".").pop() : "").toUpperCase();
+  const [icon, cls] = fileIcon(name);
+  return `
+    <a class="filecard" href="${esc(m.mediaUrl)}" download="${esc(name)}" target="_blank" rel="noopener">
+      <div class="fileicon ft-${cls}"><i class="fa-solid ${icon}"></i></div>
+      <div class="fileinfo">
+        <div class="filename">${esc(name)}</div>
+        <div class="filesize">${fmtSize(m.fileSize)}${ext ? " · " + esc(ext) : ""}</div>
+      </div>
+      <i class="fa-solid fa-download filedl"></i>
+    </a>
+    ${m.text ? `<div class="mtext">${formatText(m.text)}</div>` : ""}
+  `;
+}
+
 function renderMessage(m) {
   const box = document.getElementById("messages");
+  const empty = box.querySelector(".emptyhint");
+  if (empty) empty.remove();
+
   const mine = m.sender === me.username;
+  const info = m.sender === "support"
+    ? { username: "support", displayName: "Поддержка One Messenger", verified: true, nameColor: "#2a9df4" }
+    : (userInfoCache.get(m.sender) || m.senderInfo || { username: m.sender, displayName: m.sender });
 
   let body = "";
   if (m.mediaType === "image") {
-    body = `<img class="mimg" src="${esc(m.mediaUrl)}" alt="">`;
+    body = `<img class="mimg" src="${esc(m.mediaUrl)}" alt="" loading="lazy">`;
+    if (m.text) body += `<div class="mtext">${formatText(m.text)}</div>`;
   } else if (m.mediaType === "video") {
     body = `<video class="mvid" controls playsinline src="${esc(m.mediaUrl)}"></video>`;
   } else if (m.mediaType === "audio") {
     body = renderVoiceBody(m);
   } else if (m.mediaType === "list") {
     body = renderListBody(m);
+  } else if (m.mediaType === "file") {
+    body = renderFileBody(m);
   } else {
-    body = `<div class="mtext">${esc(m.text || "")}</div>`;
+    const text = m.text || "";
+    body = EMOJI_ONLY_RE.test(text.trim())
+      ? `<div class="mtext bigemoji">${esc(text.trim())}</div>`
+      : `<div class="mtext">${formatText(text)}</div>`;
   }
 
-  const del = mine ? `<button class="trash" onclick="deleteMsg(${m.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>` : "";
-  const senderLine = (m.chatType === "global" || m.chatType === "group")
-    ? `<div class="who clickable" onclick="openProfile('${esc(m.sender)}', ${m.sender === me.username})">${esc(m.sender)}</div>`
+  const actions = [];
+  if (!isSelfChat(currentChat) && m.chatType !== "support") {
+    actions.push(`<button class="mact" onclick="saveToFavorites(${m.id})" title="В избранное"><i class="fa-regular fa-star"></i></button>`);
+  }
+  if (mine) actions.push(`<button class="mact trash" onclick="deleteMsg(${m.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>`);
+
+  const showName = (m.chatType === "global" || m.chatType === "group") && !mine;
+  const senderLine = showName
+    ? `<div class="who clickable" onclick="openProfile('${esc(m.sender)}', false)">${nameHtml(info)}</div>`
     : "";
+  const fwd = m.forwardedFrom
+    ? `<div class="fwd clickable" onclick="openProfile('${esc(m.forwardedFrom)}', false)"><i class="fa-solid fa-share"></i> от @${esc(m.forwardedFrom)}</div>`
+    : "";
+  const time = new Date(m.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+
+  const avatarClick = m.sender === "support" ? "" : `onclick="openProfile('${esc(m.sender)}', false)"`;
+  const avatar = mine ? "" : `<div class="mava" ${avatarClick}>${avatarHtml(info)}</div>`;
 
   const row = document.createElement("div");
   row.className = "mrow " + (mine ? "mine" : "other");
   row.dataset.mid = String(m.id);
+  row.dataset.tags = extractTags(m.text).join(" ");
 
   row.innerHTML = `
+    ${avatar}
     <div class="bubble pop">
       <div class="btop">
         ${senderLine}
-        ${del}
+        <div class="mactions">${actions.join("")}</div>
       </div>
+      ${fwd}
       ${body}
+      <div class="mtime">${time}</div>
     </div>
   `;
 
@@ -660,10 +889,50 @@ function renderMessage(m) {
   scrollBottom();
 }
 
+async function saveToFavorites(id) {
+  const r = await fetch(`/api/messages/${id}/save`, { method: "POST", headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Не получилось сохранить");
+  toast("⭐ Сохранено в Избранное");
+}
+
+// ---------------- #теги в Избранном ----------------
+function renderFavTags() {
+  const bar = document.getElementById("favTagBar");
+  const tags = new Map();
+  document.querySelectorAll("#messages .mrow").forEach(r => {
+    (r.dataset.tags || "").split(" ").filter(Boolean).forEach(tg => tags.set(tg, (tags.get(tg) || 0) + 1));
+  });
+  if (tags.size === 0) { bar.classList.add("hidden"); bar.innerHTML = ""; return; }
+
+  bar.classList.remove("hidden");
+  bar.innerHTML =
+    `<button class="tagchip ${!activeTagFilter ? "active" : ""}" onclick="filterByTag(null)">Все</button>` +
+    [...tags.entries()].sort((a, b) => b[1] - a[1]).map(([tg, n]) =>
+      `<button class="tagchip ${activeTagFilter === tg ? "active" : ""}" onclick="filterByTag('${tg}')">#${esc(tg)} <span>${n}</span></button>`
+    ).join("");
+}
+
+function filterByTag(tag) {
+  activeTagFilter = tag;
+  renderFavTags();
+  applyTagFilter();
+}
+
+function applyTagFilter() {
+  document.querySelectorAll("#messages .mrow").forEach(r => {
+    const tags = (r.dataset.tags || "").split(" ");
+    r.classList.toggle("hidden", !!activeTagFilter && !tags.includes(activeTagFilter));
+  });
+}
+
+function openTag(tag) {
+  if (isSelfChat(currentChat)) return filterByTag(tag);
+  pendingTagFilter = tag;
+  openChat(me.username);
+}
+
 // ---------------- custom voice message player ----------------
-// A native <audio controls> element renders tiny and inconsistently across
-// browsers, which is exactly the "маленький формат" complaint — so instead
-// we drive a full-width custom play/seek/duration UI off a hidden <audio>.
 function fmtTime(sec) {
   if (!isFinite(sec) || sec < 0) sec = 0;
   const m = Math.floor(sec / 60);
@@ -715,7 +984,6 @@ function toggleVoicePlay(id) {
   const audio = document.getElementById(`voice-${id}-audio`);
   if (!audio) return;
 
-  // only one voice message plays at a time
   document.querySelectorAll("audio[id^='voice-'][id$='-audio']").forEach(a => {
     if (a !== audio && !a.paused) a.pause();
   });
@@ -784,25 +1052,35 @@ function sendText() {
   if (!text) return;
   if (!ws || ws.readyState !== 1) return alert("WS не подключен");
 
+  lastSentText = text;
   ws.send(JSON.stringify({ type: "text-message", receiver: currentChat, text }));
   input.value = "";
   typing(false);
+  closeEmojiPanel();
 }
 
+// Фото, видео, GIF и ЛЮБЫЕ файлы (Word, Excel, PowerPoint, PDF, ZIP...)
 async function sendMedia(input) {
   const file = input.files[0];
   if (!file) return;
+  if (file.size > MAX_UPLOAD_BYTES) {
+    input.value = "";
+    return alert("Файл больше 20 МБ — выбери файл поменьше");
+  }
 
   const fd = new FormData();
   fd.append("file", file);
   fd.append("receiver", currentChat);
   fd.append("text", "");
 
+  toast(`Отправка: ${file.name}...`);
   const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
   const d = await r.json();
-  if (!d.ok) alert(d.error || "Ошибка медиа");
-
   input.value = "";
+  if (!d.ok) {
+    if (d.gated) return openContactRequest(currentChat, "");
+    alert(d.error || "Ошибка отправки файла");
+  }
 }
 
 // ---------------- shopping / to-do list composer ----------------
@@ -835,7 +1113,7 @@ function publishList() {
   closeListComposer();
 }
 
-// ---------------- attach menu (photo/video vs list) ----------------
+// ---------------- attach menu ----------------
 function toggleAttachMenu() {
   document.getElementById("attachMenu").classList.toggle("hidden");
 }
@@ -843,11 +1121,68 @@ function attachPickMedia() {
   document.getElementById("attachMenu").classList.add("hidden");
   document.getElementById("fileInput").click();
 }
+function attachPickGif() {
+  document.getElementById("attachMenu").classList.add("hidden");
+  document.getElementById("gifInput").click();
+}
+function attachPickDoc() {
+  document.getElementById("attachMenu").classList.add("hidden");
+  document.getElementById("docInput").click();
+}
 function attachPickList() {
   document.getElementById("attachMenu").classList.add("hidden");
   openListComposer();
 }
 
+// ---------------- EMOJI PANEL ----------------
+const EMOJI_CATEGORIES = [
+  ["😀", "😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😋 😛 😜 🤪 😎 🤩 🥳 😏 😒 😔 😢 😭 😤 😠 😡 🤯 😳 🥺 😱 🤔 🤫 🤭 🙄 😴 🤗 🤝 👍 👎 👏 🙌 🙏 💪 ✌️ 🤞 👌 👋 🫶"],
+  ["❤️", "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 🔥 ✨ ⭐ 🌟 💫 💯 ✅"],
+  ["🐶", "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🦄 🐝 🦋 🐢 🐬 🐳 🌸 🌹 🌻 🌷 🍀 🌈"],
+  ["🍔", "🍏 🍎 🍊 🍋 🍌 🍉 🍇 🍓 🍒 🍑 🍍 🥝 🍅 🥑 🍔 🍟 🍕 🌭 🌮 🍣 🍩 🍪 🎂 🍰 🍫 🍿 ☕ 🍵 🥤 🧃"],
+  ["⚽", "⚽ 🏀 🏈 ⚾ 🎾 🏐 🎱 🏓 🥊 🎮 🎯 🎲 🎸 🎹 🎤 🎧 🎬 📚 💻 📱 🏆 🥇 🎉 🎊 🎁 🎈"],
+  ["✈️", "🚗 🚕 🚌 🏎️ 🚓 🚑 ✈️ 🚀 🛸 🚁 ⛵ 🏠 🏫 🏥 🕌 🗽 🗼 🏖️ 🏔️ 🌍 🌙 ☀️ ⛄ ⚡ 🌊"]
+];
+let emojiCategory = 0;
+
+function toggleEmojiPanel() {
+  const panel = document.getElementById("emojiPanel");
+  if (panel.classList.contains("hidden")) {
+    renderEmojiPanel();
+    panel.classList.remove("hidden");
+  } else {
+    panel.classList.add("hidden");
+  }
+}
+function closeEmojiPanel() {
+  const panel = document.getElementById("emojiPanel");
+  if (panel) panel.classList.add("hidden");
+}
+function renderEmojiPanel() {
+  const panel = document.getElementById("emojiPanel");
+  const tabs = EMOJI_CATEGORIES.map(([icon], i) =>
+    `<button class="emojitab ${i === emojiCategory ? "active" : ""}" onclick="pickEmojiCategory(${i})">${icon}</button>`
+  ).join("");
+  const grid = EMOJI_CATEGORIES[emojiCategory][1].split(" ").map(e =>
+    `<button class="emojibtn" onclick="insertEmoji('${e}')">${e}</button>`
+  ).join("");
+  panel.innerHTML = `<div class="emojitabs">${tabs}</div><div class="emojigrid">${grid}</div>`;
+}
+function pickEmojiCategory(i) {
+  emojiCategory = i;
+  renderEmojiPanel();
+}
+function insertEmoji(e) {
+  const input = document.getElementById("textInput");
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? input.value.length;
+  input.value = input.value.slice(0, start) + e + input.value.slice(end);
+  const pos = start + e.length;
+  input.focus();
+  try { input.setSelectionRange(pos, pos); } catch {}
+}
+
+// ================== CHAT LIST ==================
 async function refreshChats() {
   const [chatsRes, groupsRes] = await Promise.all([
     fetch("/api/chats", { headers: authHeaders() }),
@@ -859,6 +1194,20 @@ async function refreshChats() {
 
   const wrap = document.getElementById("privateChats");
   wrap.innerHTML = "";
+
+  // «Избранное» всегда сверху
+  const savedBtn = document.createElement("button");
+  savedBtn.className = "chatitem";
+  savedBtn.dataset.chat = me.username;
+  savedBtn.onclick = () => openChat(me.username);
+  savedBtn.innerHTML = `
+    <div class="avatar circle saved"><i class="fa-solid fa-bookmark"></i></div>
+    <div class="meta">
+      <div class="name">Избранное</div>
+      <div class="preview">сохранённые сообщения и #теги</div>
+    </div>
+  `;
+  wrap.appendChild(savedBtn);
 
   if (groupsData.ok) {
     groupsData.groups.forEach(g => {
@@ -879,7 +1228,8 @@ async function refreshChats() {
   }
 
   if (chatsData.ok) {
-    chatsData.chats.forEach(c => {
+    chatsData.chats.filter(c => c.username !== me.username).forEach(c => {
+      mergeUserInfo(c.username, c);
       const btn = document.createElement("button");
       btn.className = "chatitem";
       btn.dataset.chat = c.username;
@@ -888,9 +1238,9 @@ async function refreshChats() {
       const isOn = onlineSet.has(c.username);
 
       btn.innerHTML = `
-        <div class="avatar">${c.avatarUrl ? `<img src="${esc(c.avatarUrl)}" alt="">` : `<span>${esc((c.displayName || c.username)[0].toUpperCase())}</span>`}</div>
+        <div class="avatar">${avatarHtml(c)}</div>
         <div class="meta">
-          <div class="name">${esc(c.displayName || c.username)}${verifiedBadge(c.verified)}</div>
+          <div class="name">${nameHtml(c)}</div>
           <div class="preview">${esc(c.preview || "")}</div>
         </div>
         <span class="dot ${isOn ? "online" : "offline"}" title="${isOn ? "Онлайн" : "Оффлайн"}"></span>
@@ -949,7 +1299,6 @@ async function submitCreateGroup() {
   openChat(`group:${d.id}`);
 }
 
-// ---------------- DISCOVER (public groups/channels) ----------------
 function openDiscoverModal() {
   document.getElementById("discoverModal").classList.remove("hidden");
   document.getElementById("discoverSearchInput").value = "";
@@ -1006,8 +1355,9 @@ async function openGroupInfo() {
   const isOwner = d.myRole === "owner";
   const list = document.getElementById("groupMembersList");
   list.innerHTML = d.members.map(mem => {
+    mergeUserInfo(mem.username, mem);
     const isSelf = mem.username === me.username;
-    const outranked = d.myRole === "admin" && mem.role === "admin"; // admins can't touch other admins
+    const outranked = d.myRole === "admin" && mem.role === "admin";
     const roleButtons = (isOwner && mem.role !== "owner" && !isSelf)
       ? (mem.role === "admin"
           ? `<button class="iconbtn" onclick="event.stopPropagation(); setGroupMemberRole('${groupId}','${esc(mem.username)}','member')" title="Снять админку"><i class="fa-solid fa-user-minus"></i></button>`
@@ -1021,9 +1371,9 @@ async function openGroupInfo() {
       : "";
     return `
       <div class="memberrow clickable" onclick="openProfile('${esc(mem.username)}', ${isSelf})">
-        <div class="avatar">${mem.avatarUrl ? `<img src="${esc(mem.avatarUrl)}" alt="">` : `<span>${esc((mem.displayName || mem.username)[0].toUpperCase())}</span>`}</div>
+        <div class="avatar">${avatarHtml(mem)}</div>
         <div class="meta">
-          <div class="name">${esc(mem.displayName || mem.username)}${verifiedBadge(mem.verified)}</div>
+          <div class="name">${nameHtml(mem)}</div>
           <div class="preview">@${esc(mem.username)} · ${mem.role === "owner" ? "владелец" : mem.role === "admin" ? "админ (модератор)" : "участник"}</div>
         </div>
         ${roleButtons}${removeButton}${banButton}
@@ -1036,7 +1386,7 @@ async function openGroupInfo() {
     bansBox.classList.remove("hidden");
     bansBox.innerHTML = `<h4 class="sectiontitle small">Забаненные</h4>` + d.bans.map(b => `
       <div class="memberrow">
-        <div class="avatar">${b.avatarUrl ? `<img src="${esc(b.avatarUrl)}" alt="">` : `<span>${esc((b.displayName || b.username)[0].toUpperCase())}</span>`}</div>
+        <div class="avatar">${avatarHtml(b)}</div>
         <div class="meta">
           <div class="name">${esc(b.displayName || b.username)}</div>
           <div class="preview">@${esc(b.username)} · забанил @${esc(b.bannedBy)}</div>
@@ -1166,13 +1516,14 @@ async function searchUsers(val) {
   }
 
   d.users.forEach(u => {
+    mergeUserInfo(u.username, u);
     const btn = document.createElement("button");
     btn.className = "chatitem";
     btn.onclick = () => { results.innerHTML = ""; document.getElementById("searchInput").value = ""; openChat(u.username); };
     btn.innerHTML = `
-      <div class="avatar">${u.avatarUrl ? `<img src="${esc(u.avatarUrl)}" alt="">` : `<span>${esc((u.displayName || u.username)[0].toUpperCase())}</span>`}</div>
+      <div class="avatar">${avatarHtml(u)}</div>
       <div class="meta">
-        <div class="name">${esc(u.displayName || u.username)}${verifiedBadge(u.verified)}</div>
+        <div class="name">${nameHtml(u)}</div>
         <div class="preview">@${esc(u.username)}</div>
       </div>
       <span class="dot ${onlineSet.has(u.username) ? "online" : "offline"}"></span>
@@ -1181,12 +1532,7 @@ async function searchUsers(val) {
   });
 }
 
-// ================== INVITE (share to contacts) ==================
-// There is no way for a website to send an SMS/message directly (browsers
-// don't expose that, for good privacy reasons) — but the native share sheet
-// (navigator.share) opens the same "choose a contact" flow as any app: iOS
-// Messages, WhatsApp, Telegram, Gmail, etc. all appear there with the
-// system's own contact picker. That's the real "association with contacts".
+// ================== INVITE ==================
 function buildInviteText() {
   const inviteUrl = `${location.origin}/index.html`;
   return `Я в One Messenger — общаемся без сим-карты и без слежки за данными. Голосовые, звонки, группы, каналы, сторис — всё в одном месте. Присоединяйся: ${inviteUrl}`;
@@ -1198,9 +1544,7 @@ async function inviteToMessenger() {
   if (navigator.share) {
     try {
       await navigator.share({ title: "One Messenger", text });
-    } catch {
-      // person cancelled the share sheet — not an error, do nothing
-    }
+    } catch {}
     return;
   }
 
@@ -1212,11 +1556,51 @@ async function inviteToMessenger() {
   }
 }
 
+// ================== OFFICIAL ACCOUNTS: заявка через администрацию ==================
+let contactRequestTarget = null;
+
+function showGateNotice(username) {
+  const box = document.getElementById("gateNotice");
+  box.innerHTML = `
+    <i class="fa-solid fa-circle-check verified-badge"></i>
+    <div class="gatetext">Этот аккаунт официально подтверждён. Написать можно через администрацию.</div>
+    <button class="btn primary small" onclick="openContactRequest('${esc(username)}', '')">Отправить заявку</button>
+  `;
+  box.classList.remove("hidden");
+}
+
+function openContactRequest(username, prefill) {
+  contactRequestTarget = username;
+  document.getElementById("contactRequestModal").classList.remove("hidden");
+  document.getElementById("contactRequestTitle").innerHTML = `Написать @${esc(username)}${verifiedBadge(true)}`;
+  document.getElementById("contactRequestText").value = prefill || "";
+  document.getElementById("contactRequestText").focus();
+}
+function closeContactRequest() {
+  document.getElementById("contactRequestModal").classList.add("hidden");
+  contactRequestTarget = null;
+}
+async function submitContactRequest() {
+  const text = document.getElementById("contactRequestText").value.trim();
+  if (!text) return alert("Напиши, по какому вопросу обращаешься");
+
+  const r = await fetch("/api/contact-requests", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ to: contactRequestTarget, text })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  closeContactRequest();
+  toast("Заявка отправлена. Ответ придёт в чат «Поддержка»");
+}
 
 // ================== PROFILE VIEW ==================
 async function openCurrentProfile() {
-  if (currentChat === "global") {
+  if (currentChat === "global" || isSelfChat(currentChat)) {
     switchTab("profile");
+  } else if (currentChat === "support") {
+    return;
   } else if (isGroupChat(currentChat)) {
     openGroupInfo();
   } else {
@@ -1224,10 +1608,9 @@ async function openCurrentProfile() {
   }
 }
 
-// Viewing your OWN profile always goes to the Профиль tab now; this modal
-// is only ever used for other people, plus it now shows/sends gifts.
 async function openProfile(username, isMe) {
-  if (isMe) { switchTab("profile"); return; }
+  if (username === "support") return;
+  if (isMe || (me && username === me.username)) { switchTab("profile"); return; }
 
   const modal = document.getElementById("profileModal");
   modal.classList.remove("hidden");
@@ -1239,27 +1622,52 @@ async function openProfile(username, isMe) {
   const user = document.getElementById("profileUser");
   const bio = document.getElementById("profileBio");
   const birth = document.getElementById("profileBirth");
+  const seen = document.getElementById("profileLastSeen");
+  const banner = document.getElementById("profileBanner");
+  const official = document.getElementById("profileOfficial");
   const actions = document.getElementById("profileActions");
 
   title.textContent = "Профиль";
   actions.innerHTML = "";
 
-  const r = await fetch(`/api/users/${encodeURIComponent(username)}`, { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) { alert("Не найден"); return closeProfile(); }
-  const p = d.user;
+  const p = await getUserInfo(username, true);
+  if (!p.fetched) { alert("Не найден"); return closeProfile(); }
 
-  avatar.innerHTML = p.avatarUrl ? `<img src="${esc(p.avatarUrl)}" alt="">` : `<span>${esc((p.displayName || p.username)[0].toUpperCase())}</span>`;
-  name.innerHTML = esc(p.displayName || p.username) + verifiedBadge(p.verified);
+  const profCol = safeColor(p.profileColor);
+  banner.style.background = profCol ? `linear-gradient(135deg, ${profCol}, ${profCol}55)` : "";
+  banner.classList.toggle("hidden", !profCol);
+
+  avatar.innerHTML = avatarHtml(p);
+  name.innerHTML = nameHtml(p, { noBday: true });
   user.textContent = "@" + p.username;
   bio.textContent = p.bio ? p.bio : "";
-  birth.textContent = "";
+  birth.textContent = p.birthdayToday ? "🎂 Сегодня день рождения!" : "";
+  seen.textContent = lastSeenText(p);
 
-  const openChatBtn = document.createElement("button");
-  openChatBtn.className = "btn primary full";
-  openChatBtn.textContent = "Открыть чат";
-  openChatBtn.onclick = () => { closeProfile(); openChat(p.username); };
-  actions.appendChild(openChatBtn);
+  official.classList.toggle("hidden", !p.verified);
+  official.innerHTML = p.verified ? `<i class="fa-solid fa-circle-check"></i> Этот аккаунт официально подтверждён` : "";
+
+  if (p.dmGated && !p.canMessage) {
+    const reqBtn = document.createElement("button");
+    reqBtn.className = "btn primary full";
+    reqBtn.innerHTML = `<i class="fa-solid fa-envelope"></i> Написать через администрацию`;
+    reqBtn.onclick = () => { closeProfile(); openContactRequest(p.username, ""); };
+    actions.appendChild(reqBtn);
+  } else {
+    const openChatBtn = document.createElement("button");
+    openChatBtn.className = "btn primary full";
+    openChatBtn.textContent = "Открыть чат";
+    openChatBtn.onclick = () => { closeProfile(); openChat(p.username); };
+    actions.appendChild(openChatBtn);
+  }
+
+  if (p.birthdayToday) {
+    const bdBtn = document.createElement("button");
+    bdBtn.className = "btn ghost full";
+    bdBtn.innerHTML = `🎉 Поздравить`;
+    bdBtn.onclick = () => { closeProfile(); congratulate(p.username); };
+    actions.appendChild(bdBtn);
+  }
 
   const giftBtn = document.createElement("button");
   giftBtn.className = "btn ghost full";
@@ -1317,6 +1725,8 @@ function openSettings() {
   renderPasscodeSection();
   render2FASection();
   renderWallpaperSection();
+  renderPersonalizeSection();
+  renderEmojiStatusSection();
   renderLanguageSection();
   renderPrivacySection();
   renderFriendsSection();
@@ -1325,7 +1735,7 @@ function openSettings() {
   renderDeleteAccountSection();
 }
 
-// ---------------- SESSIONS (login history for this account) ----------------
+// ---------------- SESSIONS ----------------
 async function renderSessionsSection() {
   const box = document.getElementById("sessionsSection");
   box.innerHTML = `<div class="hint">Загрузка...</div>`;
@@ -1361,12 +1771,13 @@ function shortenUA(ua) {
   return ua.slice(0, 40);
 }
 
-// ---------------- PRIVACY (who sees your bio / stories) ----------------
+// ---------------- PRIVACY ----------------
 function renderPrivacySection() {
   const box = document.getElementById("privacySection");
   const s = me.settings || {};
   const storyPrivacy = s.storyPrivacy || "everyone";
   const bioPrivacy = s.bioPrivacy || "everyone";
+  const lastSeenPrivacy = s.lastSeenPrivacy || "everyone";
 
   const opt = (value, current) => `<option value="${value}" ${value === current ? "selected" : ""}>${
     value === "everyone" ? "Все" : value === "friends" ? "Только друзья" : "Никто"
@@ -1382,6 +1793,11 @@ function renderPrivacySection() {
     <select id="privBioPrivacy" onchange="savePrivacy()">
       ${opt("everyone", bioPrivacy)}${opt("friends", bioPrivacy)}${opt("nobody", bioPrivacy)}
     </select>
+
+    <label>Кому показывать, когда я был(а) в сети</label>
+    <select id="privLastSeenPrivacy" onchange="savePrivacy()">
+      ${opt("everyone", lastSeenPrivacy)}${opt("friends", lastSeenPrivacy)}${opt("nobody", lastSeenPrivacy)}
+    </select>
     <div class="hint">«Друзья» — это список ниже. @username всегда виден всем, иначе поиск и переписка перестанут работать.</div>
   `;
 }
@@ -1389,11 +1805,12 @@ function renderPrivacySection() {
 async function savePrivacy() {
   const storyPrivacy = document.getElementById("privStoryPrivacy").value;
   const bioPrivacy = document.getElementById("privBioPrivacy").value;
-  const d = await saveSettingsPatch({ storyPrivacy, bioPrivacy });
+  const lastSeenPrivacy = document.getElementById("privLastSeenPrivacy").value;
+  const d = await saveSettingsPatch({ storyPrivacy, bioPrivacy, lastSeenPrivacy });
   if (d && d.ok) toast("Приватность обновлена ✅");
 }
 
-// ---------------- FRIENDS (curated list used by privacy settings above) ----------------
+// ---------------- FRIENDS ----------------
 async function renderFriendsSection() {
   const box = document.getElementById("friendsSection");
   box.innerHTML = `
@@ -1411,9 +1828,9 @@ async function renderFriendsSection() {
 
   list.innerHTML = d.friends.map(f => `
     <div class="memberrow">
-      <div class="avatar">${f.avatarUrl ? `<img src="${esc(f.avatarUrl)}" alt="">` : `<span>${esc((f.displayName || f.username)[0].toUpperCase())}</span>`}</div>
+      <div class="avatar">${avatarHtml(f)}</div>
       <div class="meta">
-        <div class="name">${esc(f.displayName || f.username)}${verifiedBadge(f.verified)}</div>
+        <div class="name">${nameHtml(f)}</div>
         <div class="preview">@${esc(f.username)}</div>
       </div>
       <button class="iconbtn" onclick="removeFriend('${esc(f.username)}')" title="Убрать"><i class="fa-solid fa-user-minus"></i></button>
@@ -1439,7 +1856,7 @@ async function removeFriend(username) {
   renderFriendsSection();
 }
 
-// ---------------- DELETE ACCOUNT (tucked away in Settings on purpose) ----------------
+// ---------------- DELETE ACCOUNT ----------------
 function renderDeleteAccountSection() {
   const box = document.getElementById("deleteAccountSection");
   box.innerHTML = `<button class="btn small-link" onclick="revealDeleteAccountForm()">Удалить аккаунт навсегда</button>`;
@@ -1487,6 +1904,7 @@ async function uploadAvatarFile(input) {
 
   document.getElementById("setAvatarUrl").value = d.avatarUrl;
   me.avatarUrl = d.avatarUrl;
+  mergeUserInfo(me.username, myCard());
   updateHeader();
   refreshChats();
   toast("Аватар обновлён ✅");
@@ -1503,7 +1921,7 @@ function toast(text) {
   el.textContent = text;
   requestAnimationFrame(() => el.classList.add("show"));
   clearTimeout(el._hideTimer);
-  el._hideTimer = setTimeout(() => el.classList.remove("show"), 2200);
+  el._hideTimer = setTimeout(() => el.classList.remove("show"), 2600);
 }
 
 async function saveProfile() {
@@ -1521,9 +1939,11 @@ async function saveProfile() {
   if (!d2.ok) return alert(d2.error || "Ошибка сохранения");
 
   me = { ...me, ...d2.profile };
+  mergeUserInfo(me.username, myCard());
   toast("Профиль обновлён ✅");
   updateHeader();
   refreshChats();
+  showBirthdays();
 }
 
 // ---------------- THEME / WALLPAPER ----------------
@@ -1532,12 +1952,34 @@ const WALLPAPER_PRESETS = [
   { id: "night", label: "Ночь" },
   { id: "ocean", label: "Океан" },
   { id: "sunset", label: "Закат" },
-  { id: "forest", label: "Лес" }
+  { id: "forest", label: "Лес" },
+  { id: "aurora", label: "Северное сияние" },
+  { id: "rose", label: "Роза" },
+  { id: "graphite", label: "Графит" },
+  { id: "lavender", label: "Лаванда" },
+  { id: "mint", label: "Мята" }
 ];
-const ACCENT_PRESETS = ["#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff"];
+const ACCENT_PRESETS = ["#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff", "#f5c542", "#00c2c7", "#ff5c5c", "#7c8cff", "#8bd450"];
+const NAME_COLORS = [
+  "#ff5c5c", "#ff7a45", "#ffa940", "#ffc53d", "#fadb14", "#d3f261", "#95de64", "#52c41a",
+  "#36cfc9", "#13c2c2", "#69c0ff", "#2a9df4", "#597ef7", "#85a5ff", "#9254de", "#b37feb",
+  "#d3adf7", "#f759ab", "#ff85c0", "#eb2f96", "#ff9c6e", "#e6c79c", "#bfbfbf", "#ffffff"
+];
+const PROFILE_COLORS = [
+  "#2a9df4", "#1f3b5a", "#7b3fe4", "#c2185b", "#e65100", "#2e7d32",
+  "#00897b", "#455a64", "#6d4c41", "#ad1457", "#283593", "#f9a825"
+];
+const STATUS_EMOJIS = ["😎", "🔥", "⭐", "💎", "👑", "🎮", "🎧", "📚", "💼", "✈️", "🏖️", "❤️", "🌙", "☕", "🚀", "⚽", "🎨", "💻", "🤔", "😴", "🎉", "🍀", "🌸", "🐱", "🦁", "⚡", "🌈", "🎵"];
 
 function applyTheme(settings) {
-  document.body.dataset.wallpaper = settings.wallpaper || "default";
+  const wp = settings.wallpaper || "default";
+  if (wp.startsWith("/media/")) {
+    document.body.dataset.wallpaper = "custom";
+    document.documentElement.style.setProperty("--custom-wp", `url("${wp}")`);
+  } else {
+    document.body.dataset.wallpaper = wp;
+    document.documentElement.style.removeProperty("--custom-wp");
+  }
   if (settings.accent) document.documentElement.style.setProperty("--blue", settings.accent);
 }
 
@@ -1545,14 +1987,19 @@ function renderWallpaperSection() {
   const box = document.getElementById("wallpaperSection");
   const current = (me.settings || {}).wallpaper || "default";
   const currentAccent = (me.settings || {}).accent || "#2a9df4";
+  const isCustom = current.startsWith("/media/");
 
   box.innerHTML = `
-    <label>Обои чата</label>
+    <label>Обои для всех чатов</label>
     <div class="swatchrow">
       ${WALLPAPER_PRESETS.map(w => `
         <button class="wallswatch wp-${w.id} ${current === w.id ? "active" : ""}" onclick="pickWallpaper('${w.id}')" title="${w.label}"></button>
       `).join("")}
+      <button class="wallswatch wallupload ${isCustom ? "active" : ""}" onclick="document.getElementById('globalWpInput').click()" title="Своё фото"
+        ${isCustom ? `style="background-image:url('${esc(current)}')"` : ""}><i class="fa-solid fa-image"></i></button>
     </div>
+    <input id="globalWpInput" type="file" hidden accept="image/*" onchange="uploadGlobalWallpaper(this)">
+    <div class="hint">Для отдельного чата обои меняются кнопкой <i class="fa-solid fa-palette"></i> в шапке переписки.</div>
     <label>Акцентный цвет</label>
     <div class="swatchrow">
       ${ACCENT_PRESETS.map(c => `
@@ -1560,6 +2007,27 @@ function renderWallpaperSection() {
       `).join("")}
     </div>
   `;
+}
+
+async function uploadImage(file) {
+  if (file.size > MAX_UPLOAD_BYTES) { alert("Картинка больше 20 МБ"); return null; }
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch("/api/upload-image", { method: "POST", headers: authHeaders(), body: fd });
+  const d = await r.json();
+  if (!d.ok) { alert(d.error || "Ошибка загрузки"); return null; }
+  return d.url;
+}
+
+async function uploadGlobalWallpaper(input) {
+  const file = input.files[0];
+  input.value = "";
+  if (!file) return;
+  const url = await uploadImage(file);
+  if (!url) return;
+  await saveSettingsPatch({ wallpaper: url });
+  renderWallpaperSection();
+  toast("Обои установлены ✅");
 }
 
 async function saveSettingsPatch(patch) {
@@ -1572,6 +2040,7 @@ async function saveSettingsPatch(patch) {
   if (d.ok) {
     me.settings = d.settings;
     applyTheme(me.settings);
+    mergeUserInfo(me.username, myCard());
   }
   return d;
 }
@@ -1582,6 +2051,127 @@ async function pickWallpaper(id) {
 async function pickAccent(color) {
   await saveSettingsPatch({ accent: color });
   renderWallpaperSection();
+}
+
+// ---------------- ЦВЕТ ИМЕНИ И ПРОФИЛЯ ----------------
+function renderPersonalizeSection() {
+  const box = document.getElementById("personalizeSection");
+  if (!box) return;
+  const s = me.settings || {};
+  const nameColor = safeColor(s.nameColor);
+  const profileColor = safeColor(s.profileColor);
+
+  box.innerHTML = `
+    <div class="namepreview" style="${profileColor ? `background:linear-gradient(135deg, ${profileColor}, ${profileColor}55)` : ""}">
+      <div class="avatar">${avatarHtml(myCard())}</div>
+      <div>${nameHtml(myCard(), { noBday: true })}<div class="hint">так тебя видят другие</div></div>
+    </div>
+
+    <label>Цвет имени</label>
+    <div class="swatchrow">
+      <button class="colorswatch reset ${!nameColor ? "active" : ""}" onclick="pickNameColor('')" title="Обычный"><i class="fa-solid fa-ban"></i></button>
+      ${NAME_COLORS.map(c => `<button class="colorswatch ${nameColor.toLowerCase() === c ? "active" : ""}" style="background:${c}" onclick="pickNameColor('${c}')"></button>`).join("")}
+      <label class="colorswatch custompick" title="Любой цвет"><i class="fa-solid fa-eye-dropper"></i><input type="color" value="${nameColor || "#2a9df4"}" onchange="pickNameColor(this.value)"></label>
+    </div>
+
+    <label>Цвет профиля</label>
+    <div class="swatchrow">
+      <button class="colorswatch reset ${!profileColor ? "active" : ""}" onclick="pickProfileColor('')" title="Без цвета"><i class="fa-solid fa-ban"></i></button>
+      ${PROFILE_COLORS.map(c => `<button class="colorswatch ${profileColor.toLowerCase() === c ? "active" : ""}" style="background:linear-gradient(135deg, ${c}, ${c}66)" onclick="pickProfileColor('${c}')"></button>`).join("")}
+      <label class="colorswatch custompick" title="Любой цвет"><i class="fa-solid fa-eye-dropper"></i><input type="color" value="${profileColor || "#2a9df4"}" onchange="pickProfileColor(this.value)"></label>
+    </div>
+  `;
+}
+
+async function pickNameColor(c) {
+  await saveSettingsPatch({ nameColor: c });
+  renderPersonalizeSection();
+  refreshChats();
+}
+async function pickProfileColor(c) {
+  await saveSettingsPatch({ profileColor: c });
+  renderPersonalizeSection();
+}
+
+// ---------------- ЭМОДЗИ-СТАТУС (значок рядом с именем) ----------------
+function renderEmojiStatusSection() {
+  const box = document.getElementById("emojiStatusSection");
+  if (!box) return;
+  const cur = (me.settings || {}).emojiStatus || "";
+  box.innerHTML = `
+    <div class="hint">Значок рядом с твоим именем — его видят все в чатах и в профиле.</div>
+    <div class="statusgrid">
+      <button class="statusbtn ${!cur ? "active" : ""}" onclick="pickEmojiStatus('')" title="Без статуса"><i class="fa-solid fa-ban"></i></button>
+      ${STATUS_EMOJIS.map(e => `<button class="statusbtn ${cur === e ? "active" : ""}" onclick="pickEmojiStatus('${e}')">${e}</button>`).join("")}
+    </div>
+    <div class="row">
+      <input id="customStatusInput" maxlength="8" placeholder="Свой эмодзи" value="${esc(cur)}">
+      <button class="btn ghost" onclick="pickEmojiStatus(document.getElementById('customStatusInput').value)">Поставить</button>
+    </div>
+  `;
+}
+async function pickEmojiStatus(e) {
+  const d = await saveSettingsPatch({ emojiStatus: e });
+  if (d && d.ok) toast(e ? `Статус ${e} установлен` : "Статус убран");
+  renderEmojiStatusSection();
+  renderPersonalizeSection();
+  refreshChats();
+}
+
+// ---------------- ОБОИ ДЛЯ КОНКРЕТНОГО ЧАТА ----------------
+async function loadChatWallpaper() {
+  applyChatWallpaper("");
+  try {
+    const r = await fetch(`/api/wallpaper?chat=${encodeURIComponent(currentChat)}`, { headers: authHeaders() });
+    const d = await r.json();
+    if (d.ok) applyChatWallpaper(d.value);
+  } catch {}
+}
+
+function applyChatWallpaper(v) {
+  const box = document.getElementById("messages");
+  box.removeAttribute("data-wp");
+  box.style.background = "";
+  if (!v) return;
+  if (v.startsWith("/media/")) {
+    box.style.background = `linear-gradient(rgba(0,0,0,.28), rgba(0,0,0,.28)), url("${v}") center / cover no-repeat`;
+  } else {
+    box.dataset.wp = v;
+  }
+}
+
+function openChatWallpaperModal() {
+  const modal = document.getElementById("wallpaperModal");
+  modal.classList.remove("hidden");
+  const canShare = isPrivateChat(currentChat);
+  document.getElementById("wpForBothRow").classList.toggle("hidden", !canShare);
+  document.getElementById("wpForBoth").checked = false;
+  document.getElementById("wpPresetRow").innerHTML = WALLPAPER_PRESETS.map(w => `
+    <button class="wallswatch wp-${w.id}" onclick="saveChatWallpaper('${w.id}')" title="${w.label}"></button>
+  `).join("");
+}
+function closeChatWallpaperModal() {
+  document.getElementById("wallpaperModal").classList.add("hidden");
+}
+async function saveChatWallpaper(value) {
+  const forBoth = document.getElementById("wpForBoth").checked;
+  const r = await fetch("/api/wallpaper", {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ chat: currentChat, value, forBoth })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  applyChatWallpaper(value);
+  closeChatWallpaperModal();
+  toast(value ? (forBoth ? "Обои установлены для вас обоих ✅" : "Обои чата установлены ✅") : "Обои чата сброшены");
+}
+async function uploadChatWallpaper(input) {
+  const file = input.files[0];
+  input.value = "";
+  if (!file) return;
+  const url = await uploadImage(file);
+  if (url) saveChatWallpaper(url);
 }
 
 // ---------------- 2FA ----------------
@@ -1653,11 +2243,24 @@ async function disable2FA() {
   render2FASection();
 }
 
-// ---------------- VERIFICATION (official badge) ----------------
+// ---------------- VERIFICATION + НАСТРОЙКИ ОФИЦИАЛЬНОГО АККАУНТА ----------------
 function renderVerificationSection() {
   const box = document.getElementById("verificationSection");
   if (me.verified) {
-    box.innerHTML = `<div class="hint">Аккаунт официально подтверждён ✅</div>`;
+    const on = (me.settings || {}).dmGate !== false;
+    box.innerHTML = `
+      <div class="hint">Аккаунт официально подтверждён ✅</div>
+      <label class="checkrow"><input type="checkbox" id="dmGateToggle" ${on ? "checked" : ""} onchange="toggleDmGate(this.checked)">
+        Незнакомые пишут мне только через администрацию</label>
+      <div class="hint">Когда включено, человек увидит «Этот аккаунт официально подтверждён» и сможет отправить заявку — администрация передаст её тебе. Люди из исключений и те, кому ты уже писал(а) сам(а), пишут напрямую.</div>
+      <label>Исключения — могут писать напрямую</label>
+      <div class="row">
+        <input id="dmExceptionInput" placeholder="@username">
+        <button class="btn ghost" onclick="addDmException()">Добавить</button>
+      </div>
+      <div id="dmExceptionsList" class="hint">Загрузка...</div>
+    `;
+    loadDmExceptions();
     return;
   }
   box.innerHTML = `
@@ -1672,6 +2275,43 @@ function renderVerificationSection() {
     <div id="verMineList" class="hint"></div>
   `;
   loadMyVerificationRequests();
+}
+
+async function toggleDmGate(on) {
+  const d = await saveSettingsPatch({ dmGate: !!on });
+  if (d && d.ok) toast(on ? "Теперь незнакомые пишут через администрацию" : "Теперь писать тебе могут все");
+}
+
+async function loadDmExceptions() {
+  const box = document.getElementById("dmExceptionsList");
+  if (!box) return;
+  const r = await fetch("/api/me/dm-exceptions", { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok || d.users.length === 0) { box.innerHTML = `<div class="hint">Исключений пока нет</div>`; return; }
+  box.innerHTML = d.users.map(u => `
+    <div class="memberrow">
+      <div class="avatar">${avatarHtml(u)}</div>
+      <div class="meta"><div class="name">${nameHtml(u)}</div><div class="preview">@${esc(u.username)}</div></div>
+      <button class="iconbtn" onclick="removeDmException('${esc(u.username)}')" title="Убрать"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+  `).join("");
+}
+async function addDmException() {
+  const username = document.getElementById("dmExceptionInput").value.trim().replace(/^@+/, "");
+  if (!username) return;
+  const r = await fetch("/api/me/dm-exceptions", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ username })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  document.getElementById("dmExceptionInput").value = "";
+  loadDmExceptions();
+}
+async function removeDmException(username) {
+  await fetch(`/api/me/dm-exceptions/${encodeURIComponent(username)}`, { method: "DELETE", headers: authHeaders() });
+  loadDmExceptions();
 }
 
 async function submitVerification() {
@@ -1728,7 +2368,10 @@ async function startHoldVoice() {
 
         const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
         const d = await r.json();
-        if (!d.ok) alert(d.error || "Ошибка голосового");
+        if (!d.ok) {
+          if (d.gated) openContactRequest(currentChat, "");
+          else alert(d.error || "Ошибка голосового");
+        }
       } finally {
         stream.getTracks().forEach(t => t.stop());
       }
@@ -1756,10 +2399,14 @@ function stopHoldVoice() {
 
 // ================== MY PROFILE TAB ==================
 async function loadMyProfileTab() {
-  document.getElementById("myProfileAvatar").innerHTML = me.avatarUrl
-    ? `<img src="${esc(me.avatarUrl)}" alt="">`
-    : `<span>${esc((me.displayName || me.username)[0].toUpperCase())}</span>`;
-  document.getElementById("myProfileName").innerHTML = esc(me.displayName || me.username) + verifiedBadge(me.verified);
+  const card = myCard();
+  const profCol = safeColor((me.settings || {}).profileColor);
+  const banner = document.getElementById("myProfileBanner");
+  banner.style.background = profCol ? `linear-gradient(135deg, ${profCol}, ${profCol}55)` : "";
+  banner.classList.toggle("hidden", !profCol);
+
+  document.getElementById("myProfileAvatar").innerHTML = avatarHtml(card);
+  document.getElementById("myProfileName").innerHTML = nameHtml(card);
   document.getElementById("myProfileUser").textContent = "@" + me.username;
   document.getElementById("myProfileBio").textContent = me.bio || "";
 
@@ -1856,7 +2503,7 @@ async function loadStories() {
     b.className = "storychip";
     b.onclick = () => viewStory(s);
     b.innerHTML = `
-      <div class="storyava">${s.avatarUrl ? `<img src="${esc(s.avatarUrl)}" alt="">` : `<span>${esc((s.displayName || s.owner)[0].toUpperCase())}</span>`}</div>
+      <div class="storyava">${avatarHtml({ username: s.owner, displayName: s.displayName, avatarUrl: s.avatarUrl })}</div>
       <div class="storyname">${esc((s.displayName || s.owner).split(" ")[0])}${verifiedBadge(s.verified)}</div>
     `;
     list.appendChild(b);
@@ -1889,9 +2536,8 @@ async function publishStory() {
   await loadStories();
 }
 
-// ---------------- full-screen story viewer (replaces the old plain alert()) ----------------
 let storyTimer = null;
-const STORY_DURATION_MS = 6000; // images/text; a video instead runs for its own length
+const STORY_DURATION_MS = 6000;
 
 function closeStoryViewer() {
   const modal = document.getElementById("storyViewerModal");
@@ -1906,7 +2552,7 @@ function viewStory(s) {
   modal.classList.remove("hidden");
 
   const avatarBox = document.getElementById("storyViewerAvatar");
-  avatarBox.innerHTML = s.avatarUrl ? `<img src="${esc(s.avatarUrl)}" alt="">` : `<span>${esc((s.displayName || s.owner)[0].toUpperCase())}</span>`;
+  avatarBox.innerHTML = avatarHtml({ username: s.owner, displayName: s.displayName, avatarUrl: s.avatarUrl });
   document.getElementById("storyViewerName").innerHTML = esc(s.displayName || s.owner) + verifiedBadge(s.verified);
   document.getElementById("storyViewerCaption").textContent = s.text || "";
 
@@ -1917,7 +2563,6 @@ function viewStory(s) {
   const bar = document.getElementById("storyProgressBar");
   bar.style.transition = "none";
   bar.style.width = "0%";
-  // force reflow so the next transition actually animates from 0
   void bar.offsetWidth;
 
   if (s.mediaType === "video" && s.mediaUrl) {
@@ -1940,7 +2585,6 @@ function viewStory(s) {
     animateStoryProgress(bar, STORY_DURATION_MS);
     storyTimer = setTimeout(closeStoryViewer, STORY_DURATION_MS);
   } else {
-    // text-only story: give it a nice gradient card instead of a bare page
     const card = document.createElement("div");
     card.className = "storyviewer-textcard";
     card.textContent = s.text || "";
@@ -1964,54 +2608,73 @@ async function showBirthdays() {
   const d = await r.json();
   if (!d.ok) return;
 
-  const list = d.list || [];
-  const today = new Date();
-  const mm = String(today.getMonth() + 1).padStart(2, "0");
-  const dd = String(today.getDate()).padStart(2, "0");
-  const mine = (me.birthDate || "").slice(5, 10) === `${mm}-${dd}`;
+  const list = (d.list || []).filter(x => x.username !== me.username);
+  const mine = isMyBirthdayToday();
 
   if (!mine && list.length === 0) {
     banner.classList.add("hidden");
-    banner.textContent = "";
+    banner.innerHTML = "";
     return;
   }
 
   banner.classList.remove("hidden");
-  const names = list.map(x => x.displayName || x.username).join(", ");
   banner.innerHTML = `
-    ${mine ? `🎉 С днём рождения, ${esc(me.displayName || me.username)}!<br>` : ""}
-    ${list.length ? `🎂 Сегодня день рождения у: ${esc(names)}` : ""}
+    ${mine ? `<div class="bdayline">🎉 С днём рождения, ${esc(me.displayName || me.username)}!</div>` : ""}
+    ${list.map(x => `
+      <div class="bdayrow">
+        <div class="avatar">${avatarHtml(x)}</div>
+        <div class="meta"><div class="name">🎂 ${esc(x.displayName || x.username)}</div><div class="preview">сегодня день рождения</div></div>
+        <button class="btn primary small" onclick="congratulate('${esc(x.username)}')">Поздравить</button>
+      </div>
+    `).join("")}
   `;
+
+  if (mine) showMyBirthdayCelebration();
+}
+
+async function congratulate(username) {
+  await openChat(username);
+  const input = document.getElementById("textInput");
+  input.value = "С днём рождения! 🎉🎂 Счастья, здоровья и всего самого лучшего!";
+  input.focus();
+}
+
+function showMyBirthdayCelebration() {
+  const key = `bdayShown-${new Date().getFullYear()}`;
+  if (localStorage.getItem(key)) return;
+  localStorage.setItem(key, "1");
+
+  document.getElementById("bdayTitle").textContent = `С днём рождения, ${me.displayName || me.username}!`;
+  const confetti = document.getElementById("confetti");
+  const colors = ["#2a9df4", "#ff4d9d", "#ffc53d", "#29d17d", "#a06bff", "#ff8a3d"];
+  confetti.innerHTML = Array.from({ length: 70 }, () => {
+    const left = Math.random() * 100;
+    const delay = Math.random() * 1.5;
+    const dur = 2.5 + Math.random() * 2;
+    const c = colors[Math.floor(Math.random() * colors.length)];
+    const rot = Math.floor(Math.random() * 360);
+    return `<span style="left:${left}%;background:${c};animation-delay:${delay}s;animation-duration:${dur}s;transform:rotate(${rot}deg)"></span>`;
+  }).join("");
+  document.getElementById("bdayModal").classList.remove("hidden");
+}
+
+function closeBdayModal() {
+  document.getElementById("bdayModal").classList.add("hidden");
+  document.getElementById("confetti").innerHTML = "";
 }
 
 // ================== AUDIO CALL (WebRTC) ==================
 let callTimerInterval = null;
 let callStartedAt = null;
 let isSpeakerOn = false;
-const userInfoCache = new Map();
-
-async function getUserInfo(username) {
-  if (userInfoCache.has(username)) return userInfoCache.get(username);
-  try {
-    const r = await fetch(`/api/users/${encodeURIComponent(username)}`, { headers: authHeaders() });
-    const d = await r.json();
-    const info = d.ok ? d.user : { username, displayName: username, avatarUrl: "" };
-    userInfoCache.set(username, info);
-    return info;
-  } catch {
-    return { username, displayName: username, avatarUrl: "" };
-  }
-}
 
 function renderCallAvatar(el, info) {
-  el.innerHTML = info.avatarUrl
-    ? `<img src="${esc(info.avatarUrl)}" alt="">`
-    : `<span>${esc((info.displayName || info.username)[0].toUpperCase())}</span>`;
+  el.innerHTML = avatarHtml(info);
 }
 
 async function openIncoming(username) {
   const info = await getUserInfo(username);
-  document.getElementById("incomingCallText").textContent = `@${username} звонит тебе`;
+  document.getElementById("incomingCallText").textContent = `${info.displayName || "@" + username} звонит тебе`;
   renderCallAvatar(document.getElementById("incomingCallAvatar"), info);
   document.getElementById("incomingCallModal").classList.remove("hidden");
 }
@@ -2056,7 +2719,7 @@ function markConnected() {
 }
 
 async function startAudioCall() {
-  if (currentChat === "global" || currentChat === "support" || isGroupChat(currentChat)) return alert("Звонок только в личном чате");
+  if (!isPrivateChat(currentChat)) return alert("Звонок только в личном чате");
   if (callPeer) return alert("Звонок уже идет");
   if (!ws || ws.readyState !== 1) return alert("WS не подключен");
 
@@ -2180,8 +2843,6 @@ async function toggleSpeaker() {
   const btn = document.getElementById("speakerBtn");
   btn.classList.toggle("callbtn-active", isSpeakerOn);
   btn.innerHTML = `<i class="fa-solid ${isSpeakerOn ? "fa-volume-high" : "fa-volume-low"}"></i>`;
-  // setSinkId is only supported in some browsers (mainly desktop Chrome/Edge);
-  // where unsupported this simply becomes a visual toggle with no effect.
   if (typeof audioEl.setSinkId === "function") {
     try { await audioEl.setSinkId(isSpeakerOn ? "default" : ""); } catch {}
   }
