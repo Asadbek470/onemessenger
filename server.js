@@ -376,18 +376,27 @@ async function initSchema() {
     )
   `);
 
-  // A login record per successful sign-in — powers the admin panel's
-  // "sessions" view (who logged in, from what device/IP, when).
+  // A login record per successful sign-in — powers both the admin panel's
+  // "sessions" view and the person's own "Мои сессии" list. `jti` ties a
+  // row to the actual JWT that was issued at that login, so "завершить
+  // сессию" here is a REAL revocation (verifyAuth checks it below), not
+  // just deleting a log line.
   await dbRun(`
     CREATE TABLE IF NOT EXISTS sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL,
+      jti TEXT,
       ip TEXT DEFAULT '',
       userAgent TEXT DEFAULT '',
+      revoked INTEGER NOT NULL DEFAULT 0,
       createdAt INTEGER NOT NULL
     )
   `);
+  { const addSessCol = async (col, def) => { try { await dbRun(`ALTER TABLE sessions ADD COLUMN ${col} ${def}`); } catch {} };
+    await addSessCol("jti", "TEXT");
+    await addSessCol("revoked", "INTEGER NOT NULL DEFAULT 0"); }
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username, createdAt)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_sessions_jti ON sessions(jti)`);
 
   // Real push subscriptions (Web Push), so notifications can arrive even
   // when the site/tab is completely closed, not just while it's open.
@@ -491,12 +500,26 @@ function verifyAuth(req, res, next) {
   try {
     const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET);
     if (decoded.purpose) return res.status(401).json({ ok: false, error: "Неверный токен" }); // reject 2FA pending tokens here
-    db.get(`SELECT * FROM users WHERE username=?`, [decoded.username], (err, user) => {
+
+    const proceed = (user) => {
       if (!user) return res.status(401).json({ ok: false, error: "Пользователь не найден" });
       if (user.banned) return res.status(403).json({ ok: false, error: "Аккаунт заблокирован" });
       req.user = user;
+      req.sessionJti = decoded.jti || null;
       next();
-    });
+    };
+
+    if (decoded.jti) {
+      // A session someone revoked from "Мои сессии" (or an admin ban that
+      // closes it) must stop working immediately, not just disappear from
+      // a list — so every request re-checks this.
+      db.get(`SELECT revoked FROM sessions WHERE jti=?`, [decoded.jti], (e1, sessRow) => {
+        if (sessRow && sessRow.revoked) return res.status(401).json({ ok: false, error: "Эта сессия была завершена, войди заново" });
+        db.get(`SELECT * FROM users WHERE username=?`, [decoded.username], (e2, user) => proceed(user));
+      });
+    } else {
+      db.get(`SELECT * FROM users WHERE username=?`, [decoded.username], (e2, user) => proceed(user));
+    }
   } catch {
     return res.status(401).json({ ok: false, error: "Неверный токен" });
   }
@@ -649,18 +672,20 @@ app.post("/api/auth/register", rateLimit(10, 60 * 1000), async (req, res) => {
     function (err) {
       if (err) return res.status(400).json({ ok: false, error: "Юзернейм занят" });
 
-      db.get(`SELECT * FROM users WHERE username=?`, [usernameRaw], (e2, user) => {
-        recordSession(req, usernameRaw);
-        res.json({ ok: true, token: signToken(usernameRaw), user: safeUser(user) });
+      db.get(`SELECT * FROM users WHERE username=?`, [usernameRaw], async (e2, user) => {
+        const jti = await recordSession(req, usernameRaw);
+        res.json({ ok: true, token: signToken(usernameRaw, { jti }), user: safeUser(user) });
       });
     }
   );
 });
 
-function recordSession(req, username) {
+async function recordSession(req, username) {
   const ip = String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
   const userAgent = String(req.headers["user-agent"] || "").slice(0, 300);
-  dbRun(`INSERT INTO sessions (username, ip, userAgent, createdAt) VALUES (?,?,?,?)`, [username, ip, userAgent, now()]).catch(() => {});
+  const jti = crypto.randomUUID();
+  await dbRun(`INSERT INTO sessions (username, jti, ip, userAgent, createdAt) VALUES (?,?,?,?,?)`, [username, jti, ip, userAgent, now()]).catch(() => {});
+  return jti;
 }
 
 app.post("/api/auth/login", rateLimit(10, 60 * 1000), (req, res) => {
@@ -679,8 +704,8 @@ app.post("/api/auth/login", rateLimit(10, 60 * 1000), (req, res) => {
       return res.json({ ok: true, need2FA: true, pendingToken });
     }
 
-    recordSession(req, usernameRaw);
-    res.json({ ok: true, token: signToken(usernameRaw), user: safeUser(user) });
+    const jti = await recordSession(req, usernameRaw);
+    res.json({ ok: true, token: signToken(usernameRaw, { jti }), user: safeUser(user) });
   });
 });
 
@@ -696,12 +721,12 @@ app.post("/api/auth/2fa-verify", rateLimit(15, 60 * 1000), (req, res) => {
   }
   if (decoded.purpose !== "2fa") return res.status(401).json({ ok: false, error: "Неверный токен" });
 
-  db.get(`SELECT * FROM users WHERE username=?`, [decoded.username], (err, user) => {
+  db.get(`SELECT * FROM users WHERE username=?`, [decoded.username], async (err, user) => {
     if (!user || !user.totpEnabled) return res.status(400).json({ ok: false, error: "2FA не включена" });
     if (!verifyTotp(user.totpSecret, code)) return res.status(400).json({ ok: false, error: "Неверный код" });
 
-    recordSession(req, user.username);
-    res.json({ ok: true, token: signToken(user.username), user: safeUser(user) });
+    const jti = await recordSession(req, user.username);
+    res.json({ ok: true, token: signToken(user.username, { jti }), user: safeUser(user) });
   });
 });
 
@@ -1645,11 +1670,34 @@ app.get("/api/admin/sessions", verifySuperAdmin, async (req, res) => {
   res.json({ ok: true, sessions: withOnline });
 });
 
+app.post("/api/admin/sessions/:id/revoke", verifySuperAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  await dbRun(`UPDATE sessions SET revoked=1 WHERE id=?`, [id]);
+  res.json({ ok: true });
+});
+
 // One user's own login history (used by the account-level "Sessions" view
 // in Settings, not just the admin panel).
 app.get("/api/me/sessions", verifyAuth, async (req, res) => {
-  const rows = await dbAll(`SELECT * FROM sessions WHERE username=? ORDER BY createdAt DESC LIMIT 50`, [req.user.username]);
-  res.json({ ok: true, sessions: rows });
+  const rows = await dbAll(`SELECT * FROM sessions WHERE username=? AND revoked=0 ORDER BY createdAt DESC LIMIT 50`, [req.user.username]);
+  const withCurrent = rows.map(s => ({ ...s, current: !!req.sessionJti && s.jti === req.sessionJti }));
+  res.json({ ok: true, sessions: withCurrent });
+});
+
+// Self-service: end any OTHER session (a device that isn't this one) —
+// no admin rights needed, just proof it's your own account. Marks it
+// revoked so that device's token is rejected on its very next request,
+// not just removed from this list.
+app.delete("/api/me/sessions/:id", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const session = await dbGet(`SELECT * FROM sessions WHERE id=?`, [id]);
+  if (!session || session.username !== req.user.username) return res.status(404).json({ ok: false, error: "Сессия не найдена" });
+  if (req.sessionJti && session.jti === req.sessionJti) {
+    return res.status(400).json({ ok: false, error: "Это твоя текущая сессия — используй «Выйти», а не это" });
+  }
+
+  await dbRun(`UPDATE sessions SET revoked=1 WHERE id=?`, [id]);
+  res.json({ ok: true });
 });
 
 // ---------------- SUPPORT (tied into the admin panel) ----------------
@@ -1889,7 +1937,7 @@ wss.on("connection", (ws, req) => {
     if (decoded.purpose) return ws.close(); // reject 2FA pending tokens
     const username = String(decoded.username || "");
 
-    db.get(`SELECT * FROM users WHERE username=?`, [username], (err, user) => {
+    const proceedConnection = (user) => {
       if (!user || user.banned) return ws.close();
 
       ws.username = username;
@@ -2003,7 +2051,20 @@ wss.on("connection", (ws, req) => {
         if (ws.username) removeOnline(ws.username, ws);
         broadcastPresence();
       });
-    });
+    };
+
+    const startConnection = () => {
+      db.get(`SELECT * FROM users WHERE username=?`, [username], (err, user) => proceedConnection(user));
+    };
+
+    if (decoded.jti) {
+      db.get(`SELECT revoked FROM sessions WHERE jti=?`, [decoded.jti], (e1, sessRow) => {
+        if (sessRow && sessRow.revoked) return ws.close();
+        startConnection();
+      });
+    } else {
+      startConnection();
+    }
   } catch {
     ws.close();
   }
