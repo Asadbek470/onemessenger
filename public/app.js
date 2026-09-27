@@ -141,11 +141,141 @@ window.addEventListener("DOMContentLoaded", () => {
 function boot() { initApp(); }
 
 // ================== INIT ==================
+// ================== I18N (ru / en / uz) ==================
+const LANG = {
+  ru: {
+    "nav.chats": "Чаты", "nav.profile": "Профиль", "nav.settings": "Настройки",
+    "chats.searchPlaceholder": "Поиск @username...",
+    "chats.group": "Группа", "chats.channel": "Канал", "chats.discover": "Популярное", "chats.invite": "Пригласить",
+    "chats.globalChat": "Общий чат", "chats.globalChatSub": "общение со всеми",
+    "chats.support": "Поддержка", "chats.supportSub": "One Messenger Support",
+    "profile.title": "Профиль", "profile.editProfile": "Редактировать профиль", "profile.myStories": "Мои истории",
+    "settings.title": "Настройки", "settings.profileBlock": "Профиль",
+    "settings.displayName": "Display name", "settings.bio": "Bio", "settings.birthDate": "Дата рождения (YYYY-MM-DD)",
+    "settings.avatar": "Аватар", "settings.fromGallery": "Из галереи", "settings.saveProfile": "Сохранить профиль",
+    "settings.appearance": "Оформление", "settings.language": "Язык",
+    "settings.privacy": "Приватность", "settings.friends": "Друзья",
+    "settings.passcode": "Код-пароль устройства", "settings.twoFA": "Двухэтапная аутентификация",
+    "settings.verification": "Официальная верификация", "settings.sessions": "Мои сессии", "settings.account": "Аккаунт",
+    "settings.logout": "Выйти из аккаунта", "settings.addFriendPlaceholder": "@username", "settings.add": "Добавить",
+    "group.newGroup": "Новая группа", "group.newChannel": "Новый канал", "group.name": "Название",
+    "group.desc": "Описание (не обязательно)", "group.members": "Друзья/родные для добавления (через запятую, @username)",
+    "group.discoverableLabel": "Показывать в публичном поиске (популярное)", "group.create": "Создать",
+    "group.leave": "Покинуть группу", "group.deleteGroup": "Удалить группу", "group.deleteChannel": "Удалить канал", "group.addMemberPlaceholder": "@username",
+    "list.newList": "Новый список", "list.title": "Название списка", "list.items": "Пункты",
+    "list.addItem": "Добавить пункт", "list.send": "Отправить список",
+    "story.newStory": "Новая сторис", "story.file": "Файл (не обязательно)", "story.text": "Текст (не обязательно)",
+    "story.publish": "Опубликовать",
+    "call.audioCall": "Аудиозвонок", "call.connecting": "Соединение...",
+    "discover.title": "Популярные группы и каналы", "discover.searchPlaceholder": "Поиск по названию...", "discover.join": "Вступить",
+    "common.messagePlaceholder": "Сообщение...", "gift.codeLabel": "Секретный код (не нужен по пятницам)"
+  },
+  en: {
+    "nav.chats": "Chats", "nav.profile": "Profile", "nav.settings": "Settings",
+    "chats.searchPlaceholder": "Search @username...",
+    "chats.group": "Group", "chats.channel": "Channel", "chats.discover": "Discover", "chats.invite": "Invite",
+    "chats.globalChat": "Global chat", "chats.globalChatSub": "chat with everyone",
+    "chats.support": "Support", "chats.supportSub": "One Messenger Support",
+    "profile.title": "Profile", "profile.editProfile": "Edit profile", "profile.myStories": "My stories",
+    "settings.title": "Settings", "settings.profileBlock": "Profile",
+    "settings.displayName": "Display name", "settings.bio": "Bio", "settings.birthDate": "Birth date (YYYY-MM-DD)",
+    "settings.avatar": "Avatar", "settings.fromGallery": "From gallery", "settings.saveProfile": "Save profile",
+    "settings.appearance": "Appearance", "settings.language": "Language",
+    "settings.privacy": "Privacy", "settings.friends": "Friends",
+    "settings.passcode": "Device passcode", "settings.twoFA": "Two-factor authentication",
+    "settings.verification": "Official verification", "settings.sessions": "My sessions", "settings.account": "Account",
+    "settings.logout": "Log out", "settings.addFriendPlaceholder": "@username", "settings.add": "Add",
+    "group.newGroup": "New group", "group.newChannel": "New channel", "group.name": "Name",
+    "group.desc": "Description (optional)", "group.members": "Friends/family to add (comma-separated, @username)",
+    "group.discoverableLabel": "Show in public search (Discover)", "group.create": "Create",
+    "group.leave": "Leave group", "group.deleteGroup": "Delete group", "group.deleteChannel": "Delete channel", "group.addMemberPlaceholder": "@username",
+    "list.newList": "New list", "list.title": "List title", "list.items": "Items",
+    "list.addItem": "Add item", "list.send": "Send list",
+    "story.newStory": "New story", "story.file": "File (optional)", "story.text": "Text (optional)",
+    "story.publish": "Publish",
+    "call.audioCall": "Audio call", "call.connecting": "Connecting...",
+    "discover.title": "Popular groups and channels", "discover.searchPlaceholder": "Search by name...", "discover.join": "Join",
+    "common.messagePlaceholder": "Message...", "gift.codeLabel": "Secret code (not needed on Fridays)"
+  },
+  uz: {
+    "nav.chats": "Suhbatlar", "nav.profile": "Profil", "nav.settings": "Sozlamalar",
+    "chats.searchPlaceholder": "@username qidirish...",
+    "chats.group": "Guruh", "chats.channel": "Kanal", "chats.discover": "Ommabop", "chats.invite": "Taklif qilish",
+    "chats.globalChat": "Umumiy chat", "chats.globalChatSub": "hamma bilan muloqot",
+    "chats.support": "Yordam", "chats.supportSub": "One Messenger Support",
+    "profile.title": "Profil", "profile.editProfile": "Profilni tahrirlash", "profile.myStories": "Mening hikoyalarim",
+    "settings.title": "Sozlamalar", "settings.profileBlock": "Profil",
+    "settings.displayName": "Ko'rsatiladigan ism", "settings.bio": "O'zim haqimda", "settings.birthDate": "Tug'ilgan sana (YYYY-MM-DD)",
+    "settings.avatar": "Avatar", "settings.fromGallery": "Galereyadan", "settings.saveProfile": "Profilni saqlash",
+    "settings.appearance": "Ko'rinish", "settings.language": "Til",
+    "settings.privacy": "Maxfiylik", "settings.friends": "Do'stlar",
+    "settings.passcode": "Qurilma kodi", "settings.twoFA": "Ikki bosqichli autentifikatsiya",
+    "settings.verification": "Rasmiy tasdiqlash", "settings.sessions": "Mening seanslarim", "settings.account": "Hisob",
+    "settings.logout": "Hisobdan chiqish", "settings.addFriendPlaceholder": "@username", "settings.add": "Qo'shish",
+    "group.newGroup": "Yangi guruh", "group.newChannel": "Yangi kanal", "group.name": "Nomi",
+    "group.desc": "Tavsif (ixtiyoriy)", "group.members": "Qo'shiladigan do'stlar/oila a'zolari (vergul bilan, @username)",
+    "group.discoverableLabel": "Ommaviy qidiruvda ko'rsatish (Ommabop)", "group.create": "Yaratish",
+    "group.leave": "Guruhni tark etish", "group.deleteGroup": "Guruhni o'chirish", "group.deleteChannel": "Kanalni o'chirish", "group.addMemberPlaceholder": "@username",
+    "list.newList": "Yangi ro'yxat", "list.title": "Ro'yxat nomi", "list.items": "Bandlar",
+    "list.addItem": "Band qo'shish", "list.send": "Ro'yxatni yuborish",
+    "story.newStory": "Yangi hikoya", "story.file": "Fayl (ixtiyoriy)", "story.text": "Matn (ixtiyoriy)",
+    "story.publish": "Chop etish",
+    "call.audioCall": "Ovozli qo'ng'iroq", "call.connecting": "Ulanmoqda...",
+    "discover.title": "Ommabop guruh va kanallar", "discover.searchPlaceholder": "Nomi bo'yicha qidirish...", "discover.join": "Qo'shilish",
+    "common.messagePlaceholder": "Xabar...", "gift.codeLabel": "Maxfiy kod (juma kunlari kerak emas)"
+  }
+};
+
+let currentLang = localStorage.getItem("lang") || "ru";
+
+function t(key) {
+  return (LANG[currentLang] && LANG[currentLang][key]) || LANG.ru[key] || key;
+}
+
+function applyLanguage(lang) {
+  if (!LANG[lang]) lang = "ru";
+  currentLang = lang;
+  localStorage.setItem("lang", lang);
+  document.documentElement.lang = lang;
+
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach(el => {
+    el.title = t(el.dataset.i18nTitle);
+  });
+}
+
+async function setLanguage(lang) {
+  applyLanguage(lang);
+  if (me) {
+    await saveSettingsPatch({ language: lang });
+    renderLanguageSection();
+  }
+}
+
+function renderLanguageSection() {
+  const box = document.getElementById("languageSection");
+  if (!box) return;
+  const langs = [["ru", "Русский"], ["en", "English"], ["uz", "O'zbekcha"]];
+  box.innerHTML = `
+    <div class="swatchrow">
+      ${langs.map(([code, label]) => `
+        <button class="btn ${currentLang === code ? "primary" : "ghost"} small" onclick="setLanguage('${code}')">${label}</button>
+      `).join("")}
+    </div>
+  `;
+}
+
 async function initApp() {
   await loadMe();
   if (!me) return; // loadMe already redirected on failure
 
   applyTheme(me.settings || {});
+  applyLanguage((me.settings && me.settings.language) || currentLang);
   connectWS();
 
   await refreshChats();
@@ -787,7 +917,7 @@ function renderOnlineDots() {
 // ================== GROUPS & CHANNELS ==================
 function openCreateGroupModal(isChannel) {
   document.getElementById("groupModal").classList.remove("hidden");
-  document.getElementById("groupModalTitle").textContent = isChannel ? "Новый канал" : "Новая группа";
+  document.getElementById("groupModalTitle").textContent = isChannel ? t("group.newChannel") : t("group.newGroup");
   document.getElementById("groupIsChannel").value = isChannel ? "1" : "0";
   document.getElementById("groupName").value = "";
   document.getElementById("groupDesc").value = "";
@@ -924,7 +1054,7 @@ async function openGroupInfo() {
 
   const deleteBtn = document.getElementById("groupDeleteBtn");
   deleteBtn.classList.toggle("hidden", !isOwner);
-  deleteBtn.textContent = d.group.isChannel ? "Удалить канал" : "Удалить группу";
+  deleteBtn.textContent = d.group.isChannel ? t("group.deleteChannel") : t("group.deleteGroup");
   deleteBtn.onclick = () => deleteGroup(groupId, d.group.isChannel);
 }
 async function setGroupMemberRole(groupId, username, role) {
@@ -1187,6 +1317,7 @@ function openSettings() {
   renderPasscodeSection();
   render2FASection();
   renderWallpaperSection();
+  renderLanguageSection();
   renderPrivacySection();
   renderFriendsSection();
   renderVerificationSection();
