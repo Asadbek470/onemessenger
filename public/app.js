@@ -1021,6 +1021,20 @@ async function searchUsers(val) {
   if (!d.ok) return;
 
   results.innerHTML = "";
+
+  if (d.users.length === 0) {
+    results.innerHTML = `
+      <div class="chatitem invite-hint">
+        <div class="meta">
+          <div class="name">@${esc(q)} не найден(а)</div>
+          <div class="preview">Его/её ещё нет в One Messenger</div>
+        </div>
+        <button class="btn ghost small" onclick="inviteToMessenger()"><i class="fa-solid fa-user-plus"></i> Пригласить</button>
+      </div>
+    `;
+    return;
+  }
+
   d.users.forEach(u => {
     const btn = document.createElement("button");
     btn.className = "chatitem";
@@ -1036,6 +1050,38 @@ async function searchUsers(val) {
     results.appendChild(btn);
   });
 }
+
+// ================== INVITE (share to contacts) ==================
+// There is no way for a website to send an SMS/message directly (browsers
+// don't expose that, for good privacy reasons) — but the native share sheet
+// (navigator.share) opens the same "choose a contact" flow as any app: iOS
+// Messages, WhatsApp, Telegram, Gmail, etc. all appear there with the
+// system's own contact picker. That's the real "association with contacts".
+function buildInviteText() {
+  const inviteUrl = `${location.origin}/index.html`;
+  return `Я в One Messenger — общаемся без сим-карты и без слежки за данными. Голосовые, звонки, группы, каналы, сторис — всё в одном месте. Присоединяйся: ${inviteUrl}`;
+}
+
+async function inviteToMessenger() {
+  const text = buildInviteText();
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "One Messenger", text });
+    } catch {
+      // person cancelled the share sheet — not an error, do nothing
+    }
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Текст приглашения скопирован — вставь его в любой чат");
+  } catch {
+    prompt("Скопируй текст приглашения и отправь тому, кого хочешь позвать:", text);
+  }
+}
+
 
 // ================== PROFILE VIEW ==================
 async function openCurrentProfile() {
@@ -1160,11 +1206,20 @@ async function renderSessionsSection() {
   box.innerHTML = d.sessions.map(s => `
     <div class="memberrow">
       <div class="meta">
-        <div class="name">${new Date(s.createdAt).toLocaleString("ru-RU")}</div>
+        <div class="name">${new Date(s.createdAt).toLocaleString("ru-RU")} ${s.current ? '<span class="hint">(это устройство)</span>' : ""}</div>
         <div class="preview">${esc(s.ip || "IP неизвестен")} · ${esc(shortenUA(s.userAgent))}</div>
       </div>
+      ${!s.current ? `<button class="iconbtn danger" onclick="endSession(${s.id})" title="Завершить сессию"><i class="fa-solid fa-power-off"></i></button>` : ""}
     </div>
   `).join("");
+}
+async function endSession(id) {
+  if (!confirm("Завершить эту сессию? Устройство будет разлогинено.")) return;
+  const r = await fetch(`/api/me/sessions/${id}`, { method: "DELETE", headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast("Сессия завершена");
+  renderSessionsSection();
 }
 function shortenUA(ua) {
   if (!ua) return "устройство неизвестно";
