@@ -40,6 +40,8 @@
     <div class="admin-tabs">
       <button class="admintab active" data-tab="users" onclick="switchAdminTab('users')">Пользователи</button>
       <button class="admintab" data-tab="verification" onclick="switchAdminTab('verification')">Верификация</button>
+      <button class="admintab" data-tab="support" onclick="switchAdminTab('support')">Поддержка</button>
+      <button class="admintab" data-tab="sessions" onclick="switchAdminTab('sessions')">Сессии</button>
     </div>
 
     <!-- USERS TAB -->
@@ -94,6 +96,31 @@
     <!-- VERIFICATION TAB -->
     <div id="tabVerification" class="admintabpanel hidden">
       <div id="verificationList" class="ver-list"></div>
+    </div>
+
+    <!-- SUPPORT TAB -->
+    <div id="tabSupport" class="admintabpanel hidden">
+      <div id="supportConversations" class="user-list"></div>
+      <div id="supportThreadViewer" class="thread-viewer hidden">
+        <div class="thread-head">
+          <h3 id="supportThreadTitle">Обращение</h3>
+          <button class="iconbtn" onclick="closeSupportThread()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="supportThreadMessages" class="thread-messages"></div>
+        <div class="support-reply-row">
+          <input id="supportReplyInput" placeholder="Ответ пользователю..." onkeydown="if(event.key==='Enter') sendSupportReply()">
+          <button onclick="sendSupportReply()">Отправить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SESSIONS TAB -->
+    <div id="tabSessions" class="admintabpanel hidden">
+      <div class="admin-search">
+        <input id="searchSessions" placeholder="Фильтр по @username" onkeydown="if(event.key==='Enter') loadAdminSessions()">
+        <button onclick="loadAdminSessions()">Найти</button>
+      </div>
+      <div id="sessionsList" class="ver-list"></div>
     </div>
   </div>
 
