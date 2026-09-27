@@ -26,20 +26,13 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 3000;
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@example.com";
 
-// JWT secret and VAPID (push) keys used to live in local files — which was
-// wrong for the exact same reason database.db was: Render's free tier wipes
-// that disk on every restart. They now live in Turso too (a tiny key-value
-// table), generated once and reused forever after. An explicit env var, if
-// you set one, always takes priority.
+// Часовой пояс для дней рождения (в минутах от UTC). По умолчанию Ташкент (UTC+5).
+const TZ_OFFSET_MINUTES = Number(process.env.TZ_OFFSET_MINUTES || 300);
+
 let EFFECTIVE_JWT_SECRET = process.env.JWT_SECRET || "";
 let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
 let VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
 
-// Sends a real OS-level push notification to every device/browser this
-// user has subscribed from — used specifically for people who are NOT
-// currently connected over the websocket (site/tab actually closed).
-// Expired/invalid subscriptions (410/404 from the push service) are
-// cleaned up automatically.
 async function sendPushToUser(username, payload) {
   if (!webpush) return;
   const subs = await dbAll(`SELECT * FROM push_subscriptions WHERE username=?`, [username]);
@@ -57,11 +50,7 @@ async function sendPushToUser(username, payload) {
 }
 const APP_NAME = "One Messenger";
 
-// ---------------- GIFTS (emoji gifts on profiles) ----------------
-// Free to send every Friday, or any day at all if the sender knows one of
-// these secret codes. Change this env var any time you like — it's read
-// fresh on every request, so it never touches (or wipes) any existing
-// user, story, or gift already in the database.
+// ---------------- GIFTS ----------------
 const GIFT_SECRET_CODES = String(process.env.GIFT_SECRET_CODES || "777,666")
   .split(",").map(s => s.trim()).filter(Boolean);
 const GIFT_EMOJIS = ["🎁", "🌟", "💎", "🔥", "❤️", "🏆", "👑", "✨", "🎉", "🌹"];
@@ -71,11 +60,6 @@ function isGiftDay() {
 }
 
 // ---------------- ADMIN CREDENTIALS ----------------
-// The admin panel is a completely separate login, not tied to any regular
-// user account. Set these in Render -> Environment. The values below are
-// only fallbacks so the panel works out of the box — CHANGE THEM before
-// this app is reachable by anyone else, because default credentials in a
-// public GitHub repo are effectively public.
 const ADMIN_LOGIN = process.env.ADMIN_LOGIN || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin2026";
 if (!process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
@@ -90,7 +74,6 @@ function timingSafeStrEqual(a, b) {
   const bufA = Buffer.from(String(a));
   const bufB = Buffer.from(String(b));
   if (bufA.length !== bufB.length) {
-    // still run a comparison of equal length to avoid leaking length via timing
     crypto.timingSafeEqual(bufA, bufA);
     return false;
   }
@@ -98,12 +81,187 @@ function timingSafeStrEqual(a, b) {
 }
 
 app.use(express.json({ limit: "2mb" }));
+
+// ================================================================
+// ЛОГОТИП «OM» — рисуется прямо здесь, в коде.
+// Никаких файлов-картинок закачивать не нужно: сервер сам создаёт
+// настоящий PNG (буквы O и M на сине-фиолетовом фоне) и отдаёт его
+// по адресам /icon-192.png и /icon-512.png. Иконка используется как
+// аватар «Поддержки», значок вкладки, иконка приложения на телефоне
+// и картинка в push-уведомлениях.
+// ================================================================
+const zlib = require("zlib");
+
+function pngCrc32(buf) {
+  let c, crc = 0xffffffff;
+  for (let n = 0; n < buf.length; n++) {
+    c = (crc ^ buf[n]) & 0xff;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    crc = c ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(pngCrc32(body));
+  return Buffer.concat([len, body, crc]);
+}
+
+function encodePng(size, rgba) {
+  const rowLen = size * 4 + 1;
+  const raw = Buffer.alloc(rowLen * size);
+  for (let y = 0; y < size; y++) {
+    raw[y * rowLen] = 0; // фильтр строки: без фильтра
+    rgba.copy(raw, y * rowLen + 1, y * size * 4, (y + 1) * size * 4);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8;  // 8 бит на канал
+  ihdr[9] = 6;  // RGBA
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
+    pngChunk("IEND", Buffer.alloc(0))
+  ]);
+}
+
+// расстояние от точки до отрезка — так рисуются палочки буквы M
+function segDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function isLetterPixel(x, y, S) {
+  const cy = 0.5 * S, hh = 0.165 * S, t = 0.07 * S;
+
+  // буква O — кольцо
+  const ox = 0.295 * S, orx = 0.155 * S, ory = hh;
+  const outer = Math.hypot((x - ox) / orx, (y - cy) / ory);
+  const inner = Math.hypot((x - ox) / (orx - t), (y - cy) / (ory - t));
+  if (outer <= 1 && inner >= 1) return true;
+
+  // буква M — четыре линии
+  const x0 = 0.50 * S, x1 = 0.78 * S, xm = (x0 + x1) / 2;
+  const top = cy - hh, bot = cy + hh, mid = cy + hh * 0.35, w = t / 2;
+  if (segDist(x, y, x0, bot, x0, top) <= w) return true;
+  if (segDist(x, y, x1, bot, x1, top) <= w) return true;
+  if (segDist(x, y, x0, top, xm, mid) <= w) return true;
+  if (segDist(x, y, xm, mid, x1, top) <= w) return true;
+  return false;
+}
+
+function isInsideRoundedSquare(x, y, S, r) {
+  const cx = Math.min(Math.max(x, r), S - r);
+  const cy = Math.min(Math.max(y, r), S - r);
+  const dx = x - cx, dy = y - cy;
+  return dx * dx + dy * dy <= r * r;
+}
+
+const iconCache = new Map();
+
+function buildIcon(S) {
+  if (iconCache.has(S)) return iconCache.get(S);
+
+  const px = Buffer.alloc(S * S * 4);
+  const radius = S * 0.23;
+  const AA = 3; // сглаживание краёв
+  const c1 = [42, 157, 244];   // синий
+  const c2 = [106, 92, 255];   // фиолетовый
+
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      let inside = 0, letter = 0;
+      for (let sy = 0; sy < AA; sy++) {
+        for (let sx = 0; sx < AA; sx++) {
+          const fx = x + (sx + 0.5) / AA, fy = y + (sy + 0.5) / AA;
+          if (isInsideRoundedSquare(fx, fy, S, radius)) {
+            inside++;
+            if (isLetterPixel(fx, fy, S)) letter++;
+          }
+        }
+      }
+      const n = AA * AA;
+      const alpha = inside / n;
+      const white = letter / n / Math.max(alpha, 0.0001);
+      const grad = (x + y) / (2 * (S - 1));
+      const i = (y * S + x) * 4;
+      for (let k = 0; k < 3; k++) {
+        const bg = c1[k] * (1 - grad) + c2[k] * grad;
+        px[i + k] = Math.round(bg * (1 - white) + 255 * white);
+      }
+      px[i + 3] = Math.round(alpha * 255);
+    }
+  }
+
+  const out = encodePng(S, px);
+  iconCache.set(S, out);
+  return out;
+}
+
+function serveIcon(size) {
+  return (req, res) => {
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=604800");
+    res.send(buildIcon(size));
+  };
+}
+
+app.get("/icon-192.png", serveIcon(192));
+app.get("/icon-512.png", serveIcon(512));
+app.get("/favicon.ico", serveIcon(64));
+
+// Манифест тоже живёт в коде — отдельный файл manifest.json не нужен.
+app.get("/manifest.json", (req, res) => {
+  res.json({
+    name: APP_NAME,
+    short_name: "OM",
+    start_url: "/chat.html",
+    display: "standalone",
+    background_color: "#0b1420",
+    theme_color: "#0b1420",
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" }
+    ]
+  });
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 
+// ---------------- CUSTOMIZATION HELPERS ----------------
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+const WALLPAPER_PRESETS = ["default", "night", "ocean", "sunset", "forest", "aurora", "rose", "graphite", "lavender", "mint"];
+function isValidWallpaper(v) {
+  return typeof v === "string" && (WALLPAPER_PRESETS.includes(v) || /^\/media\/[a-z]+-[0-9a-f]{32}$/.test(v));
+}
+function cleanEmojiStatus(v) {
+  const s = String(v || "").replace(/[<>&"'`\\]/g, "").trim();
+  return Array.from(s).slice(0, 8).join("");
+}
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function localToday() {
+  const d = new Date(Date.now() + TZ_OFFSET_MINUTES * 60000);
+  return { yyyy: d.getUTCFullYear(), mm: pad2(d.getUTCMonth() + 1), dd: pad2(d.getUTCDate()) };
+}
+function isBirthdayToday(bd) {
+  if (!bd || !/^\d{4}-\d{2}-\d{2}$/.test(bd)) return false;
+  const t = localToday();
+  return bd.slice(5) === `${t.mm}-${t.dd}`;
+}
+
 // ---------------- UPLOAD SAFETY ----------------
-// Never trust the extension the client sends. Map from the sniffed mimetype
-// instead, so a crafted filename can never end up inside an
-// <img src="..."> / <video src="..."> attribute unescaped.
+// Эти типы безопасно показывать прямо в чате (картинка/видео/аудио).
+// ЛЮБОЙ другой файл (Word, Excel, PowerPoint, PDF, ZIP...) тоже можно
+// отправить, но сервер отдаёт его только как «скачать», а не открывает
+// в браузере — так через файл нельзя подсунуть вредный HTML/скрипт.
 const MIME_EXT = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -116,52 +274,65 @@ const MIME_EXT = {
   "audio/mpeg": ".mp3",
   "audio/ogg": ".ogg",
   "audio/wav": ".wav",
-  "audio/x-wav": ".wav"
+  "audio/x-wav": ".wav",
+  "audio/mp4": ".m4a",
+  "audio/x-m4a": ".m4a",
+  "audio/aac": ".aac"
 };
 
-function fileFilter(req, file, cb) {
-  if (MIME_EXT[file.mimetype]) return cb(null, true);
-  cb(new Error("Недопустимый тип файла"));
+function normMime(m) {
+  return String(m || "").toLowerCase().split(";")[0].trim();
 }
 
-// Files are kept in memory only (never written to Render's ephemeral disk)
-// and handed straight to saveUploadedFile() below, which stores them as
-// blobs in Turso — the exact same always-on database everything else in
-// this file already relies on. No separate storage provider to sign up for.
+function fileFilter(req, file, cb) {
+  cb(null, true); // любые форматы — опасные отдаются только на скачивание (см. /media/:id)
+}
+
+// multer отдаёт имя файла в latin1 — переводим обратно в UTF-8, чтобы
+// русские названия вроде «Отчёт.docx» не превращались в кракозябры.
+function decodeFileName(name) {
+  let n = String(name || "");
+  try { n = Buffer.from(n, "latin1").toString("utf8"); } catch {}
+  n = n.replace(/[\\/\u0000-\u001f<>:"|?*]/g, "_").trim().slice(0, 150);
+  return n || "file";
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 20 * 1024 * 1024, files: 1 } // 20MB — see note by the /media/:id route below
+  limits: { fileSize: 20 * 1024 * 1024, files: 1 }
 });
 
-// ---------------- FILE STORAGE (blobs inside Turso, no external service) ----------------
-// Saves a file as a row in Turso and returns a URL (/media/<id>) that the
-// GET route further down serves it back from. Since Turso IS the database
-// this whole app already depends on, this needs no extra account, no extra
-// env vars, and survives restarts exactly as well as everything else does.
-async function saveUploadedFile(buffer, mimetype, keyPrefix) {
+async function saveUploadedFile(buffer, mimetype, keyPrefix, fileName = "") {
   const id = `${keyPrefix}-${crypto.randomBytes(16).toString("hex")}`;
   await dbRun(
-    `INSERT INTO media_blobs (id, mimetype, data, createdAt) VALUES (?,?,?,?)`,
-    [id, mimetype, buffer, now()]
+    `INSERT INTO media_blobs (id, mimetype, data, createdAt, fileName) VALUES (?,?,?,?,?)`,
+    [id, normMime(mimetype) || "application/octet-stream", buffer, now(), fileName]
   );
   return `/media/${id}`;
 }
 
-// Serves a previously uploaded file back out of Turso. No auth required —
-// this plays the same public role the old /uploads static folder did (an
-// <img>/<video>/<audio> src has to be fetchable without extra headers).
-// IDs are random 32-hex-char tokens, so this isn't browsable/guessable.
 app.get("/media/:id", async (req, res) => {
   const id = String(req.params.id || "");
   if (!/^[a-z]+-[0-9a-f]{32}$/.test(id)) return res.status(404).end();
 
   try {
-    const row = await dbGet(`SELECT mimetype, data FROM media_blobs WHERE id=?`, [id]);
+    const row = await dbGet(`SELECT mimetype, data, fileName FROM media_blobs WHERE id=?`, [id]);
     if (!row) return res.status(404).end();
 
-    res.setHeader("Content-Type", row.mimetype);
-    res.setHeader("Cache-Control", "public, max-age=31536000, immutable"); // ids are random & content never changes
+    const mime = normMime(row.mimetype);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+
+    if (MIME_EXT[mime]) {
+      res.setHeader("Content-Type", mime);
+    } else {
+      const fname = row.fileName || "file";
+      const asciiName = fname.replace(/[^\x20-\x7e]/g, "_").replace(/"/g, "_");
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fname)}`);
+      res.setHeader("Content-Security-Policy", "sandbox");
+    }
     res.send(Buffer.from(row.data));
   } catch {
     res.status(500).end();
@@ -169,21 +340,7 @@ app.get("/media/:id", async (req, res) => {
 });
 
 // ================================================================
-// DATABASE — Turso (libSQL), not a local file.
-//
-// Render's Free plan wipes the whole local disk every time the service
-// spins down from inactivity (~15 min) — that includes database.db itself,
-// which is exactly why accounts/messages/sessions kept disappearing. Turso
-// is a separate, always-on, SQLite-compatible database with a generous free
-// tier, so data now survives restarts, redeploys, and sleep/wake cycles.
-//
-// Create one at https://turso.tech (free), then set on Render:
-//   TURSO_DATABASE_URL   e.g. libsql://your-db-name.turso.io
-//   TURSO_AUTH_TOKEN     the token Turso gives you for that database
-//
-// Everything below this block (db.run/db.get/db.all, dbRun/dbGet/dbAll)
-// keeps the exact same shape as before — this is a compatibility shim, so
-// none of the ~50 queries elsewhere in this file needed to change.
+// DATABASE — Turso (libSQL)
 // ================================================================
 const TURSO_DATABASE_URL = process.env.TURSO_DATABASE_URL || "";
 const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN || "";
@@ -226,9 +383,6 @@ const db = {
       .then((result) => callback(null, result.rows))
       .catch((err) => callback(err));
   },
-  // sqlite3's serialize() just queued callbacks in order; the schema setup
-  // below now awaits each statement directly instead, so this is a no-op
-  // kept only so nothing else calling db.serialize(...) breaks.
   serialize(fn) { fn(); }
 };
 
@@ -239,10 +393,9 @@ const dbRun = function (sql, params = []) {
   return new Promise((res, rej) => db.run(sql, params, function (e) { e ? rej(e) : res(this); }));
 };
 
-// Schema setup — sequential and awaited (unlike sqlite3's fire-and-forget
-// .serialize(), a remote database needs each CREATE/ALTER to actually finish
-// before the next one that might depend on it runs).
 async function initSchema() {
+  const addColumn = async (table, col, def) => { try { await dbRun(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); } catch {} };
+
   await dbRun(`
     CREATE TABLE IF NOT EXISTS app_secrets (
       key TEXT PRIMARY KEY,
@@ -250,9 +403,6 @@ async function initSchema() {
     )
   `);
 
-  // Uploaded photos/videos/voice notes/avatars, stored as blobs right here
-  // in Turso — no separate storage provider needed. Served back by the
-  // GET /media/:id route further down.
   await dbRun(`
     CREATE TABLE IF NOT EXISTS media_blobs (
       id TEXT PRIMARY KEY,
@@ -261,6 +411,7 @@ async function initSchema() {
       createdAt INTEGER NOT NULL
     )
   `);
+  await addColumn("media_blobs", "fileName", "TEXT NOT NULL DEFAULT ''");
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS users (
@@ -277,28 +428,29 @@ async function initSchema() {
     )
   `);
 
-  // Safe to run repeatedly against an existing DB; errors if a column
-  // already exists, which we just swallow.
-  const addCol = async (col, def) => { try { await dbRun(`ALTER TABLE users ADD COLUMN ${col} ${def}`); } catch {} };
-  await addCol("banned", "INTEGER NOT NULL DEFAULT 0");
-  await addCol("muted", "INTEGER NOT NULL DEFAULT 0");
-  await addCol("verified", "INTEGER NOT NULL DEFAULT 0");
-  await addCol("totpSecret", "TEXT NOT NULL DEFAULT ''");
-  await addCol("totpEnabled", "INTEGER NOT NULL DEFAULT 0");
-  await addCol("settings", "TEXT NOT NULL DEFAULT '{}'"); // { theme, wallpaper, accent, storyPrivacy, bioPrivacy }
+  await addColumn("users", "banned", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("users", "muted", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("users", "verified", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("users", "totpSecret", "TEXT NOT NULL DEFAULT ''");
+  await addColumn("users", "totpEnabled", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("users", "settings", "TEXT NOT NULL DEFAULT '{}'");
+  await addColumn("users", "lastSeen", "INTEGER NOT NULL DEFAULT 0");
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chatType TEXT NOT NULL,          -- global|private|group
+      chatType TEXT NOT NULL,
       sender TEXT NOT NULL,
-      receiver TEXT NOT NULL,          -- 'global' | username | 'group:<id>'
+      receiver TEXT NOT NULL,
       text TEXT DEFAULT '',
-      mediaType TEXT DEFAULT 'text',   -- text|image|video|audio|list
+      mediaType TEXT DEFAULT 'text',   -- text|image|video|audio|list|file
       mediaUrl TEXT DEFAULT '',
       createdAt INTEGER NOT NULL
     )
   `);
+  await addColumn("messages", "fileName", "TEXT NOT NULL DEFAULT ''");
+  await addColumn("messages", "fileSize", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("messages", "forwardedFrom", "TEXT NOT NULL DEFAULT ''");
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS stories (
@@ -324,21 +476,18 @@ async function initSchema() {
       createdAt INTEGER NOT NULL
     )
   `);
-  { const addGroupCol = async (col, def) => { try { await dbRun(`ALTER TABLE groups ADD COLUMN ${col} ${def}`); } catch {} };
-    await addGroupCol("discoverable", "INTEGER NOT NULL DEFAULT 0"); }
+  await addColumn("groups", "discoverable", "INTEGER NOT NULL DEFAULT 0");
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS group_members (
       groupId INTEGER NOT NULL,
       username TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member', -- owner|admin|member
+      role TEXT NOT NULL DEFAULT 'member',
       joinedAt INTEGER NOT NULL,
       PRIMARY KEY (groupId, username)
     )
   `);
 
-  // Bans are separate from just removing someone: a banned username can't
-  // rejoin a discoverable group or be re-added by an admin until unbanned.
   await dbRun(`
     CREATE TABLE IF NOT EXISTS group_bans (
       groupId INTEGER NOT NULL,
@@ -349,10 +498,6 @@ async function initSchema() {
     )
   `);
 
-  // Purely cosmetic emoji "gifts" people can send to each other's profile.
-  // Gating (Friday / secret code) lives entirely in application code below,
-  // never in the schema — so changing the code or the day rule later never
-  // touches this table or any existing row in it.
   await dbRun(`
     CREATE TABLE IF NOT EXISTS gifts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -364,9 +509,6 @@ async function initSchema() {
   `);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_gifts_recipient ON gifts(recipient, createdAt)`);
 
-  // One-directional "friends" list: each user curates their own list of who
-  // counts as a "friend" for THEIR privacy settings (bio/story visibility).
-  // No approval flow — you decide who to add, same as a "close friends" list.
   await dbRun(`
     CREATE TABLE IF NOT EXISTS friends (
       owner TEXT NOT NULL,
@@ -376,11 +518,6 @@ async function initSchema() {
     )
   `);
 
-  // A login record per successful sign-in — powers both the admin panel's
-  // "sessions" view and the person's own "Мои сессии" list. `jti` ties a
-  // row to the actual JWT that was issued at that login, so "завершить
-  // сессию" here is a REAL revocation (verifyAuth checks it below), not
-  // just deleting a log line.
   await dbRun(`
     CREATE TABLE IF NOT EXISTS sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -392,14 +529,11 @@ async function initSchema() {
       createdAt INTEGER NOT NULL
     )
   `);
-  { const addSessCol = async (col, def) => { try { await dbRun(`ALTER TABLE sessions ADD COLUMN ${col} ${def}`); } catch {} };
-    await addSessCol("jti", "TEXT");
-    await addSessCol("revoked", "INTEGER NOT NULL DEFAULT 0"); }
+  await addColumn("sessions", "jti", "TEXT");
+  await addColumn("sessions", "revoked", "INTEGER NOT NULL DEFAULT 0");
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username, createdAt)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_sessions_jti ON sessions(jti)`);
 
-  // Real push subscriptions (Web Push), so notifications can arrive even
-  // when the site/tab is completely closed, not just while it's open.
   await dbRun(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY,
@@ -417,9 +551,54 @@ async function initSchema() {
       orgName TEXT NOT NULL,
       role TEXT NOT NULL,
       proofUrl TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending', -- pending|approved|rejected
+      status TEXT NOT NULL DEFAULT 'pending',
       createdAt INTEGER NOT NULL,
       decidedAt INTEGER
+    )
+  `);
+
+  // Официальные аккаунты: кто может писать напрямую (исключения)
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS dm_exceptions (
+      owner TEXT NOT NULL,
+      allowed TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (owner, allowed)
+    )
+  `);
+
+  // Заявки «написать официальному аккаунту» — рассматривает администрация
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS contact_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      fromUser TEXT NOT NULL,
+      toUser TEXT NOT NULL,
+      text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      createdAt INTEGER NOT NULL,
+      decidedAt INTEGER
+    )
+  `);
+
+  // Обои для конкретного чата (свои и «для собеседника»)
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS chat_wallpapers (
+      owner TEXT NOT NULL,
+      chat TEXT NOT NULL,
+      value TEXT NOT NULL,
+      setBy TEXT NOT NULL DEFAULT '',
+      updatedAt INTEGER NOT NULL,
+      PRIMARY KEY (owner, chat)
+    )
+  `);
+
+  // Чтобы поздравление с ДР отправлялось один раз в год
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS birthday_log (
+      username TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (username, year)
     )
   `);
 
@@ -432,17 +611,12 @@ const schemaReady = initSchema()
   .then(() => console.log("[DB] Turso schema ready"))
   .catch((e) => console.error("[DB] Schema initialization failed:", e.message));
 
-// Load (or generate, once) the JWT secret and VAPID push keys from that
-// app_secrets table, instead of local disk files. An env var, if set,
-// always wins and skips the DB entirely for that one value.
 async function getOrCreateSecret(key, generator) {
   const row = await dbGet(`SELECT value FROM app_secrets WHERE key=?`, [key]);
   if (row && row.value) return row.value;
 
   const value = generator();
   await dbRun(`INSERT INTO app_secrets (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`, [key, value]);
-  // Someone else (a concurrent boot) may have inserted first — re-read to
-  // make sure every instance ends up agreeing on the same secret.
   const confirmed = await dbGet(`SELECT value FROM app_secrets WHERE key=?`, [key]);
   return confirmed ? confirmed.value : value;
 }
@@ -469,7 +643,7 @@ const secretsReady = schemaReady.then(async () => {
 
 
 function parseSettings(u) {
-  try { return JSON.parse(u.settings || "{}"); } catch { return {}; }
+  try { return JSON.parse((u && u.settings) || "{}"); } catch { return {}; }
 }
 
 function safeUser(u) {
@@ -485,10 +659,61 @@ function safeUser(u) {
   };
 }
 
+// «Карточка» пользователя — то, что приходит вместе с каждым сообщением:
+// аватар, имя, цвет имени, эмодзи-статус, галочка, 🎂 если сегодня ДР.
+const SUPPORT_CARD = {
+  username: "support",
+  displayName: "Поддержка One Messenger",
+  avatarUrl: "/icon-192.png",
+  verified: true,
+  nameColor: "#2a9df4",
+  emojiStatus: "",
+  birthdayToday: false
+};
+
+function userCardFromRow(u) {
+  const s = parseSettings(u);
+  return {
+    username: u.username,
+    displayName: u.displayName || u.username,
+    avatarUrl: u.avatarUrl || "",
+    verified: !!u.verified,
+    nameColor: HEX_COLOR.test(s.nameColor || "") ? s.nameColor : "",
+    emojiStatus: cleanEmojiStatus(s.emojiStatus || ""),
+    birthdayToday: isBirthdayToday(u.birthDate)
+  };
+}
+
+async function getUserCards(usernames) {
+  const uniq = [...new Set((usernames || []).filter(Boolean))];
+  const out = {};
+  if (uniq.includes("support")) out.support = SUPPORT_CARD;
+  const rest = uniq.filter(u => u !== "support");
+  if (rest.length) {
+    const rows = await dbAll(
+      `SELECT username, displayName, avatarUrl, verified, settings, birthDate FROM users WHERE username IN (${rest.map(() => "?").join(",")})`,
+      rest
+    );
+    rows.forEach(r => { out[r.username] = userCardFromRow(r); });
+  }
+  return out;
+}
+
+async function getUserCard(username) {
+  const map = await getUserCards([username]);
+  return map[username] || { username, displayName: username, avatarUrl: "", verified: false, nameColor: "", emojiStatus: "", birthdayToday: false };
+}
+
+function previewText(m) {
+  if (m.mediaType === "list") return "📋 Список";
+  if (m.mediaType === "file") return "📎 " + (m.fileName || "Файл");
+  if (m.mediaType === "image") return "🖼 Фото";
+  if (m.mediaType === "video") return "🎬 Видео";
+  if (m.mediaType === "audio") return "🎤 Голосовое";
+  return m.text || "";
+}
+
 function signToken(username, extra = {}) {
-  // Long-lived on purpose: this is a personal messenger, not a banking app —
-  // people shouldn't be forced to log back in every couple of weeks. Signing
-  // out (or deleting the account) in Settings is what actually ends a session.
   return jwt.sign({ username, ...extra }, EFFECTIVE_JWT_SECRET, { expiresIn: "365d" });
 }
 
@@ -499,7 +724,7 @@ function verifyAuth(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET);
-    if (decoded.purpose) return res.status(401).json({ ok: false, error: "Неверный токен" }); // reject 2FA pending tokens here
+    if (decoded.purpose) return res.status(401).json({ ok: false, error: "Неверный токен" });
 
     const proceed = (user) => {
       if (!user) return res.status(401).json({ ok: false, error: "Пользователь не найден" });
@@ -510,9 +735,6 @@ function verifyAuth(req, res, next) {
     };
 
     if (decoded.jti) {
-      // A session someone revoked from "Мои сессии" (or an admin ban that
-      // closes it) must stop working immediately, not just disappear from
-      // a list — so every request re-checks this.
       db.get(`SELECT revoked FROM sessions WHERE jti=?`, [decoded.jti], (e1, sessRow) => {
         if (sessRow && sessRow.revoked) return res.status(401).json({ ok: false, error: "Эта сессия была завершена, войди заново" });
         db.get(`SELECT * FROM users WHERE username=?`, [decoded.username], (e2, user) => proceed(user));
@@ -525,10 +747,6 @@ function verifyAuth(req, res, next) {
   }
 }
 
-// The admin panel authenticates separately from regular users — a fixed
-// login/password pair (see ADMIN_LOGIN/ADMIN_PASSWORD above), completely
-// independent of any user account. verifySuperAdmin checks that special
-// session token; it never touches the `users` table.
 function verifySuperAdmin(req, res, next) {
   const h = req.headers.authorization || "";
   const token = h.startsWith("Bearer ") ? h.slice(7) : "";
@@ -543,9 +761,6 @@ function verifySuperAdmin(req, res, next) {
   }
 }
 
-// 'support' is a reserved pseudo-account (see RESERVED_USERNAMES) — talking
-// to it works exactly like a private DM, except the other party isn't a
-// real row in `users`; admin replies use sender='support'.
 function resolveChatType(receiver) {
   if (receiver.startsWith("group:")) return "group";
   if (receiver === "global") return "global";
@@ -553,12 +768,15 @@ function resolveChatType(receiver) {
   return "private";
 }
 
+// Только безопасные типы показываются в чате как фото/видео/аудио,
+// всё остальное — это «файл» (документ), который скачивается.
 function guessMediaType(mime) {
-  const m = String(mime || "").toLowerCase();
+  const m = normMime(mime);
+  if (!MIME_EXT[m]) return "file";
   if (m.startsWith("image/")) return "image";
   if (m.startsWith("video/")) return "video";
-  if (m.includes("audio")) return "audio";
-  return "text";
+  if (m.startsWith("audio/")) return "audio";
+  return "file";
 }
 
 function cleanupStories() {
@@ -566,7 +784,7 @@ function cleanupStories() {
 }
 setInterval(cleanupStories, 60 * 1000);
 
-// ---------------- SIMPLE RATE LIMITER (auth endpoints) ----------------
+// ---------------- SIMPLE RATE LIMITER ----------------
 const rateBuckets = new Map();
 function rateLimit(max, windowMs) {
   return (req, res, next) => {
@@ -590,8 +808,7 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 // ================================================================
-// TOTP (RFC 6238) — implemented with only the built-in `crypto` module,
-// no extra npm dependency required.
+// TOTP (RFC 6238)
 // ================================================================
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -620,7 +837,7 @@ function base32Decode(str) {
 }
 
 function generateTotpSecret() {
-  return base32Encode(crypto.randomBytes(20)); // 160-bit secret
+  return base32Encode(crypto.randomBytes(20));
 }
 
 function totpAt(secretBase32, timeStepCounter) {
@@ -764,20 +981,24 @@ app.post("/api/2fa/disable", verifyAuth, async (req, res) => {
 // ---------------- PROFILE ----------------
 app.get("/api/me", verifyAuth, (req, res) => res.json({ ok: true, profile: safeUser(req.user) }));
 
-// Self-service account deletion — requires the account's own password as
-// confirmation. Wipes everything tied to the username: messages, stories,
-// group memberships, then the user row itself, and disconnects any open
-// sessions for that account.
+async function wipeUserData(u) {
+  await dbRun(`DELETE FROM messages WHERE sender=? OR receiver=?`, [u, u]);
+  await dbRun(`DELETE FROM stories WHERE owner=?`, [u]);
+  await dbRun(`DELETE FROM group_members WHERE username=?`, [u]);
+  await dbRun(`DELETE FROM friends WHERE owner=? OR friend=?`, [u, u]);
+  await dbRun(`DELETE FROM dm_exceptions WHERE owner=? OR allowed=?`, [u, u]);
+  await dbRun(`DELETE FROM contact_requests WHERE fromUser=? OR toUser=?`, [u, u]);
+  await dbRun(`DELETE FROM chat_wallpapers WHERE owner=? OR chat=?`, [u, u]);
+  await dbRun(`DELETE FROM users WHERE username=?`, [u]);
+}
+
 app.delete("/api/me", verifyAuth, async (req, res) => {
   const password = String(req.body.password || "");
   const ok = await bcrypt.compare(password, req.user.passwordHash);
   if (!ok) return res.status(400).json({ ok: false, error: "Неверный пароль" });
 
   const u = req.user.username;
-  await dbRun(`DELETE FROM messages WHERE sender=? OR receiver=?`, [u, u]);
-  await dbRun(`DELETE FROM stories WHERE owner=?`, [u]);
-  await dbRun(`DELETE FROM group_members WHERE username=?`, [u]);
-  await dbRun(`DELETE FROM users WHERE username=?`, [u]);
+  await wipeUserData(u);
 
   closeAllConnections(u);
   res.json({ ok: true });
@@ -786,8 +1007,12 @@ app.delete("/api/me", verifyAuth, async (req, res) => {
 app.put("/api/me", verifyAuth, (req, res) => {
   const displayName = String(req.body.displayName || "").trim().slice(0, 40);
   const bio = String(req.body.bio || "").trim().slice(0, 200);
-  const birthDate = String(req.body.birthDate || "").trim().slice(0, 20);
+  const birthDate = String(req.body.birthDate || "").trim().slice(0, 10);
   const avatarUrl = String(req.body.avatarUrl || "").trim().slice(0, 300);
+
+  if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) {
+    return res.status(400).json({ ok: false, error: "Дата рождения в формате ГГГГ-ММ-ДД" });
+  }
 
   db.run(
     `UPDATE users SET displayName=?, bio=?, birthDate=?, avatarUrl=? WHERE username=?`,
@@ -801,21 +1026,32 @@ app.put("/api/me", verifyAuth, (req, res) => {
   );
 });
 
-// Theme / wallpaper / accent color, plus privacy choices (who can see your
-// bio and stories) — all a small free-form JSON blob per user, synced
-// across devices.
+// Оформление + приватность + кастомизация профиля
 app.put("/api/me/settings", verifyAuth, (req, res) => {
   const current = parseSettings(req.user);
   const incoming = req.body && typeof req.body === "object" ? req.body : {};
   const merged = { ...current };
 
-  const freeform = ["theme", "wallpaper", "accent", "language"];
-  for (const k of freeform) {
-    if (typeof incoming[k] === "string" && incoming[k].length <= 4000) merged[k] = incoming[k];
+  if (typeof incoming.theme === "string" && incoming.theme.length <= 40) merged.theme = incoming.theme;
+  if (isValidWallpaper(incoming.wallpaper)) merged.wallpaper = incoming.wallpaper;
+  if (typeof incoming.accent === "string" && HEX_COLOR.test(incoming.accent)) merged.accent = incoming.accent;
+  if (["ru", "en", "uz"].includes(incoming.language)) merged.language = incoming.language;
+
+  // Цвет имени / цвет профиля: HEX или "" (сброс)
+  for (const k of ["nameColor", "profileColor"]) {
+    if (incoming[k] === "") delete merged[k];
+    else if (typeof incoming[k] === "string" && HEX_COLOR.test(incoming[k])) merged[k] = incoming[k];
   }
 
+  if (typeof incoming.emojiStatus === "string") {
+    const s = cleanEmojiStatus(incoming.emojiStatus);
+    if (s) merged.emojiStatus = s; else delete merged.emojiStatus;
+  }
+
+  if (typeof incoming.dmGate === "boolean") merged.dmGate = incoming.dmGate;
+
   const privacyEnum = ["everyone", "friends", "nobody"];
-  for (const k of ["storyPrivacy", "bioPrivacy"]) {
+  for (const k of ["storyPrivacy", "bioPrivacy", "lastSeenPrivacy"]) {
     if (privacyEnum.includes(incoming[k])) merged[k] = incoming[k];
   }
 
@@ -825,18 +1061,15 @@ app.put("/api/me/settings", verifyAuth, (req, res) => {
   });
 });
 
-// ---------------- FRIENDS (your own "who counts as close to me" list) ----------------
-// One-directional by design: you decide who's in this list for the purpose
-// of YOUR OWN privacy settings (bio/story visibility) — no request/approval
-// flow, same as e.g. Instagram's "close friends".
+// ---------------- FRIENDS ----------------
 app.get("/api/friends", verifyAuth, async (req, res) => {
   const rows = await dbAll(
-    `SELECT u.username, u.displayName, u.avatarUrl, u.verified
+    `SELECT u.username, u.displayName, u.avatarUrl, u.verified, u.settings, u.birthDate
      FROM friends f JOIN users u ON u.username=f.friend
      WHERE f.owner=? ORDER BY u.username ASC`,
     [req.user.username]
   );
-  res.json({ ok: true, friends: rows });
+  res.json({ ok: true, friends: rows.map(userCardFromRow) });
 });
 
 app.post("/api/friends", verifyAuth, async (req, res) => {
@@ -862,8 +1095,6 @@ async function isFriendOf(ownerUsername, viewerUsername) {
   return !!row;
 }
 
-// Checks a privacy setting ('everyone'|'friends'|'nobody', default
-// 'everyone') stored on the OWNER's account against who's asking.
 async function isAllowedByPrivacy(ownerUser, viewerUsername, settingKey) {
   if (ownerUser.username === viewerUsername) return true;
   const setting = parseSettings(ownerUser)[settingKey] || "everyone";
@@ -871,6 +1102,79 @@ async function isAllowedByPrivacy(ownerUser, viewerUsername, settingKey) {
   if (setting === "nobody") return false;
   return isFriendOf(ownerUser.username, viewerUsername);
 }
+
+// «Был(а) в сети» — бесплатно для всех, но владелец может скрыть в приватности
+async function visibleLastSeen(row, viewer) {
+  if (!(await isAllowedByPrivacy(row, viewer, "lastSeenPrivacy"))) return { lastSeen: null, lastSeenHidden: true };
+  return { lastSeen: Number(row.lastSeen || 0) || null, lastSeenHidden: false };
+}
+
+// ---------------- OFFICIAL ACCOUNT DM GATE ----------------
+// У аккаунтов с галочкой ✅ по умолчанию включено: незнакомым людям
+// написать напрямую нельзя — только через заявку в администрацию.
+// Владелец может выключить это в настройках или добавить исключения.
+function dmGateOn(u) {
+  return !!(u && u.verified) && parseSettings(u).dmGate !== false;
+}
+
+async function dmAllowed(target, sender) {
+  if (!target || target.username === sender) return true;
+  if (!dmGateOn(target)) return true;
+  if (await dbGet(`SELECT 1 FROM dm_exceptions WHERE owner=? AND allowed=?`, [target.username, sender])) return true;
+  // если официальный аккаунт сам уже писал этому человеку — отвечать можно
+  const wrote = await dbGet(`SELECT 1 FROM messages WHERE chatType='private' AND sender=? AND receiver=? LIMIT 1`, [target.username, sender]);
+  return !!wrote;
+}
+
+app.get("/api/me/dm-exceptions", verifyAuth, async (req, res) => {
+  const rows = await dbAll(
+    `SELECT u.username, u.displayName, u.avatarUrl, u.verified, u.settings, u.birthDate
+     FROM dm_exceptions e JOIN users u ON u.username=e.allowed
+     WHERE e.owner=? ORDER BY e.createdAt DESC`,
+    [req.user.username]
+  );
+  res.json({ ok: true, users: rows.map(userCardFromRow) });
+});
+
+app.post("/api/me/dm-exceptions", verifyAuth, async (req, res) => {
+  const u = String(req.body.username || "").replace(/^@+/, "").toLowerCase();
+  if (!u || u === req.user.username) return res.status(400).json({ ok: false, error: "Неверный юзернейм" });
+  const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [u]);
+  if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+  await dbRun(`INSERT OR IGNORE INTO dm_exceptions (owner, allowed, createdAt) VALUES (?,?,?)`, [req.user.username, u, now()]);
+  res.json({ ok: true });
+});
+
+app.delete("/api/me/dm-exceptions/:username", verifyAuth, async (req, res) => {
+  const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  await dbRun(`DELETE FROM dm_exceptions WHERE owner=? AND allowed=?`, [req.user.username, u]);
+  res.json({ ok: true });
+});
+
+app.post("/api/contact-requests", verifyAuth, rateLimit(10, 60 * 60 * 1000), async (req, res) => {
+  const to = String(req.body.to || "").replace(/^@+/, "").toLowerCase();
+  const text = String(req.body.text || "").trim().slice(0, 1000);
+  if (!text) return res.status(400).json({ ok: false, error: "Напиши, по какому вопросу обращаешься" });
+  if (req.user.muted) return res.status(403).json({ ok: false, error: "Тебе временно запрещено отправлять сообщения" });
+
+  const target = await dbGet(`SELECT username, verified, settings FROM users WHERE username=? AND banned=0`, [to]);
+  if (!target) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+  if (await dmAllowed(target, req.user.username)) return res.status(400).json({ ok: false, error: "Этому человеку можно писать напрямую" });
+
+  const pending = await dbGet(`SELECT id FROM contact_requests WHERE fromUser=? AND toUser=? AND status='pending'`, [req.user.username, to]);
+  if (pending) return res.status(400).json({ ok: false, error: "Заявка уже отправлена, дождись ответа администрации" });
+
+  await dbRun(
+    `INSERT INTO contact_requests (fromUser, toUser, text, status, createdAt) VALUES (?,?,?,'pending',?)`,
+    [req.user.username, to, text, now()]
+  );
+  res.json({ ok: true });
+});
+
+app.get("/api/contact-requests/mine", verifyAuth, async (req, res) => {
+  const rows = await dbAll(`SELECT * FROM contact_requests WHERE fromUser=? ORDER BY createdAt DESC LIMIT 20`, [req.user.username]);
+  res.json({ ok: true, requests: rows });
+});
 
 // ---------------- WEB PUSH SUBSCRIPTIONS ----------------
 app.get("/api/push/public-key", verifyAuth, (req, res) => {
@@ -896,19 +1200,20 @@ app.post("/api/push/unsubscribe", verifyAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Upload a profile picture straight from the device's gallery/camera,
-// instead of forcing the person to paste an image URL. Reuses the same
-// upload safety rules as chat media (mimetype whitelist, size limit,
-// mimetype-derived extension) but writes only to the user's own avatarUrl —
-// it never creates a chat message.
-app.post("/api/me/avatar", verifyAuth, (req, res, next) => {
-  upload.single("file")(req, res, (err) => {
-    if (err) return res.status(400).json({ ok: false, error: err.message || "Ошибка загрузки" });
-    next();
-  });
-}, async (req, res) => {
-  if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
+function singleUpload(field) {
+  return (req, res, next) => {
+    upload.single(field)(req, res, (err) => {
+      if (err) {
+        const msg = err.code === "LIMIT_FILE_SIZE" ? "Файл больше 20 МБ" : (err.message || "Ошибка загрузки");
+        return res.status(400).json({ ok: false, error: msg });
+      }
+      next();
+    });
+  };
+}
 
+app.post("/api/me/avatar", verifyAuth, singleUpload("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
   if (guessMediaType(req.file.mimetype) !== "image") {
     return res.status(400).json({ ok: false, error: "Аватар должен быть изображением" });
   }
@@ -921,39 +1226,101 @@ app.post("/api/me/avatar", verifyAuth, (req, res, next) => {
   });
 });
 
+// Картинка для обоев (из галереи). Возвращает ссылку /media/...
+app.post("/api/upload-image", verifyAuth, singleUpload("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
+  if (guessMediaType(req.file.mimetype) !== "image") {
+    return res.status(400).json({ ok: false, error: "Нужна картинка (jpg, png, webp, gif)" });
+  }
+  const url = await saveUploadedFile(req.file.buffer, req.file.mimetype, "wp");
+  res.json({ ok: true, url });
+});
+
+// ---------------- CHAT WALLPAPERS ----------------
+function normChatKey(chat) {
+  const c = String(chat || "").replace(/^@+/, "").toLowerCase();
+  if (c === "global" || c === "support" || /^group:\d+$/.test(c) || /^[a-z0-9_]{1,20}$/.test(c)) return c;
+  return "";
+}
+
+app.get("/api/wallpaper", verifyAuth, async (req, res) => {
+  const chat = normChatKey(req.query.chat);
+  if (!chat) return res.json({ ok: true, value: "" });
+  const row = await dbGet(`SELECT value, setBy FROM chat_wallpapers WHERE owner=? AND chat=?`, [req.user.username, chat]);
+  res.json({ ok: true, value: row ? row.value : "", setBy: row ? row.setBy : "" });
+});
+
+app.put("/api/wallpaper", verifyAuth, async (req, res) => {
+  const chat = normChatKey(req.body.chat);
+  const value = String(req.body.value || "");
+  const forBoth = !!req.body.forBoth;
+  if (!chat) return res.status(400).json({ ok: false, error: "Неверный чат" });
+  if (value && !isValidWallpaper(value)) return res.status(400).json({ ok: false, error: "Неверные обои" });
+
+  const me = req.user.username;
+  const setFor = async (owner, chatKey) => {
+    if (!value) await dbRun(`DELETE FROM chat_wallpapers WHERE owner=? AND chat=?`, [owner, chatKey]);
+    else await dbRun(
+      `INSERT INTO chat_wallpapers (owner, chat, value, setBy, updatedAt) VALUES (?,?,?,?,?)
+       ON CONFLICT(owner, chat) DO UPDATE SET value=excluded.value, setBy=excluded.setBy, updatedAt=excluded.updatedAt`,
+      [owner, chatKey, value, me, now()]
+    );
+  };
+
+  await setFor(me, chat);
+
+  // «Обои для собеседника» — только в личном чате с реальным человеком
+  const isPrivate = resolveChatType(chat) === "private" && chat !== me;
+  if (forBoth && isPrivate) {
+    const other = await dbGet(`SELECT username FROM users WHERE username=?`, [chat]);
+    if (other) {
+      await setFor(chat, me);
+      wsSendToUser(chat, { type: "wallpaperChanged", chat: me, value, by: me });
+    }
+  }
+  res.json({ ok: true });
+});
+
 // search users
-app.get("/api/users/search", verifyAuth, (req, res) => {
+app.get("/api/users/search", verifyAuth, async (req, res) => {
   const q = String(req.query.q || "").trim().replace(/^@+/, "").toLowerCase();
   if (!q) return res.json({ ok: true, users: [] });
 
-  db.all(
-    `SELECT username, displayName, bio, avatarUrl, verified
+  const rows = await dbAll(
+    `SELECT username, displayName, bio, avatarUrl, verified, settings, birthDate
      FROM users
      WHERE username LIKE ? AND username != ? AND banned=0
      ORDER BY username ASC LIMIT 20`,
-    [`%${q}%`, req.user.username],
-    (err, rows) => res.json({ ok: true, users: rows || [] })
+    [`%${q}%`, req.user.username]
   );
+  res.json({ ok: true, users: rows.map(userCardFromRow) });
 });
 
 app.get("/api/users/:username", verifyAuth, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
-  // birthDate is intentionally left out here — only the owner sees it via /api/me.
+  if (u === "support") return res.json({ ok: true, user: { ...SUPPORT_CARD, bio: "Официальная поддержка One Messenger", online: true, canMessage: true, dmGated: false } });
+
   const row = await dbGet(
-    `SELECT username, displayName, bio, avatarUrl, verified, settings FROM users WHERE username=? AND banned=0`,
+    `SELECT username, displayName, bio, avatarUrl, verified, settings, birthDate, lastSeen FROM users WHERE username=? AND banned=0`,
     [u]
   );
   if (!row) return res.status(404).json({ ok: false, error: "Не найден" });
 
-  const bioAllowed = await isAllowedByPrivacy(row, req.user.username, "bioPrivacy");
+  const viewer = req.user.username;
+  const bioAllowed = await isAllowedByPrivacy(row, viewer, "bioPrivacy");
+  const s = parseSettings(row);
+  const ls = await visibleLastSeen(row, viewer);
+
   res.json({
     ok: true,
     user: {
-      username: row.username,
-      displayName: row.displayName,
-      avatarUrl: row.avatarUrl,
-      verified: row.verified,
-      bio: bioAllowed ? row.bio : ""
+      ...userCardFromRow(row),
+      bio: bioAllowed ? row.bio : "",
+      profileColor: HEX_COLOR.test(s.profileColor || "") ? s.profileColor : "",
+      online: isOnline(row.username),
+      ...ls,
+      dmGated: dmGateOn(row) && row.username !== viewer,
+      canMessage: await dmAllowed(row, viewer)
     }
   });
 });
@@ -1019,12 +1386,10 @@ app.post("/api/admin/verification-requests/:id/reject", verifySuperAdmin, (req, 
 
 // ================================================================
 // GROUPS & CHANNELS
-// A channel is just a group with isChannel=1: only owner/admins may post,
-// everyone else can only read.
 // ================================================================
 async function isMember(groupId, username) {
   const row = await dbGet(`SELECT role FROM group_members WHERE groupId=? AND username=?`, [groupId, username]);
-  return row ? row.role : null; // null | 'member' | 'admin' | 'owner'
+  return row ? row.role : null;
 }
 
 app.get("/api/groups", verifyAuth, async (req, res) => {
@@ -1065,9 +1430,6 @@ app.post("/api/groups", verifyAuth, async (req, res) => {
   res.json({ ok: true, id: groupId });
 });
 
-// Public discovery: popular public groups/channels (owner opted in via
-// "discoverable"), ranked by member count, with optional name search.
-// Excludes ones the person is already in.
 app.get("/api/groups/discover", verifyAuth, async (req, res) => {
   const q = String(req.query.q || "").trim().toLowerCase();
   const rows = await dbAll(
@@ -1111,7 +1473,7 @@ app.get("/api/groups/:id", verifyAuth, async (req, res) => {
   if (!group) return res.status(404).json({ ok: false, error: "Не найдено" });
 
   const members = await dbAll(
-    `SELECT gm.username, gm.role, u.displayName, u.avatarUrl, u.verified
+    `SELECT gm.username, gm.role, u.displayName, u.avatarUrl, u.verified, u.settings, u.birthDate
      FROM group_members gm JOIN users u ON u.username=gm.username
      WHERE gm.groupId=? ORDER BY (gm.role='owner') DESC, (gm.role='admin') DESC, gm.username ASC`,
     [groupId]
@@ -1127,7 +1489,13 @@ app.get("/api/groups/:id", verifyAuth, async (req, res) => {
     );
   }
 
-  res.json({ ok: true, group, members, bans, myRole: role });
+  res.json({
+    ok: true,
+    group,
+    members: members.map(m => ({ ...userCardFromRow(m), role: m.role })),
+    bans,
+    myRole: role
+  });
 });
 
 app.post("/api/groups/:id/members", verifyAuth, async (req, res) => {
@@ -1157,8 +1525,6 @@ app.delete("/api/groups/:id/members/:username", verifyAuth, async (req, res) => 
   if (targetRole === "owner" && !selfLeave) {
     return res.status(400).json({ ok: false, error: "Нельзя удалить владельца группы" });
   }
-  // Admins ("moderators") may only manage regular members — not each other,
-  // and never the owner. Only the owner outranks another admin.
   if (!selfLeave && role === "admin" && targetRole === "admin") {
     return res.status(403).json({ ok: false, error: "Админ не может убрать другого админа — только владелец" });
   }
@@ -1167,9 +1533,6 @@ app.delete("/api/groups/:id/members/:username", verifyAuth, async (req, res) => 
   res.json({ ok: true });
 });
 
-// Ban = remove + block from rejoining/being re-added, until unbanned.
-// Same escalation rule as removing: an admin can ban regular members but
-// not other admins or the owner; the owner can ban anyone but themselves.
 app.post("/api/groups/:id/members/:username/ban", verifyAuth, async (req, res) => {
   const groupId = Number(req.params.id);
   const target = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
@@ -1200,7 +1563,6 @@ app.post("/api/groups/:id/members/:username/unban", verifyAuth, async (req, res)
   res.json({ ok: true });
 });
 
-// Deletes the whole group/channel — owner only, irreversible.
 app.delete("/api/groups/:id", verifyAuth, async (req, res) => {
   const groupId = Number(req.params.id);
   const role = await isMember(groupId, req.user.username);
@@ -1213,9 +1575,6 @@ app.delete("/api/groups/:id", verifyAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Promote a member to admin, or demote an admin back to member. Only the
-// group's owner can do this — admins granting/revoking other admins would
-// let them lock the owner out, so it's kept a single-person decision.
 app.post("/api/groups/:id/members/:username/role", verifyAuth, async (req, res) => {
   const groupId = Number(req.params.id);
   const target = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
@@ -1235,10 +1594,10 @@ app.post("/api/groups/:id/members/:username/role", verifyAuth, async (req, res) 
 });
 
 // ---------------- CHATS (private list) ----------------
-app.get("/api/chats", verifyAuth, (req, res) => {
+app.get("/api/chats", verifyAuth, async (req, res) => {
   const me = req.user.username;
 
-  db.all(
+  const rows = await dbAll(
     `
     SELECT other, MAX(createdAt) AS lastAt
     FROM (
@@ -1250,63 +1609,61 @@ app.get("/api/chats", verifyAuth, (req, res) => {
     ORDER BY lastAt DESC
     LIMIT 50
     `,
-    [me, me, me],
-    (err, rows) => {
-      const others = (rows || []).map(r => r.other).filter(Boolean);
-      if (others.length === 0) return res.json({ ok: true, chats: [] });
-
-      const placeholders = others.map(() => "?").join(",");
-      db.all(
-        `SELECT username, displayName, avatarUrl, verified FROM users WHERE username IN (${placeholders})`,
-        others,
-        (e2, users) => {
-          const map = new Map((users || []).map(u => [u.username, u]));
-          db.all(
-            `
-            SELECT sender, receiver, text, mediaType, createdAt
-            FROM messages
-            WHERE chatType='private' AND (sender=? OR receiver=?)
-            ORDER BY createdAt DESC
-            LIMIT 400
-            `,
-            [me, me],
-            (e3, msgs) => {
-              const preview = new Map();
-              (msgs || []).forEach(m => {
-                const other = m.sender === me ? m.receiver : m.sender;
-                if (!preview.has(other)) {
-                  preview.set(other, (m.mediaType !== "text" ? `[${m.mediaType}]` : (m.text || "")));
-                }
-              });
-
-              const out = others.map(o => {
-                const u = map.get(o) || { username: o, displayName: o, avatarUrl: "", verified: 0 };
-                return {
-                  username: u.username,
-                  displayName: u.displayName || u.username,
-                  avatarUrl: u.avatarUrl || "",
-                  verified: !!u.verified,
-                  preview: preview.get(o) || ""
-                };
-              });
-
-              res.json({ ok: true, chats: out });
-            }
-          );
-        }
-      );
-    }
+    [me, me, me]
   );
+
+  const others = rows.map(r => r.other).filter(Boolean);
+  if (others.length === 0) return res.json({ ok: true, chats: [] });
+
+  const placeholders = others.map(() => "?").join(",");
+  const users = await dbAll(
+    `SELECT username, displayName, avatarUrl, verified, settings, birthDate, lastSeen FROM users WHERE username IN (${placeholders})`,
+    others
+  );
+  const map = new Map(users.map(u => [u.username, u]));
+
+  const msgs = await dbAll(
+    `
+    SELECT sender, receiver, text, mediaType, fileName, createdAt
+    FROM messages
+    WHERE chatType='private' AND (sender=? OR receiver=?)
+    ORDER BY createdAt DESC
+    LIMIT 400
+    `,
+    [me, me]
+  );
+  const preview = new Map();
+  msgs.forEach(m => {
+    const other = m.sender === me ? m.receiver : m.sender;
+    if (!preview.has(other)) preview.set(other, previewText(m));
+  });
+
+  const out = [];
+  for (const o of others) {
+    const u = map.get(o);
+    if (!u) {
+      out.push({ username: o, displayName: o, avatarUrl: "", verified: false, nameColor: "", emojiStatus: "", preview: preview.get(o) || "" });
+      continue;
+    }
+    out.push({ ...userCardFromRow(u), ...(await visibleLastSeen(u, me)), preview: preview.get(o) || "" });
+  }
+
+  res.json({ ok: true, chats: out });
 });
 
 // ---------------- MESSAGES ----------------
+async function sendMessagesWithUsers(res, rows) {
+  const users = await getUserCards(rows.map(r => r.sender));
+  res.json({ ok: true, messages: rows, users });
+}
+
 app.get("/api/messages", verifyAuth, async (req, res) => {
   const chat = String(req.query.chat || "global").replace(/^@+/, "").toLowerCase();
   const me = req.user.username;
 
   if (chat === "global") {
     const rows = await dbAll(`SELECT * FROM messages WHERE chatType='global' ORDER BY createdAt ASC LIMIT 500`);
-    return res.json({ ok: true, messages: rows });
+    return sendMessagesWithUsers(res, rows);
   }
 
   if (chat.startsWith("group:")) {
@@ -1318,7 +1675,7 @@ app.get("/api/messages", verifyAuth, async (req, res) => {
       `SELECT * FROM messages WHERE chatType='group' AND receiver=? ORDER BY createdAt ASC LIMIT 800`,
       [chat]
     );
-    return res.json({ ok: true, messages: rows });
+    return sendMessagesWithUsers(res, rows);
   }
 
   if (chat === "support") {
@@ -1326,7 +1683,7 @@ app.get("/api/messages", verifyAuth, async (req, res) => {
       `SELECT * FROM messages WHERE chatType='support' AND ((sender=? AND receiver='support') OR (sender='support' AND receiver=?)) ORDER BY createdAt ASC LIMIT 500`,
       [me, me]
     );
-    return res.json({ ok: true, messages: rows });
+    return sendMessagesWithUsers(res, rows);
   }
 
   const other = chat;
@@ -1340,8 +1697,16 @@ app.get("/api/messages", verifyAuth, async (req, res) => {
     `,
     [me, other, other, me]
   );
-  res.json({ ok: true, messages: rows });
+  sendMessagesWithUsers(res, rows);
 });
+
+async function canReadMessage(row, username) {
+  if (!row) return false;
+  if (row.chatType === "global") return true;
+  if (row.chatType === "private" || row.chatType === "support") return row.sender === username || row.receiver === username;
+  if (row.chatType === "group") return !!(await isMember(Number(String(row.receiver).slice(6)), username));
+  return false;
+}
 
 app.delete("/api/messages/:id", verifyAuth, (req, res) => {
   const id = Number(req.params.id);
@@ -1360,16 +1725,36 @@ app.delete("/api/messages/:id", verifyAuth, (req, res) => {
   });
 });
 
-// Shopping / to-do list toggle (REST fallback; the primary path is via WS,
-// see 'list-toggle' below).
+// Сохранить любое сообщение в «Избранное» (личный чат с самим собой)
+app.post("/api/messages/:id/save", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
+  if (!row || !(await canReadMessage(row, me))) return res.status(404).json({ ok: false, error: "Сообщение не найдено" });
+
+  const createdAt = now();
+  const forwardedFrom = row.sender === me ? "" : row.sender;
+  const result = await dbRun(
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, forwardedFrom)
+     VALUES ('private',?,?,?,?,?,?,?,?,?)`,
+    [me, me, row.text || "", row.mediaType || "text", row.mediaUrl || "", createdAt, row.fileName || "", Number(row.fileSize || 0), forwardedFrom]
+  );
+  const msg = {
+    id: result.lastID, chatType: "private", sender: me, receiver: me, text: row.text || "",
+    mediaType: row.mediaType || "text", mediaUrl: row.mediaUrl || "", createdAt,
+    fileName: row.fileName || "", fileSize: Number(row.fileSize || 0), forwardedFrom
+  };
+  await broadcastMessage(msg);
+  res.json({ ok: true });
+});
+
 app.post("/api/messages/:id/list-toggle", verifyAuth, async (req, res) => {
   const id = Number(req.params.id);
   const itemIndex = Number(req.body.itemIndex);
   const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
   if (!row || row.mediaType !== "list") return res.status(404).json({ ok: false, error: "Список не найден" });
 
-  const allowed = await canPostTo(row.chatType, row.receiver, req.user.username);
-  if (!allowed.canRead) return res.status(403).json({ ok: false, error: "Нет доступа" });
+  if (!(await canReadMessage(row, req.user.username))) return res.status(403).json({ ok: false, error: "Нет доступа" });
 
   let list;
   try { list = JSON.parse(row.text); } catch { return res.status(500).json({ ok: false, error: "Повреждённые данные" }); }
@@ -1378,17 +1763,12 @@ app.post("/api/messages/:id/list-toggle", verifyAuth, async (req, res) => {
   list.items[itemIndex].checked = !list.items[itemIndex].checked;
   await dbRun(`UPDATE messages SET text=? WHERE id=?`, [JSON.stringify(list), id]);
 
-  await broadcastToChat(row.chatType, row.receiver, req.user.username, { type: "listUpdated", id, list });
+  await broadcastToChat(row.chatType, row.receiver, row.sender, { type: "listUpdated", id, list });
   res.json({ ok: true, list });
 });
 
-// ---------------- UPLOAD ----------------
-app.post("/api/upload", verifyAuth, (req, res, next) => {
-  upload.single("file")(req, res, (err) => {
-    if (err) return res.status(400).json({ ok: false, error: err.message || "Ошибка загрузки" });
-    next();
-  });
-}, async (req, res) => {
+// ---------------- UPLOAD (фото, видео, голосовые, ЛЮБЫЕ файлы) ----------------
+app.post("/api/upload", verifyAuth, singleUpload("file"), async (req, res) => {
   const me = req.user.username;
 
   if (req.user.muted) return res.status(403).json({ ok: false, error: "Тебе временно запрещено отправлять сообщения" });
@@ -1400,24 +1780,23 @@ app.post("/api/upload", verifyAuth, (req, res, next) => {
   if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
 
   const perm = await canPostTo(chatType, receiver, me);
-  if (!perm.canPost) return res.status(403).json({ ok: false, error: perm.error || "Нет доступа" });
+  if (!perm.canPost) return res.status(403).json({ ok: false, error: perm.error || "Нет доступа", gated: !!perm.gated });
 
   const mediaType = guessMediaType(req.file.mimetype);
-  const mediaUrl = await saveUploadedFile(req.file.buffer, req.file.mimetype, "msg");
+  const fileName = decodeFileName(req.file.originalname);
+  const fileSize = req.file.size || req.file.buffer.length;
+  const mediaUrl = await saveUploadedFile(req.file.buffer, req.file.mimetype, "msg", fileName);
 
   const createdAt = now();
-  db.run(
-    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt)
-     VALUES (?,?,?,?,?,?,?)`,
-    [chatType, me, receiver, text, mediaType, mediaUrl, createdAt],
-    async function (err) {
-      if (err) return res.status(500).json({ ok: false, error: "Ошибка сохранения" });
-
-      const msg = { id: this.lastID, chatType, sender: me, receiver, text, mediaType, mediaUrl, createdAt };
-      await broadcastToChat(chatType, receiver, me, { type: "message", message: msg });
-      res.json({ ok: true, message: msg });
-    }
+  const result = await dbRun(
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [chatType, me, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize]
   );
+
+  const msg = { id: result.lastID, chatType, sender: me, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, forwardedFrom: "" };
+  await broadcastMessage(msg);
+  res.json({ ok: true, message: msg });
 });
 
 // ---------------- STORIES ----------------
@@ -1446,9 +1825,6 @@ app.get("/api/stories", verifyAuth, async (req, res) => {
   res.json({ ok: true, stories: visible });
 });
 
-// A specific person's currently-active stories, for viewing "their full
-// profile with their stories" — respects the same storyPrivacy setting as
-// the main feed above.
 app.get("/api/stories/user/:username", verifyAuth, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   const owner = await dbGet(`SELECT username, settings FROM users WHERE username=? AND banned=0`, [u]);
@@ -1465,10 +1841,6 @@ app.get("/api/stories/user/:username", verifyAuth, async (req, res) => {
   res.json({ ok: true, stories: rows });
 });
 
-// Full personal archive — every story you've ever posted, active or
-// long expired, so you can always look back at what you shared. Only
-// the owner can see their own archive this way (others still only ever
-// see the active-story preview via the endpoints above).
 app.get("/api/stories/mine", verifyAuth, async (req, res) => {
   const rows = await dbAll(
     `SELECT * FROM stories WHERE owner=? ORDER BY createdAt DESC LIMIT 500`,
@@ -1488,25 +1860,23 @@ app.delete("/api/stories/:id", verifyAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/stories", verifyAuth, (req, res, next) => {
-  upload.single("story")(req, res, (err) => {
-    if (err) return res.status(400).json({ ok: false, error: err.message || "Ошибка загрузки" });
-    next();
-  });
-}, async (req, res) => {
+app.post("/api/stories", verifyAuth, singleUpload("story"), async (req, res) => {
   const me = req.user.username;
   if (req.user.muted) return res.status(403).json({ ok: false, error: "Тебе временно запрещено публиковать сторис" });
 
   const text = String(req.body.text || "").trim().slice(0, 120);
 
   const createdAt = now();
-  const expiresAt = createdAt + 2 * 60 * 60 * 1000; // stories now expire after 2h (no cap on how many you can post)
+  const expiresAt = createdAt + 2 * 60 * 60 * 1000;
 
   let mediaType = "text";
   let mediaUrl = "";
 
   if (req.file) {
     mediaType = guessMediaType(req.file.mimetype);
+    if (mediaType !== "image" && mediaType !== "video") {
+      return res.status(400).json({ ok: false, error: "В сторис можно только фото или видео" });
+    }
     mediaUrl = await saveUploadedFile(req.file.buffer, req.file.mimetype, "story");
   }
 
@@ -1562,21 +1932,69 @@ app.post("/api/gifts/send", verifyAuth, rateLimit(30, 60 * 1000), async (req, re
 
 // ---------------- BIRTHDAYS ----------------
 app.get("/api/birthdays/today", verifyAuth, (req, res) => {
-  const d = new Date();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
+  const t = localToday();
 
   db.all(
     `SELECT username, displayName, avatarUrl
      FROM users
      WHERE substr(birthDate,6,2)=? AND substr(birthDate,9,2)=? AND banned=0`,
-    [mm, dd],
-    (err, rows) => res.json({ ok: true, list: rows || [] })
+    [t.mm, t.dd],
+    (err, rows) => res.json({ ok: true, list: rows || [], today: `${t.mm}-${t.dd}` })
   );
 });
 
+async function birthdayContacts(username) {
+  const rows = await dbAll(
+    `
+    SELECT DISTINCT other FROM (
+      SELECT CASE WHEN sender=? THEN receiver ELSE sender END AS other
+      FROM messages WHERE chatType='private' AND (sender=? OR receiver=?)
+      UNION SELECT owner AS other FROM friends WHERE friend=?
+      UNION SELECT friend AS other FROM friends WHERE owner=?
+    ) WHERE other != ?
+    LIMIT 500
+    `,
+    [username, username, username, username, username, username]
+  );
+  return rows.map(r => r.other).filter(Boolean);
+}
+
+// Раз в 15 минут: у кого сегодня ДР — поздравляем от имени One Messenger
+// (приходит в чат «Поддержка» + пуш), а всем друзьям и собеседникам
+// приходит напоминание «Сегодня день рождения у ...».
+async function runBirthdayJob() {
+  try {
+    const t = localToday();
+    const rows = await dbAll(
+      `SELECT username, displayName FROM users WHERE substr(birthDate,6,2)=? AND substr(birthDate,9,2)=? AND banned=0`,
+      [t.mm, t.dd]
+    );
+    for (const u of rows) {
+      const done = await dbGet(`SELECT 1 FROM birthday_log WHERE username=? AND year=?`, [u.username, t.yyyy]);
+      if (done) continue;
+      await dbRun(`INSERT OR IGNORE INTO birthday_log (username, year, createdAt) VALUES (?,?,?)`, [u.username, t.yyyy, now()]);
+
+      const name = u.displayName || u.username;
+      await sendSupportMessage(
+        u.username,
+        `🎉 С днём рождения, ${name}! Команда One Messenger желает тебе счастья, здоровья и исполнения всех желаний! 🎂🎈`
+      );
+
+      const contacts = await birthdayContacts(u.username);
+      for (const c of contacts) {
+        wsSendToUser(c, { type: "birthday", username: u.username, displayName: name });
+        if (!isOnline(c)) {
+          sendPushToUser(c, { title: "🎂 День рождения", body: `Сегодня день рождения у ${name} — поздравь!`, url: "/chat.html" }).catch(() => {});
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[BIRTHDAY] job failed:", e.message);
+  }
+}
+
 // ================================================================
-// ADMIN — separate credential-based login, independent of user accounts
+// ADMIN
 // ================================================================
 app.post("/api/admin/login", rateLimit(10, 5 * 60 * 1000), (req, res) => {
   const login = String(req.body.login || "");
@@ -1593,9 +2011,6 @@ app.post("/api/admin/login", rateLimit(10, 5 * 60 * 1000), (req, res) => {
   res.json({ ok: true, token });
 });
 
-// Every /api/admin/* route below requires the superadmin session token —
-// it has nothing to do with any user's own login token.
-
 app.get("/api/admin/users", verifySuperAdmin, (req, res) => {
   const q = String(req.query.q || "").trim().toLowerCase();
   const where = q ? `WHERE username LIKE ?` : "";
@@ -1611,19 +2026,15 @@ app.get("/api/admin/users", verifySuperAdmin, (req, res) => {
 app.get("/api/admin/user/:username", verifySuperAdmin, (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   db.get(
-    `SELECT username, displayName, bio, avatarUrl, birthDate, banned, muted, verified, createdAt FROM users WHERE username=?`,
+    `SELECT username, displayName, bio, avatarUrl, birthDate, banned, muted, verified, createdAt, lastSeen FROM users WHERE username=?`,
     [u],
     (err, row) => {
       if (!row) return res.status(404).json({ ok: false, error: "Не найден" });
-      res.json({ ok: true, user: row });
+      res.json({ ok: true, user: { ...row, online: isOnline(row.username) } });
     }
   );
 });
 
-// "С кем общается" — every private chat partner (with last message time and
-// preview) plus every group/channel this user belongs to. This is the
-// unrestricted moderation view: it does not filter by any block/privacy
-// setting, by design, since it's meant for investigating reports/abuse.
 app.get("/api/admin/user/:username/overview", verifySuperAdmin, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
 
@@ -1656,8 +2067,6 @@ app.get("/api/admin/user/:username/overview", verifySuperAdmin, async (req, res)
   res.json({ ok: true, partners, groups, globalMessageCount: globalCount.c });
 });
 
-// All logins across every user — a global "sessions" feed for the admin
-// panel: who logged in, when, and from what IP/device.
 app.get("/api/admin/sessions", verifySuperAdmin, async (req, res) => {
   const q = String(req.query.q || "").trim().toLowerCase();
   const rows = await dbAll(
@@ -1676,18 +2085,12 @@ app.post("/api/admin/sessions/:id/revoke", verifySuperAdmin, async (req, res) =>
   res.json({ ok: true });
 });
 
-// One user's own login history (used by the account-level "Sessions" view
-// in Settings, not just the admin panel).
 app.get("/api/me/sessions", verifyAuth, async (req, res) => {
   const rows = await dbAll(`SELECT * FROM sessions WHERE username=? AND revoked=0 ORDER BY createdAt DESC LIMIT 50`, [req.user.username]);
   const withCurrent = rows.map(s => ({ ...s, current: !!req.sessionJti && s.jti === req.sessionJti }));
   res.json({ ok: true, sessions: withCurrent });
 });
 
-// Self-service: end any OTHER session (a device that isn't this one) —
-// no admin rights needed, just proof it's your own account. Marks it
-// revoked so that device's token is rejected on its very next request,
-// not just removed from this list.
 app.delete("/api/me/sessions/:id", verifyAuth, async (req, res) => {
   const id = Number(req.params.id);
   const session = await dbGet(`SELECT * FROM sessions WHERE id=?`, [id]);
@@ -1700,9 +2103,18 @@ app.delete("/api/me/sessions/:id", verifyAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------------- SUPPORT (tied into the admin panel) ----------------
-// Every user can message the reserved 'support' pseudo-account from their
-// own chat list; every conversation shows up here for an admin to answer.
+// ---------------- SUPPORT ----------------
+async function sendSupportMessage(username, text) {
+  const createdAt = now();
+  const result = await dbRun(
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES ('support','support',?,?,'text','',?)`,
+    [username, text, createdAt]
+  );
+  const msg = { id: result.lastID, chatType: "support", sender: "support", receiver: username, text, mediaType: "text", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "" };
+  await broadcastMessage(msg);
+  return msg;
+}
+
 app.get("/api/admin/support/conversations", verifySuperAdmin, async (req, res) => {
   const rows = await dbAll(
     `
@@ -1737,18 +2149,47 @@ app.post("/api/admin/support/:username/reply", verifySuperAdmin, async (req, res
   const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [u]);
   if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
 
-  const createdAt = now();
-  const result = await dbRun(
-    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES ('support','support',?,?,?,?,?)`,
-    [u, text, "text", "", createdAt]
-  );
-  const msg = { id: result.lastID, chatType: "support", sender: "support", receiver: u, text, mediaType: "text", mediaUrl: "", createdAt };
-
-  await broadcastMessage(msg);
+  const msg = await sendSupportMessage(u, text);
   res.json({ ok: true, message: msg });
 });
 
-// Full thread between two specific users — the actual "переписка" view.
+// ---------------- CONTACT REQUESTS (официальные аккаунты) ----------------
+app.get("/api/admin/contact-requests", verifySuperAdmin, async (req, res) => {
+  const rows = await dbAll(`SELECT * FROM contact_requests WHERE status='pending' ORDER BY createdAt ASC LIMIT 200`);
+  res.json({ ok: true, requests: rows });
+});
+
+app.post("/api/admin/contact-requests/:id/approve", verifySuperAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const r = await dbGet(`SELECT * FROM contact_requests WHERE id=?`, [id]);
+  if (!r || r.status !== "pending") return res.status(404).json({ ok: false, error: "Заявка не найдена" });
+
+  await dbRun(`UPDATE contact_requests SET status='approved', decidedAt=? WHERE id=?`, [now(), id]);
+  await dbRun(`INSERT OR IGNORE INTO dm_exceptions (owner, allowed, createdAt) VALUES (?,?,?)`, [r.toUser, r.fromUser, now()]);
+
+  // Передаём само сообщение адресату
+  const createdAt = now();
+  const text = `✉️ Через администрацию:\n${r.text}`;
+  const result = await dbRun(
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES ('private',?,?,?,'text','',?)`,
+    [r.fromUser, r.toUser, text, createdAt]
+  );
+  await broadcastMessage({ id: result.lastID, chatType: "private", sender: r.fromUser, receiver: r.toUser, text, mediaType: "text", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "" });
+
+  await sendSupportMessage(r.fromUser, `✅ Администрация одобрила твою заявку. Сообщение передано @${r.toUser}, теперь можно писать напрямую.`);
+  res.json({ ok: true });
+});
+
+app.post("/api/admin/contact-requests/:id/reject", verifySuperAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const r = await dbGet(`SELECT * FROM contact_requests WHERE id=?`, [id]);
+  if (!r || r.status !== "pending") return res.status(404).json({ ok: false, error: "Заявка не найдена" });
+
+  await dbRun(`UPDATE contact_requests SET status='rejected', decidedAt=? WHERE id=?`, [now(), id]);
+  await sendSupportMessage(r.fromUser, `❌ Администрация отклонила заявку на связь с @${r.toUser}.`);
+  res.json({ ok: true });
+});
+
 app.get("/api/admin/messages/private/:userA/:userB", verifySuperAdmin, async (req, res) => {
   const a = String(req.params.userA || "").replace(/^@+/, "").toLowerCase();
   const b = String(req.params.userB || "").replace(/^@+/, "").toLowerCase();
@@ -1774,8 +2215,6 @@ app.get("/api/admin/messages/global", verifySuperAdmin, async (req, res) => {
   res.json({ ok: true, messages: rows });
 });
 
-// Admin can remove any single message while reviewing a thread (separate
-// from a user deleting their own message via /api/messages/:id).
 app.delete("/api/admin/messages/:id", verifySuperAdmin, async (req, res) => {
   const id = Number(req.params.id);
   const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
@@ -1806,28 +2245,19 @@ app.post("/api/admin/unban/:username", verifySuperAdmin, adminSetFlag("banned", 
 app.post("/api/admin/mute/:username", verifySuperAdmin, adminSetFlag("muted", 1));
 app.post("/api/admin/unmute/:username", verifySuperAdmin, adminSetFlag("muted", 0));
 
-app.delete("/api/admin/delete/:username", verifySuperAdmin, (req, res) => {
+app.delete("/api/admin/delete/:username", verifySuperAdmin, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [u]);
+  if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
 
-  db.run(`DELETE FROM users WHERE username=?`, [u], function (err) {
-    if (err || this.changes === 0) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
-
-    db.run(`DELETE FROM messages WHERE sender=? OR receiver=?`, [u, u]);
-    db.run(`DELETE FROM stories WHERE owner=?`, [u]);
-    db.run(`DELETE FROM group_members WHERE username=?`, [u]);
-
-    closeAllConnections(u);
-
-    res.json({ ok: true });
-  });
+  await wipeUserData(u);
+  closeAllConnections(u);
+  res.json({ ok: true });
 });
 
 // ================================================================
-// WEBSOCKET (messages + typing + presence + calls + groups + lists)
+// WEBSOCKET
 // ================================================================
-// online: username -> Set<ws>. A person can have several tabs/devices open
-// at once; we only consider them offline once EVERY connection for that
-// username has closed, not just the most recent one.
 const online = new Map();
 
 function addOnline(username, ws) {
@@ -1868,11 +2298,21 @@ function broadcastPresence() {
   broadcastAll({ type: "presence", online: list });
 }
 
-// Central permission check for posting/reading a chat target.
-// chatType: 'global' | 'private' | 'group'; receiver: 'global' | username | 'group:<id>'
 async function canPostTo(chatType, receiver, username) {
   if (chatType === "global") return { canPost: true, canRead: true };
-  if (chatType === "private" || chatType === "support") return { canPost: true, canRead: true }; // either side of a DM (or support thread) can always post
+  if (chatType === "support") return { canPost: true, canRead: true };
+  if (chatType === "private") {
+    if (receiver === username) return { canPost: true, canRead: true }; // «Избранное»
+    const target = await dbGet(`SELECT username, verified, settings FROM users WHERE username=?`, [receiver]);
+    if (!target) return { canPost: false, canRead: false, error: "Пользователь не найден" };
+    if (!(await dmAllowed(target, username))) {
+      return {
+        canPost: false, canRead: true, gated: true,
+        error: "Этот аккаунт официально подтверждён ✅. Чтобы написать, отправь заявку через администрацию."
+      };
+    }
+    return { canPost: true, canRead: true };
+  }
   if (chatType === "group") {
     const groupId = Number(String(receiver).slice(6));
     const group = await dbGet(`SELECT * FROM groups WHERE id=?`, [groupId]);
@@ -1887,7 +2327,7 @@ async function canPostTo(chatType, receiver, username) {
 
 async function recipientsFor(chatType, receiver, sender) {
   if (chatType === "global") return Array.from(online.keys());
-  if (chatType === "private" || chatType === "support") return [sender, receiver];
+  if (chatType === "private" || chatType === "support") return [...new Set([sender, receiver])];
   if (chatType === "group") {
     const groupId = Number(String(receiver).slice(6));
     const rows = await dbAll(`SELECT username FROM group_members WHERE groupId=?`, [groupId]);
@@ -1901,15 +2341,13 @@ async function broadcastToChat(chatType, receiver, sender, payload) {
   for (const u of usernames) wsSendToUser(u, payload);
 }
 
+// Каждое сообщение уходит вместе с карточкой отправителя (аватар, цвет имени, статус)
 async function broadcastMessage(msg) {
+  try { msg.senderInfo = await getUserCard(msg.sender); } catch {}
   await broadcastToChat(msg.chatType, msg.receiver, msg.sender, { type: "message", message: msg });
-  pushNotifyMessage(msg); // fire-and-forget; never blocks the realtime path above
+  pushNotifyMessage(msg);
 }
 
-// Real push notifications are only for people who are genuinely offline
-// (no open tab at all) — anyone with the app open already gets it instantly
-// over the websocket. Skipped for the public global chat to avoid spamming
-// every single user on every message there.
 async function pushNotifyMessage(msg) {
   if (!webpush || msg.chatType === "global") return;
 
@@ -1917,8 +2355,8 @@ async function pushNotifyMessage(msg) {
     .filter(u => u !== msg.sender && !isOnline(u));
   if (recipients.length === 0) return;
 
-  const body = msg.mediaType !== "text" ? (msg.mediaType === "list" ? "📋 Список" : `[${msg.mediaType}]`) : (msg.text || "");
-  const title = msg.chatType === "group" ? `Группа · @${msg.sender}` : `@${msg.sender}`;
+  const body = previewText(msg);
+  const title = msg.chatType === "group" ? `Группа · @${msg.sender}` : (msg.sender === "support" ? "One Messenger" : `@${msg.sender}`);
 
   for (const u of recipients) {
     sendPushToUser(u, { title, body, url: "/chat.html" }).catch(() => {});
@@ -1934,7 +2372,7 @@ wss.on("connection", (ws, req) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const token = url.searchParams.get("token") || "";
     const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET);
-    if (decoded.purpose) return ws.close(); // reject 2FA pending tokens
+    if (decoded.purpose) return ws.close();
     const username = String(decoded.username || "");
 
     const proceedConnection = (user) => {
@@ -1953,9 +2391,9 @@ wss.on("connection", (ws, req) => {
 
         const from = ws.username;
 
-        // typing indicator
         if (data.type === "typing") {
           const to = String(data.to || "").replace(/^@+/, "").toLowerCase();
+          if (to === from) return;
           if (to.startsWith("group:")) {
             const groupId = Number(to.slice(6));
             const members = await dbAll(`SELECT username FROM group_members WHERE groupId=?`, [groupId]);
@@ -1966,7 +2404,6 @@ wss.on("connection", (ws, req) => {
           return;
         }
 
-        // WebRTC audio call signaling (private calls only)
         if (["call-offer", "call-answer", "ice", "call-end", "call-reject"].includes(data.type)) {
           const to = String(data.to || "").replace(/^@+/, "").toLowerCase();
           if (!isOnline(to)) return wsSend(ws, { type: "call-error", message: "Пользователь не онлайн" });
@@ -1974,7 +2411,6 @@ wss.on("connection", (ws, req) => {
           return;
         }
 
-        // plain text message (works for global / private / group)
         if (data.type === "text-message") {
           const user = await dbGet(`SELECT muted, banned FROM users WHERE username=?`, [from]);
           if (!user || user.banned || user.muted) return;
@@ -1985,19 +2421,18 @@ wss.on("connection", (ws, req) => {
           if (!text) return;
 
           const perm = await canPostTo(chatType, receiver, from);
-          if (!perm.canPost) return wsSend(ws, { type: "call-error", message: perm.error || "Нет доступа" });
+          if (!perm.canPost) return wsSend(ws, { type: "post-error", gated: !!perm.gated, to: receiver, message: perm.error || "Нет доступа" });
 
           const createdAt = now();
           const result = await dbRun(
             `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES (?,?,?,?,?,?,?)`,
             [chatType, from, receiver, text, "text", "", createdAt]
           );
-          const msg = { id: result.lastID, chatType, sender: from, receiver, text, mediaType: "text", mediaUrl: "", createdAt };
+          const msg = { id: result.lastID, chatType, sender: from, receiver, text, mediaType: "text", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "" };
           await broadcastMessage(msg);
           return;
         }
 
-        // shopping / to-do list message: { receiver, title, items: [string, ...] }
         if (data.type === "list-message") {
           const user = await dbGet(`SELECT muted, banned FROM users WHERE username=?`, [from]);
           if (!user || user.banned || user.muted) return;
@@ -2013,7 +2448,7 @@ wss.on("connection", (ws, req) => {
           if (items.length === 0) return;
 
           const perm = await canPostTo(chatType, receiver, from);
-          if (!perm.canPost) return wsSend(ws, { type: "call-error", message: perm.error || "Нет доступа" });
+          if (!perm.canPost) return wsSend(ws, { type: "post-error", gated: !!perm.gated, to: receiver, message: perm.error || "Нет доступа" });
 
           const list = { title, items };
           const createdAt = now();
@@ -2021,20 +2456,17 @@ wss.on("connection", (ws, req) => {
             `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES (?,?,?,?,?,?,?)`,
             [chatType, from, receiver, JSON.stringify(list), "list", "", createdAt]
           );
-          const msg = { id: result.lastID, chatType, sender: from, receiver, text: JSON.stringify(list), mediaType: "list", mediaUrl: "", createdAt };
+          const msg = { id: result.lastID, chatType, sender: from, receiver, text: JSON.stringify(list), mediaType: "list", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "" };
           await broadcastMessage(msg);
           return;
         }
 
-        // toggle one item in a shopping/to-do list
         if (data.type === "list-toggle") {
           const id = Number(data.id);
           const itemIndex = Number(data.itemIndex);
           const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
           if (!row || row.mediaType !== "list") return;
-
-          const perm = await canPostTo(row.chatType, row.receiver, from);
-          if (!perm.canRead) return;
+          if (!(await canReadMessage(row, from))) return;
 
           let list;
           try { list = JSON.parse(row.text); } catch { return; }
@@ -2042,13 +2474,25 @@ wss.on("connection", (ws, req) => {
 
           list.items[itemIndex].checked = !list.items[itemIndex].checked;
           await dbRun(`UPDATE messages SET text=? WHERE id=?`, [JSON.stringify(list), id]);
-          await broadcastToChat(row.chatType, row.receiver, from, { type: "listUpdated", id, list });
+          await broadcastToChat(row.chatType, row.receiver, row.sender, { type: "listUpdated", id, list });
           return;
         }
       });
 
-      ws.on("close", () => {
-        if (ws.username) removeOnline(ws.username, ws);
+      ws.on("close", async () => {
+        const u = ws.username;
+        if (u) {
+          removeOnline(u, ws);
+          if (!isOnline(u)) {
+            const at = now();
+            try {
+              await dbRun(`UPDATE users SET lastSeen=? WHERE username=?`, [at, u]);
+              const row = await dbGet(`SELECT settings FROM users WHERE username=?`, [u]);
+              const privacy = parseSettings(row).lastSeenPrivacy || "everyone";
+              if (privacy === "everyone") broadcastAll({ type: "lastSeen", username: u, at });
+            } catch {}
+          }
+        }
         broadcastPresence();
       });
     };
@@ -2070,8 +2514,8 @@ wss.on("connection", (ws, req) => {
   }
 });
 
-// Wait for the schema AND the JWT/VAPID secrets before accepting any
-// traffic — matters most on a brand-new Turso database's very first boot.
 secretsReady.finally(() => {
   server.listen(PORT, () => console.log("Server running on", PORT));
+  setTimeout(runBirthdayJob, 10 * 1000);
+  setInterval(runBirthdayJob, 15 * 60 * 1000);
 });
