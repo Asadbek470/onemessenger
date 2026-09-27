@@ -519,6 +519,8 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 }
 .settingsblock .formgrid{padding:0}
 .formgrid label{color:var(--muted);font-size:13px}
+.checkrow{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer}
+.checkrow input{width:auto}
 .formgrid input, .formgrid select{
   width:100%;
   padding:12px 12px;
@@ -705,6 +707,9 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
 .thread-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line)}
 .thread-head h3{margin:0;font-size:15px}
 .thread-messages{max-height:420px;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.support-reply-row{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
+.support-reply-row input{flex:1;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(0,0,0,.18);color:var(--text)}
+.support-reply-row button{padding:10px 16px;border-radius:12px;border:1px solid var(--line);background:rgba(42,157,244,.22);color:var(--text);cursor:pointer}
 .thread-msg{border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:8px}
 .thread-msg:last-child{border-bottom:none}
 .thread-meta{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:13px}
