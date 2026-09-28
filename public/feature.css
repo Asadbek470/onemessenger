@@ -245,24 +245,6 @@ body[data-wallpaper="custom"] .messages{
 .avatar img, .mava img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
 .letterava{letter-spacing:0}
 
-/* ---------- Профиль: аватар по центру ---------- */
-.profiletab{padding:24px 16px 28px}
-.profiletab .avatar.big, .profile .avatar.big{
-  width:112px;height:112px;margin-bottom:12px;flex:0 0 auto;
-  border:4px solid rgba(255,255,255,.16);
-  box-shadow:0 0 0 7px rgba(42,157,244,.16), 0 20px 40px -14px rgba(42,157,244,.65);
-}
-.profiletab .avatar.big .letterava, .profile .avatar.big .letterava{font-size:44px}
-.profiletab .pname{font-size:22px}
-
-#profileModal .card{max-height:92vh;overflow-y:auto}
-#profileModal .profile{flex-direction:column;align-items:center;text-align:center;padding:22px 16px 8px}
-#profileModal .profiletext{min-width:0;display:flex;flex-direction:column;align-items:center}
-.profiletext .pname{flex-wrap:wrap;justify-content:center}
-.profiletext .gifts-row{justify-content:center}
-.pofficial{border-radius:999px}
-#profileActions{flex-direction:column;gap:10px}
-
 /* ---------- Сообщения: насыщенные цвета ---------- */
 .bubble{background:rgba(31,49,72,.94);border-color:rgba(255,255,255,.1)}
 .mrow.mine .bubble{
@@ -602,3 +584,181 @@ body[data-wallpaper="mint"] .messages, #messages[data-wp="mint"]{background:line
 
 /* отступ у кнопки на странице входа */
 .auth-card .form .btn{margin-top:16px}
+
+
+/* ================================================================
+   ДИЗАЙН v4 — интерфейс в стиле Телеграма
+   Шапка профиля с градиентом и узором, круглые кнопки действий,
+   карточки «подпись + значение», плоский список чатов, обои с узором.
+   ================================================================ */
+
+:root{
+  --tg-card:#17212b;          /* карточка */
+  --tg-sep:rgba(255,255,255,.07);
+  --tg-label:#7f92a8;
+  --tg-link:#62b6ff;
+}
+
+/* ---------- Шапка профиля ---------- */
+.tgscroll{flex:1;min-height:0;overflow-y:auto;padding-bottom:26px}
+.tghead{
+  position:relative;padding:12px 16px 20px;text-align:center;
+  background:linear-gradient(160deg,#6a5cff 0%, #4b8bff 55%, #2a9df4 100%);
+  border-radius:0 0 30px 30px;overflow:hidden;
+  box-shadow:0 18px 34px -22px rgba(0,0,0,.9);
+}
+/* лёгкий узор из кружков — как «эмодзи-фон» профиля в Телеграме */
+.tghead::before{
+  content:"";position:absolute;inset:0;opacity:.5;pointer-events:none;
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,.28) 2.5px, transparent 3px),
+    radial-gradient(circle, rgba(255,255,255,.18) 2px, transparent 2.5px);
+  background-size:62px 62px, 62px 62px;
+  background-position:0 0, 31px 31px;
+}
+.tghead > *{position:relative;z-index:1}
+.tgheadbar{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:42px}
+.tgheadtitle{font-weight:800;font-size:17px;color:#fff}
+.tgheadbtn{
+  width:38px;height:38px;border-radius:50%;flex:0 0 auto;
+  display:grid;place-items:center;font-size:15px;cursor:pointer;
+  color:#fff;border:none;background:rgba(255,255,255,.22);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  transition:transform .12s ease, background .2s ease;
+}
+.tgheadbtn:hover{background:rgba(255,255,255,.34)}
+.tgheadbtn:active{transform:scale(.9)}
+
+.tghead .avatar.big{
+  width:104px;height:104px;margin:6px auto 12px;
+  border:4px solid rgba(255,255,255,.38);
+  box-shadow:0 16px 30px -12px rgba(0,0,0,.6);
+}
+.tghead .avatar.big .letterava{font-size:42px}
+.tgname{
+  font-size:23px;font-weight:800;color:#fff;
+  display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;
+  text-shadow:0 2px 10px rgba(0,0,0,.28);
+}
+.tgname .uname{color:#fff}
+.tgname .verified-badge{color:#fff}
+.tgstatus{margin-top:3px;color:rgba(255,255,255,.85);font-size:14px}
+
+/* ---------- Круглые кнопки действий ---------- */
+.tgactions{
+  display:flex;gap:9px;margin-top:18px;
+  overflow-x:auto;scrollbar-width:none;padding-bottom:2px;
+}
+.tgactions::-webkit-scrollbar{display:none}
+.tgact{
+  flex:1 0 74px;min-width:74px;
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  padding:12px 6px 10px;border-radius:18px;cursor:pointer;
+  font:inherit;font-size:11.5px;font-weight:700;color:#fff;
+  border:1px solid rgba(255,255,255,.26);
+  background:rgba(255,255,255,.2);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  transition:transform .12s ease, background .2s ease;
+}
+.tgact:hover{background:rgba(255,255,255,.32)}
+.tgact:active{transform:scale(.94)}
+.tgact i{font-size:18px}
+.tgact span{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+
+/* цветные кружки-иконки (используются и в шапке чата) */
+.headicon{
+  width:100%;height:100%;border-radius:50%;
+  display:grid;place-items:center;color:#fff;font-size:16px;
+}
+.act-blue .headicon, .headicon.act-blue{background:linear-gradient(135deg,#3fb0ff,#2f6bff)}
+.act-green .headicon, .headicon.act-green{background:linear-gradient(135deg,#43e08a,#12a150)}
+.act-pink .headicon, .headicon.act-pink{background:linear-gradient(135deg,#ff7ab8,#e0248f)}
+.act-orange .headicon, .headicon.act-orange{background:linear-gradient(135deg,#ffb23f,#ff6a1a)}
+.act-violet .headicon, .headicon.act-violet{background:linear-gradient(135deg,#b878ff,#7b3fe4)}
+
+/* ---------- Карточки «подпись + значение» ---------- */
+.tginfo{padding:0}
+.tgcard{
+  margin:12px 14px 0;padding:4px 16px;
+  background:var(--tg-card);border:1px solid var(--tg-sep);border-radius:20px;
+  box-shadow:0 12px 24px -20px rgba(0,0,0,.9);
+}
+.tgcardtitle{padding:14px 0 10px;font-weight:800;font-size:15px}
+.tgcard .stories-grid, .tgcard .gifts-row{padding-bottom:14px}
+.tgrow{padding:13px 0;border-bottom:1px solid var(--tg-sep)}
+.tgrow:last-child{border-bottom:none}
+.tglabel{font-size:12.5px;color:var(--tg-label);margin-bottom:3px}
+.tgvalue{font-size:15.5px;word-break:break-word}
+.tglink{color:var(--tg-link);font-weight:600}
+.tgverified{color:var(--blue);display:inline-flex;align-items:center;gap:6px}
+.giftcard .gifts-row{justify-content:flex-start;min-height:26px}
+.giftcard .gifts-row:empty::after{content:"Пока нет подарков";color:var(--tg-label);font-size:13.5px}
+
+/* окно чужого профиля */
+.tgcard-modal{max-height:92vh;overflow-y:auto;padding-bottom:16px}
+.tgcard-modal .tghead{border-radius:24px 24px 30px 30px;margin:-1px -1px 0}
+.tgcard-modal .giftpicker{margin-top:12px}
+
+/* ---------- Шапка чата с аватаркой ---------- */
+.topbar{gap:10px}
+.chatava{
+  width:40px;height:40px;min-width:40px;border-radius:50%;overflow:hidden;
+  cursor:pointer;flex:0 0 auto;background:rgba(255,255,255,.06);
+}
+.topbar .title{flex:1;min-width:0}
+.topbar .title .h{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- Список чатов: плоский, как в Телеграме ---------- */
+.chatlist{padding:0 0 10px}
+.chatitem{
+  border-radius:0;border:none;padding:9px 14px;gap:12px;
+  background:transparent;box-shadow:none;
+}
+.chatitem::after{
+  content:"";position:absolute;left:70px;right:0;bottom:0;height:1px;background:var(--tg-sep);
+}
+.chatitem:last-child::after{display:none}
+.chatitem:hover{background:rgba(255,255,255,.045)}
+.chatitem.active{
+  background:linear-gradient(135deg, rgba(42,157,244,.25), rgba(91,109,255,.2));
+  border:none;box-shadow:none;
+}
+.chatitem .avatar{width:54px;height:54px}
+.chatitem .avatar .letterava{font-size:21px}
+.chatitem .meta .name{font-size:15.5px;font-weight:700}
+.chatitem .meta .preview{font-size:13.5px;margin-top:3px}
+.chatitem .dot{position:absolute;left:54px;bottom:12px;width:14px;height:14px;border:3px solid var(--panel2)}
+.chatitem .dot.offline{display:none}
+#searchResults .chatitem::after{display:none}
+
+/* быстрые действия — компактнее, ближе к Телеграму */
+.sidebar-actions{gap:7px;margin-top:10px}
+.sidebar-actions .btn.small{min-height:74px;border-radius:18px}
+.sidebar-actions .btn.small i{width:36px;height:36px;font-size:15px}
+
+/* ---------- Обои по умолчанию: мягкий узор ---------- */
+body:not([data-wallpaper]) .messages,
+body[data-wallpaper="default"] .messages{
+  background-color:#0d1826;
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,.055) 2px, transparent 2.5px),
+    radial-gradient(circle, rgba(96,176,255,.075) 3px, transparent 3.5px),
+    radial-gradient(760px 520px at 85% 0%, rgba(42,157,244,.16), transparent 62%);
+  background-size:54px 54px, 54px 54px, 100% 100%;
+  background-position:0 0, 27px 27px, 0 0;
+}
+
+/* ---------- Пузыри с «хвостиком» ---------- */
+.bubble{border-radius:18px 18px 18px 6px}
+.mrow.mine .bubble{border-radius:18px 18px 6px 18px}
+
+@media (max-width:640px){
+  .tgact{flex:1 0 68px;min-width:68px;font-size:11px}
+  .tghead .avatar.big{width:92px;height:92px}
+  .tgname{font-size:21px}
+}
+
+/* плашка официального аккаунта: текст и кнопка в столбик, чтобы не сжималось */
+.gatenotice{flex-direction:column;align-items:stretch;text-align:center;gap:8px;border-radius:18px}
+.gatenotice .gatetext{line-height:1.45}
+.gatenotice .btn.small{width:100%}
