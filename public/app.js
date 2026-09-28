@@ -504,24 +504,32 @@ function isGroupChat(chat) {
 function updateHeader() {
   const title = document.getElementById("chatTitle");
   const sub = document.getElementById("chatSub");
+  const ava = document.getElementById("chatHeadAvatar");
 
   if (currentChat === "global") {
     title.textContent = "Общий чат";
     sub.textContent = "общение со всеми";
+    ava.innerHTML = `<span class="headicon act-blue"><i class="fa-solid fa-earth-americas"></i></span>`;
   } else if (currentChat === "support") {
     title.innerHTML = `Поддержка${verifiedBadge(true)}`;
     sub.textContent = "One Messenger Support";
+    ava.innerHTML = avatarHtml({ username: "support" });
   } else if (isSelfChat(currentChat)) {
-    title.innerHTML = `<i class="fa-solid fa-bookmark"></i> Избранное`;
+    title.innerHTML = `Избранное`;
     sub.textContent = "сохранённые сообщения и #теги";
+    ava.innerHTML = `<span class="headicon act-violet"><i class="fa-solid fa-bookmark"></i></span>`;
   } else if (isGroupChat(currentChat)) {
     const g = currentGroupMeta;
     title.innerHTML = (g ? esc(g.name) : "Группа") + (g && g.isChannel ? ` <i class="fa-solid fa-bullhorn" title="Канал"></i>` : "");
     sub.textContent = g ? (g.isChannel ? "канал" : `${g.memberCount || ""} участников`.trim()) : "";
+    ava.innerHTML = g && g.avatarUrl
+      ? `<img src="${esc(g.avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+      : `<span class="headicon act-orange"><i class="fa-solid ${g && g.isChannel ? "fa-bullhorn" : "fa-users"}"></i></span>`;
   } else {
     const info = userInfoCache.get(currentChat) || { username: currentChat, displayName: currentChat };
     title.innerHTML = nameHtml(info);
     sub.textContent = lastSeenText(info);
+    ava.innerHTML = avatarHtml(info);
   }
 
   document.getElementById("callBtn").style.display = isPrivateChat(currentChat) ? "inline-flex" : "none";
@@ -1639,77 +1647,61 @@ async function openProfile(username, isMe) {
   modal.classList.remove("hidden");
   document.getElementById("giftPickerBox").classList.add("hidden");
 
-  const title = document.getElementById("profileTitle");
-  const avatar = document.getElementById("profileAvatar");
-  const name = document.getElementById("profileName");
-  const user = document.getElementById("profileUser");
-  const bio = document.getElementById("profileBio");
-  const birth = document.getElementById("profileBirth");
-  const seen = document.getElementById("profileLastSeen");
-  const official = document.getElementById("profileOfficial");
-  const actions = document.getElementById("profileActions");
-
-  title.textContent = "Профиль";
-  actions.innerHTML = "";
-
   const p = await getUserInfo(username, true);
   if (!p.fetched) { alert("Не найден"); return closeProfile(); }
 
-  avatar.innerHTML = avatarHtml(p);
-  name.innerHTML = nameHtml(p, { noBday: true });
-  user.textContent = "@" + p.username;
-  bio.textContent = p.bio ? p.bio : "";
-  birth.textContent = p.birthdayToday ? "🎂 Сегодня день рождения!" : "";
-  seen.textContent = lastSeenText(p);
+  document.getElementById("profileAvatar").innerHTML = avatarHtml(p);
+  document.getElementById("profileName").innerHTML = nameHtml(p, { noBday: true });
+  document.getElementById("profileLastSeen").textContent = lastSeenText(p);
 
-  official.classList.toggle("hidden", !p.verified);
-  official.innerHTML = p.verified ? `<i class="fa-solid fa-circle-check"></i> Этот аккаунт официально подтверждён` : "";
-
+  // круглые кнопки действий — как в Телеграме
+  const acts = [];
   if (p.dmGated && !p.canMessage) {
-    const reqBtn = document.createElement("button");
-    reqBtn.className = "btn primary full";
-    reqBtn.innerHTML = `<i class="fa-solid fa-envelope"></i> Написать через администрацию`;
-    reqBtn.onclick = () => { closeProfile(); openContactRequest(p.username, ""); };
-    actions.appendChild(reqBtn);
+    acts.push(actionBtn("fa-envelope", "Заявка", `closeProfile(); openContactRequest('${esc(p.username)}', '')`, "act-blue"));
   } else {
-    const openChatBtn = document.createElement("button");
-    openChatBtn.className = "btn primary full";
-    openChatBtn.textContent = "Открыть чат";
-    openChatBtn.onclick = () => { closeProfile(); openChat(p.username); };
-    actions.appendChild(openChatBtn);
+    acts.push(actionBtn("fa-comment", "Написать", `closeProfile(); openChat('${esc(p.username)}')`, "act-blue"));
+    acts.push(actionBtn("fa-phone", "Звонок", `closeProfile(); callFromProfile('${esc(p.username)}')`, "act-green"));
   }
+  acts.push(actionBtn("fa-gift", "Подарить", `openGiftPicker('${esc(p.username)}')`, "act-pink"));
+  if (p.birthdayToday) acts.push(actionBtn("fa-cake-candles", "Поздравить", `closeProfile(); congratulate('${esc(p.username)}')`, "act-orange"));
+  acts.push(actionBtn("fa-user-plus", "В друзья", `addFriendByName('${esc(p.username)}')`, "act-violet"));
+  document.getElementById("profileActions").innerHTML = acts.join("");
 
-  if (p.birthdayToday) {
-    const bdBtn = document.createElement("button");
-    bdBtn.className = "btn ghost full";
-    bdBtn.innerHTML = `🎉 Поздравить`;
-    bdBtn.onclick = () => { closeProfile(); congratulate(p.username); };
-    actions.appendChild(bdBtn);
-  }
-
-  const giftBtn = document.createElement("button");
-  giftBtn.className = "btn ghost full";
-  giftBtn.innerHTML = `🎁 Подарить`;
-  giftBtn.onclick = () => openGiftPicker(p.username);
-  actions.appendChild(giftBtn);
-
-  const friendBtn = document.createElement("button");
-  friendBtn.className = "btn ghost full";
-  friendBtn.innerHTML = `<i class="fa-solid fa-user-plus"></i> Добавить в друзья`;
-  friendBtn.onclick = async () => {
-    const r2 = await fetch("/api/friends", {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ username: p.username })
-    });
-    const d2 = await r2.json();
-    if (!d2.ok) return alert(d2.error || "Ошибка");
-    toast(`@${p.username} добавлен(а) в друзья ✅`);
-  };
-  actions.appendChild(friendBtn);
+  const rows = [];
+  rows.push(infoRow("юзернейм", `<span class="tglink">@${esc(p.username)}</span>`));
+  if (p.bio) rows.push(infoRow("о себе", esc(p.bio)));
+  if (p.verified) rows.push(infoRow("статус", `<span class="tgverified"><i class="fa-solid fa-circle-check"></i> Официально подтверждён</span>`));
+  if (p.birthdayToday) rows.push(infoRow("день рождения", "🎂 Сегодня!"));
+  document.getElementById("profileInfo").innerHTML =
+    `<div class="tgcard">${rows.join("")}</div><div class="tgcard giftcard"><div class="tgcardtitle">Подарки</div><div id="profileGiftsRow" class="gifts-row"></div></div>`;
 
   await loadGifts(username, "profileGiftsRow");
   await loadUserStoriesIntoProfile(username);
+}
+
+// кнопка-кружок с подписью
+function actionBtn(icon, label, onclick, cls) {
+  return `<button class="tgact ${cls || ""}" onclick="${onclick}"><i class="fa-solid ${icon}"></i><span>${label}</span></button>`;
+}
+// строка «подпись + значение» в карточке
+function infoRow(label, valueHtml) {
+  return `<div class="tgrow"><div class="tglabel">${label}</div><div class="tgvalue">${valueHtml}</div></div>`;
+}
+
+async function callFromProfile(username) {
+  await openChat(username);
+  startAudioCall();
+}
+
+async function addFriendByName(username) {
+  const r = await fetch("/api/friends", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ username })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast(`@${username} добавлен(а) в друзья ✅`);
 }
 
 async function loadUserStoriesIntoProfile(username) {
@@ -2367,10 +2359,24 @@ function stopHoldVoice() {
 // ================== MY PROFILE TAB ==================
 async function loadMyProfileTab() {
   const card = myCard();
+
   document.getElementById("myProfileAvatar").innerHTML = avatarHtml(card);
   document.getElementById("myProfileName").innerHTML = nameHtml(card);
-  document.getElementById("myProfileUser").textContent = "@" + me.username;
-  document.getElementById("myProfileBio").textContent = me.bio || "";
+  document.getElementById("myProfileStatus").textContent = "в сети";
+
+  document.getElementById("myProfileActions").innerHTML = [
+    actionBtn("fa-camera", "История", "openStoryComposer()", "act-blue"),
+    actionBtn("fa-pen", "Изменить", "switchTab('settings')", "act-violet"),
+    actionBtn("fa-bookmark", "Избранное", "openChat(me.username)", "act-orange"),
+    actionBtn("fa-share-nodes", "Пригласить", "inviteToMessenger()", "act-green")
+  ].join("");
+
+  const rows = [infoRow("юзернейм", `<span class="tglink">@${esc(me.username)}</span>`)];
+  if (me.bio) rows.push(infoRow("о себе", esc(me.bio)));
+  if (me.birthDate) rows.push(infoRow("день рождения", esc(formatBirthDate(me.birthDate))));
+  if (me.verified) rows.push(infoRow("статус", `<span class="tgverified"><i class="fa-solid fa-circle-check"></i> Официально подтверждён</span>`));
+  document.getElementById("myProfileInfo").innerHTML =
+    `<div class="tgcard">${rows.join("")}</div><div class="tgcard giftcard"><div class="tgcardtitle">Подарки</div><div id="myGiftsRow" class="gifts-row"></div></div>`;
 
   await loadGifts(me.username, "myGiftsRow");
 
@@ -2382,18 +2388,25 @@ async function loadMyProfileTab() {
     return;
   }
 
-  grid.innerHTML = d.stories.map(s => {
-    const thumb = s.mediaType === "image" ? `<img src="${esc(s.mediaUrl)}" alt="">`
-      : s.mediaType === "video" ? `<video src="${esc(s.mediaUrl)}" muted></video>`
-      : `<div class="storythumb-text">${esc((s.text || "").slice(0, 40))}</div>`;
+  grid.innerHTML = d.stories.map(st => {
+    const thumb = st.mediaType === "image" ? `<img src="${esc(st.mediaUrl)}" alt="">`
+      : st.mediaType === "video" ? `<video src="${esc(st.mediaUrl)}" muted></video>`
+      : `<div class="storythumb-text">${esc((st.text || "").slice(0, 40))}</div>`;
     return `
-      <div class="storythumb ${s.active ? "" : "expired"}" onclick='viewStory(${JSON.stringify(s).replace(/'/g, "&#39;")})'>
+      <div class="storythumb ${st.active ? "" : "expired"}" onclick='viewStory(${JSON.stringify(st).replace(/'/g, "&#39;")})'>
         ${thumb}
-        ${!s.active ? '<span class="storythumb-badge">истекла</span>' : ""}
-        <button class="storythumb-del" onclick="event.stopPropagation(); deleteStory(${s.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>
+        ${!st.active ? '<span class="storythumb-badge">истекла</span>' : ""}
+        <button class="storythumb-del" onclick="event.stopPropagation(); deleteStory(${st.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>
       </div>
     `;
   }).join("");
+}
+
+function formatBirthDate(bd) {
+  const M = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(bd);
+  if (!m) return bd;
+  return `${Number(m[3])} ${M[Number(m[2]) - 1]} ${m[1]}`;
 }
 
 async function deleteStory(id) {
