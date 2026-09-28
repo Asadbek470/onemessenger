@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="features.css" />
   <link rel="icon" href="/icon-192.png" />
   <link rel="manifest" href="/manifest.json" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="auth">
   <div class="auth-card" id="authCard">
@@ -34,6 +35,16 @@
 
       <button class="btn primary full" onclick="submitAuth()">Продолжить</button>
       <div class="hint">Юзернейм: 4–20 символов (a-z, 0-9, _). Пароль: минимум 6 символов.</div>
+
+      <!-- ===== Вход через Google ===== -->
+      <div id="googleLoginBox" style="margin-top:14px;display:flex;flex-direction:column;align-items:center;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px;width:100%;color:#7f92a8;font-size:12.5px">
+          <div style="flex:1;height:1px;background:rgba(255,255,255,.12)"></div>
+          или
+          <div style="flex:1;height:1px;background:rgba(255,255,255,.12)"></div>
+        </div>
+        <div id="googleBtnContainer"></div>
+      </div>
     </div>
 
     <!-- Shown instead of the form when the account has 2FA enabled -->
@@ -113,6 +124,54 @@
 
       localStorage.setItem("token", d.token);
       location.href = "chat.html";
+    }
+
+    // ===== Вход через Google =====
+    (async function () {
+      try {
+        const r = await fetch("/api/oauth/google-client-id");
+        const d = await r.json();
+        if (!d.ok || !d.clientId) {
+          document.getElementById("googleLoginBox").style.display = "none";
+          return;
+        }
+
+        function initGoogle() {
+          google.accounts.id.initialize({
+            client_id: d.clientId,
+            callback: onGoogleCredential
+          });
+          google.accounts.id.renderButton(
+            document.getElementById("googleBtnContainer"),
+            { theme: "filled_black", size: "large", shape: "pill", text: "continue_with", width: 280 }
+          );
+        }
+
+        if (window.google && window.google.accounts) initGoogle();
+        else {
+          const check = setInterval(() => {
+            if (window.google && window.google.accounts) { clearInterval(check); initGoogle(); }
+          }, 100);
+        }
+      } catch {
+        document.getElementById("googleLoginBox").style.display = "none";
+      }
+    })();
+
+    async function onGoogleCredential(response) {
+      try {
+        const r = await fetch("/api/auth/google", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ credential: response.credential })
+        });
+        const d = await r.json();
+        if (!d.ok) { alert(d.error || "Не получилось войти через Google"); return; }
+        localStorage.setItem("token", d.token);
+        location.href = "chat.html";
+      } catch {
+        alert("Ошибка входа через Google");
+      }
     }
   </script>
 </body>
