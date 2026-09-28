@@ -79,20 +79,24 @@
 
     <!-- ================= TAB: MY PROFILE ================= -->
     <section id="screenProfile" class="screen hidden">
-      <div class="screen-header"><h2 class="screentitle" data-i18n="profile.title">Профиль</h2></div>
+      <div class="tgscroll">
+        <div class="tghead">
+          <div class="tgheadbar">
+            <div class="tgheadtitle" data-i18n="profile.title">Профиль</div>
+            <button class="tgheadbtn" onclick="switchTab('settings')" title="Редактировать"><i class="fa-solid fa-pen"></i></button>
+          </div>
+          <div class="avatar big" id="myProfileAvatar"></div>
+          <div class="tgname" id="myProfileName"></div>
+          <div class="tgstatus" id="myProfileStatus"></div>
+          <div class="tgactions" id="myProfileActions"></div>
+        </div>
 
-      <div class="profiletab">
-        <div class="avatar big" id="myProfileAvatar"></div>
-        <div class="pname" id="myProfileName"></div>
-        <div class="puser" id="myProfileUser"></div>
-        <div class="pbio" id="myProfileBio"></div>
+        <div class="tginfo" id="myProfileInfo"></div>
 
-        <div id="myGiftsRow" class="gifts-row"></div>
-
-        <button class="btn ghost" onclick="switchTab('settings')"><i class="fa-solid fa-pen"></i> Редактировать профиль</button>
-
-        <h3 class="sectiontitle" data-i18n="profile.myStories">Мои истории</h3>
-        <div id="myStoriesGrid" class="stories-grid"></div>
+        <div class="tgcard">
+          <div class="tgcardtitle" data-i18n="profile.myStories">Мои истории</div>
+          <div id="myStoriesGrid" class="stories-grid"></div>
+        </div>
       </div>
     </section>
 
@@ -184,6 +188,8 @@
       <header class="topbar">
         <button class="iconbtn" onclick="backToChats()" title="Назад"><i class="fa-solid fa-arrow-left"></i></button>
 
+        <div class="chatava" id="chatHeadAvatar" onclick="openCurrentProfile()"></div>
+
         <div class="title" onclick="openCurrentProfile()" title="Открыть профиль" style="cursor:pointer;">
           <div id="chatTitle" class="h">Общий чат</div>
           <div class="sline">
@@ -259,28 +265,21 @@
 
   <!-- PROFILE MODAL (for viewing OTHER people; your own profile lives in the Профиль tab) -->
   <div id="profileModal" class="modal hidden">
-    <div class="card">
-      <div class="cardtop">
-        <div class="cardtitle" id="profileTitle">Профиль</div>
-        <button class="iconbtn" onclick="closeProfile()"><i class="fa-solid fa-xmark"></i></button>
+    <div class="card tgcard-modal">
+      <div class="tghead">
+        <div class="tgheadbar">
+          <div class="tgheadtitle" id="profileTitle2">Профиль</div>
+          <button class="tgheadbtn" onclick="closeProfile()" title="Закрыть"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="avatar big" id="profileAvatar"></div>
+        <div class="tgname" id="profileName"></div>
+        <div class="tgstatus" id="profileLastSeen"></div>
+        <div class="tgactions" id="profileActions"></div>
       </div>
 
-      <div class="profile">
-        <div class="avatar big" id="profileAvatar"></div>
-        <div class="profiletext">
-          <div class="pname" id="profileName"></div>
-          <div class="puser" id="profileUser"></div>
-          <div class="pbio" id="profileBio"></div>
-          <div class="plastseen" id="profileLastSeen"></div>
-          <div class="pofficial hidden" id="profileOfficial"></div>
-          <div class="pbirth" id="profileBirth"></div>
-          <div id="profileGiftsRow" class="gifts-row"></div>
-        </div>
-      </div>
+      <div class="tginfo" id="profileInfo"></div>
 
       <div id="profileStoriesGrid"></div>
-
-      <div id="profileActions" class="row"></div>
 
       <div id="giftPickerBox" class="giftpicker hidden">
         <div class="hint">Подарить эмодзи-подарок на профиль:</div>
