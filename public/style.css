@@ -1431,3 +1431,73 @@ body::before, body::after{display:none}
   .settingsblock{margin:12px 10px 0;padding:2px 14px 12px}
   .blocktitle{font-size:14.5px}
 }
+/* ================================================================
+   Исправление: рамки у эмодзи-статуса + красивая рамка для подарков.
+   Вставить в САМЫЙ КОНЕЦ style.css.
+   ================================================================ */
+
+/* ---------- Сетка эмодзи-статуса в настройках — убрали тяжёлые рамки ---------- */
+.statusgrid{
+  display:grid;grid-template-columns:repeat(auto-fill, minmax(44px,1fr));
+  gap:4px;
+}
+.statusbtn{
+  height:44px;border-radius:14px;
+  border:none;background:transparent;
+  font-size:23px;color:var(--muted);
+  display:grid;place-items:center;
+  transition:background .15s ease, transform .12s ease;
+}
+.statusbtn:hover{background:rgba(255,255,255,.07);transform:scale(1.08)}
+.statusbtn:active{transform:scale(.92)}
+.statusbtn.active{
+  background:rgba(42,157,244,.22);
+  box-shadow:inset 0 0 0 2px rgba(98,182,255,.75);
+}
+
+/* ---------- Подарки: круглая карточка с золотистым сиянием ---------- */
+.gifts-row{
+  display:flex;flex-wrap:wrap;gap:12px;justify-content:center;
+  padding:6px 0;
+}
+.gift-badge{
+  position:relative;
+  width:56px;height:56px;border-radius:50%;
+  display:grid;place-items:center;
+  font-size:26px;
+  background:radial-gradient(circle at 30% 25%, rgba(255,214,140,.9), rgba(184,110,30,.55) 70%);
+  box-shadow:
+    0 0 0 2px rgba(255,214,140,.55),
+    0 0 18px 2px rgba(255,190,90,.45),
+    inset 0 2px 4px rgba(255,255,255,.5),
+    inset 0 -3px 6px rgba(120,60,10,.35);
+  animation:giftFloat 3s ease-in-out infinite;
+}
+.gift-badge::after{
+  content:"✦";position:absolute;top:-2px;right:-2px;
+  font-size:11px;color:#fff8dc;
+  text-shadow:0 0 6px rgba(255,214,140,.9);
+  animation:giftSparkle 1.8s ease-in-out infinite;
+}
+@keyframes giftFloat{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(-4px)}
+}
+@keyframes giftSparkle{
+  0%,100%{opacity:.4;transform:scale(.8)}
+  50%{opacity:1;transform:scale(1.15)}
+}
+@media (prefers-reduced-motion: reduce){
+  .gift-badge, .gift-badge::after{animation:none}
+}
+
+/* ---------- Подарки в модалке выбора — та же карточка, компактнее ---------- */
+.gift-emoji-btn{
+  width:52px;height:52px;border-radius:50%;
+  border:none;font-size:23px;
+  background:radial-gradient(circle at 30% 25%, rgba(255,214,140,.85), rgba(184,110,30,.5) 70%);
+  box-shadow:0 0 0 2px rgba(255,214,140,.4), inset 0 2px 4px rgba(255,255,255,.45);
+  transition:transform .12s ease, box-shadow .15s ease;
+}
+.gift-emoji-btn:hover{box-shadow:0 0 0 2px rgba(255,214,140,.7), 0 0 14px rgba(255,190,90,.5), inset 0 2px 4px rgba(255,255,255,.45)}
+.gift-emoji-btn:active{transform:scale(.9)}
