@@ -662,6 +662,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function msgPreview(msg) {
+  if (msg.mediaType === "gift") return "🎁 Подарок";
   if (msg.mediaType === "list") return "📋 Список";
   if (msg.mediaType === "location") return "📍 Геолокация";
   if (msg.mediaType === "file") return "📎 " + (msg.fileName || "Файл");
@@ -844,6 +845,17 @@ function renderFileBody(m) {
   `;
 }
 
+function renderGiftBody(m) {
+  let emoji = "🎁";
+  try { emoji = JSON.parse(m.text || "{}").emoji || "🎁"; } catch {}
+  return `
+    <div class="giftmsg">
+      <span class="gift-badge">${esc(emoji)}</span>
+      <div class="giftmsg-label">Подарок</div>
+    </div>
+  `;
+}
+
 function renderMessage(m) {
   const box = document.getElementById("messages");
   const empty = box.querySelector(".emptyhint");
@@ -868,6 +880,8 @@ function renderMessage(m) {
     body = renderFileBody(m);
   } else if (m.mediaType === "location") {
     body = renderLocationBody(m);
+  } else if (m.mediaType === "gift") {
+    body = renderGiftBody(m);
   } else {
     const text = m.text || "";
     body = EMOJI_ONLY_RE.test(text.trim())
@@ -1656,15 +1670,22 @@ async function openProfile(username, isMe) {
 
   // круглые кнопки действий — как в Телеграме
   const acts = [];
-  if (p.dmGated && !p.canMessage) {
+  if (p.blocked) {
+    acts.push(actionBtn("fa-ban", "Заблокирован", `void 0`, "act-blue"));
+  } else if (p.dmGated && !p.canMessage) {
     acts.push(actionBtn("fa-envelope", "Заявка", `closeProfile(); openContactRequest('${esc(p.username)}', '')`, "act-blue"));
   } else {
     acts.push(actionBtn("fa-comment", "Написать", `closeProfile(); openChat('${esc(p.username)}')`, "act-blue"));
     acts.push(actionBtn("fa-phone", "Звонок", `closeProfile(); callFromProfile('${esc(p.username)}')`, "act-green"));
+    acts.push(actionBtn("fa-gift", "Подарить", `openGiftPicker('${esc(p.username)}')`, "act-pink"));
   }
-  acts.push(actionBtn("fa-gift", "Подарить", `openGiftPicker('${esc(p.username)}')`, "act-pink"));
   if (p.birthdayToday) acts.push(actionBtn("fa-cake-candles", "Поздравить", `closeProfile(); congratulate('${esc(p.username)}')`, "act-orange"));
-  acts.push(actionBtn("fa-user-plus", "В друзья", `addFriendByName('${esc(p.username)}')`, "act-violet"));
+  if (!p.blocked) acts.push(actionBtn("fa-user-plus", "В друзья", `addFriendByName('${esc(p.username)}')`, "act-violet"));
+  if (p.iBlockedThem) {
+    acts.push(actionBtn("fa-user-check", "Разблокировать", `unblockFromProfile('${esc(p.username)}')`, "act-orange"));
+  } else {
+    acts.push(actionBtn("fa-user-slash", "Заблокировать", `blockFromProfile('${esc(p.username)}')`, "act-orange"));
+  }
   document.getElementById("profileActions").innerHTML = acts.join("");
 
   const rows = [];
@@ -1677,6 +1698,27 @@ async function openProfile(username, isMe) {
 
   await loadGifts(username, "profileGiftsRow");
   await loadUserStoriesIntoProfile(username);
+}
+
+async function blockFromProfile(username) {
+  if (!confirm(`Заблокировать @${username}? Переписка и звонки станут недоступны.`)) return;
+  const r = await fetch("/api/me/blocked", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ username })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast("Пользователь заблокирован");
+  userInfoCache.delete(username);
+  openProfile(username, false);
+}
+
+async function unblockFromProfile(username) {
+  await fetch(`/api/me/blocked/${encodeURIComponent(username)}`, { method: "DELETE", headers: authHeaders() });
+  toast("Пользователь разблокирован");
+  userInfoCache.delete(username);
+  openProfile(username, false);
 }
 
 // кнопка-кружок с подписью
@@ -1739,6 +1781,8 @@ function openSettings() {
   renderLanguageSection();
   renderPrivacySection();
   renderFriendsSection();
+  renderBlacklistSection();
+  renderUsernameSection();
   renderVerificationSection();
   renderSessionsSection();
   renderDeleteAccountSection();
@@ -1787,26 +1831,31 @@ function renderPrivacySection() {
   const storyPrivacy = s.storyPrivacy || "everyone";
   const bioPrivacy = s.bioPrivacy || "everyone";
   const lastSeenPrivacy = s.lastSeenPrivacy || "everyone";
+  const birthdayPrivacy = s.birthdayPrivacy || "everyone";
+  const photoPrivacy = s.photoPrivacy || "everyone";
+  const forwardPrivacy = s.forwardPrivacy || "everyone";
+  const callsPrivacy = s.callsPrivacy || "everyone";
+  const giftsPrivacy = s.giftsPrivacy || "everyone";
 
   const opt = (value, current) => `<option value="${value}" ${value === current ? "selected" : ""}>${
     value === "everyone" ? "Все" : value === "friends" ? "Только друзья" : "Никто"
   }</option>`;
+  const row = (id, label, current) => `
+    <label>${label}</label>
+    <select id="${id}" onchange="savePrivacy()">
+      ${opt("everyone", current)}${opt("friends", current)}${opt("nobody", current)}
+    </select>
+  `;
 
   box.innerHTML = `
-    <label>Кому показывать мои истории</label>
-    <select id="privStoryPrivacy" onchange="savePrivacy()">
-      ${opt("everyone", storyPrivacy)}${opt("friends", storyPrivacy)}${opt("nobody", storyPrivacy)}
-    </select>
-
-    <label>Кому показывать мою анкету (bio)</label>
-    <select id="privBioPrivacy" onchange="savePrivacy()">
-      ${opt("everyone", bioPrivacy)}${opt("friends", bioPrivacy)}${opt("nobody", bioPrivacy)}
-    </select>
-
-    <label>Кому показывать, когда я был(а) в сети</label>
-    <select id="privLastSeenPrivacy" onchange="savePrivacy()">
-      ${opt("everyone", lastSeenPrivacy)}${opt("friends", lastSeenPrivacy)}${opt("nobody", lastSeenPrivacy)}
-    </select>
+    ${row("privStoryPrivacy", "Кому показывать мои истории", storyPrivacy)}
+    ${row("privBioPrivacy", "Кому показывать мою анкету (bio)", bioPrivacy)}
+    ${row("privLastSeenPrivacy", "Кому показывать, когда я был(а) в сети", lastSeenPrivacy)}
+    ${row("privBirthdayPrivacy", "Кому показывать день рождения", birthdayPrivacy)}
+    ${row("privPhotoPrivacy", "Кому показывать фото профиля", photoPrivacy)}
+    ${row("privForwardPrivacy", "Кто может пересылать мои сообщения", forwardPrivacy)}
+    ${row("privCallsPrivacy", "Кто может мне звонить", callsPrivacy)}
+    ${row("privGiftsPrivacy", "Кто может дарить мне подарки", giftsPrivacy)}
     <div class="hint">«Друзья» — это список ниже. @username всегда виден всем, иначе поиск и переписка перестанут работать.</div>
   `;
 }
@@ -1815,7 +1864,15 @@ async function savePrivacy() {
   const storyPrivacy = document.getElementById("privStoryPrivacy").value;
   const bioPrivacy = document.getElementById("privBioPrivacy").value;
   const lastSeenPrivacy = document.getElementById("privLastSeenPrivacy").value;
-  const d = await saveSettingsPatch({ storyPrivacy, bioPrivacy, lastSeenPrivacy });
+  const birthdayPrivacy = document.getElementById("privBirthdayPrivacy").value;
+  const photoPrivacy = document.getElementById("privPhotoPrivacy").value;
+  const forwardPrivacy = document.getElementById("privForwardPrivacy").value;
+  const callsPrivacy = document.getElementById("privCallsPrivacy").value;
+  const giftsPrivacy = document.getElementById("privGiftsPrivacy").value;
+  const d = await saveSettingsPatch({
+    storyPrivacy, bioPrivacy, lastSeenPrivacy,
+    birthdayPrivacy, photoPrivacy, forwardPrivacy, callsPrivacy, giftsPrivacy
+  });
   if (d && d.ok) toast("Приватность обновлена ✅");
 }
 
@@ -1863,6 +1920,89 @@ async function addFriend() {
 async function removeFriend(username) {
   await fetch(`/api/friends/${encodeURIComponent(username)}`, { method: "DELETE", headers: authHeaders() });
   renderFriendsSection();
+}
+
+// ---------------- ЧЁРНЫЙ СПИСОК ----------------
+async function renderBlacklistSection() {
+  const box = document.getElementById("blacklistSection");
+  if (!box) return;
+  box.innerHTML = `
+    <div class="row">
+      <input id="addBlockedInput" placeholder="@username">
+      <button class="btn ghost" onclick="addToBlacklist()">Заблокировать</button>
+    </div>
+    <div id="blockedList" class="hint">Загрузка...</div>
+  `;
+
+  const r = await fetch("/api/me/blocked", { headers: authHeaders() });
+  const d = await r.json();
+  const list = document.getElementById("blockedList");
+  if (!d.ok || d.blocked.length === 0) { list.innerHTML = `<div class="hint">Чёрный список пуст</div>`; return; }
+
+  list.innerHTML = d.blocked.map(f => `
+    <div class="memberrow">
+      <div class="avatar">${avatarHtml(f)}</div>
+      <div class="meta">
+        <div class="name">${nameHtml(f)}</div>
+        <div class="preview">@${esc(f.username)}</div>
+      </div>
+      <button class="iconbtn" onclick="removeFromBlacklist('${esc(f.username)}')" title="Разблокировать"><i class="fa-solid fa-user-check"></i></button>
+    </div>
+  `).join("");
+}
+
+async function addToBlacklist() {
+  const username = document.getElementById("addBlockedInput").value.trim().replace(/^@+/, "");
+  if (!username) return;
+  const r = await fetch("/api/me/blocked", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ username })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  renderBlacklistSection();
+  renderFriendsSection();
+}
+
+async function removeFromBlacklist(username) {
+  await fetch(`/api/me/blocked/${encodeURIComponent(username)}`, { method: "DELETE", headers: authHeaders() });
+  renderBlacklistSection();
+}
+
+// ---------------- СМЕНА ЮЗЕРНЕЙМА ----------------
+function renderUsernameSection() {
+  const box = document.getElementById("usernameSection");
+  if (!box) return;
+  box.innerHTML = `
+    <div class="hint">Текущий юзернейм: @${esc(me.username)}</div>
+    <label>Новый юзернейм</label>
+    <input id="newUsernameInput" placeholder="new_username">
+    <label>Пароль (для подтверждения)</label>
+    <input id="usernameChangePassword" type="password">
+    <button class="btn ghost full" onclick="changeUsername()">Изменить юзернейм</button>
+  `;
+}
+
+async function changeUsername() {
+  const username = document.getElementById("newUsernameInput").value.trim().replace(/^@+/, "").toLowerCase();
+  const password = document.getElementById("usernameChangePassword").value;
+  if (!username || !password) return alert("Заполни оба поля");
+
+  const r = await fetch("/api/me/username", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка смены юзернейма");
+
+  if (d.token) localStorage.setItem("token", d.token);
+  me = { ...me, ...d.profile };
+  toast("Юзернейм изменён на @" + me.username + " ✅");
+  renderUsernameSection();
+  updateHeader();
+  location.reload();
 }
 
 // ---------------- DELETE ACCOUNT ----------------
