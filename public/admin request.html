@@ -37,7 +37,7 @@
         <button onclick="logout()">Выйти</button>
       </div>
     </div>
-    <p class="hint">Когда человек хочет написать аккаунту с галочкой, заявка приходит сюда. «Передать» — сообщение уходит владельцу, и дальше человек может писать ему напрямую. «Отклонить» — человеку придёт уведомление в «Поддержку».</p>
+    <p class="hint">Когда человек хочет написать аккаунту с галочкой, заявка приходит сюда. «Передать владельцу» — заявка уходит самому владельцу аккаунта, и он решает: принять или отклонить. Если примет, человек сможет писать ему напрямую. «Отклонить» — человеку придёт уведомление в «Поддержку».</p>
     <div id="list" class="ver-list"></div>
   </div>
 
@@ -94,7 +94,7 @@
           <div class="req-meta">${new Date(r.createdAt).toLocaleString("ru-RU")}</div>
           <div class="req-text">${esc(r.text)}</div>
           <div class="ver-actions">
-            <button class="success" onclick="decide(${r.id}, 'approve')">Передать</button>
+            <button class="success" onclick="decide(${r.id}, 'approve')">Передать владельцу</button>
             <button class="danger" onclick="decide(${r.id}, 'reject')">Отклонить</button>
           </div>
         </div>
