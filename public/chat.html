@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
+  <script src="splash.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>One Messenger</title>
   <link rel="stylesheet" href="style.css" />
@@ -50,6 +51,7 @@
         </div>
       </div>
 
+      <div id="contactInbox" class="contactinbox hidden"></div>
       <div id="birthdayBanner" class="banner bdaybanner hidden"></div>
 
       <div class="chatlist" id="chatList">
@@ -63,7 +65,7 @@
         </button>
 
         <button class="chatitem" data-chat="support" onclick="openChat('support')">
-          <div class="avatar circle"><img src="/icon-192.png" alt="OM"></div>
+          <div class="avatar circle"><img src="/icon-192.png" alt="OM" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:50%"></div>
           <div class="meta">
             <div class="name" data-i18n="chats.support">Поддержка</div>
             <div class="preview">One Messenger Support</div>
@@ -80,7 +82,7 @@
       <div class="screen-header"><h2 class="screentitle" data-i18n="profile.title">Профиль</h2></div>
 
       <div class="profiletab">
-        <div id="myProfileBanner" class="profilebanner hidden"></div>
+        <div id="myProfileBanner" class="profilebanner"></div>
         <div class="avatar big" id="myProfileAvatar"></div>
         <div class="pname" id="myProfileName"></div>
         <div class="puser" id="myProfileUser"></div>
@@ -220,6 +222,7 @@
           </button>
           <div id="attachMenu" class="attachmenu hidden">
             <button onclick="attachPickMedia()"><i class="fa-solid fa-image"></i> Фото/Видео</button>
+            <button onclick="attachPickLocation()"><i class="fa-solid fa-location-dot"></i> Геолокация</button>
             <button onclick="attachPickGif()"><i class="fa-solid fa-film"></i> GIF</button>
             <button onclick="attachPickDoc()"><i class="fa-solid fa-file-lines"></i> Файл (Word, Excel, PDF...)</button>
             <button onclick="attachPickList()"><i class="fa-solid fa-list-check"></i> Список (покупки, дела)</button>
@@ -268,7 +271,7 @@
         <button class="iconbtn" onclick="closeProfile()"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
-      <div id="profileBanner" class="profilebanner hidden"></div>
+      <div id="profileBanner" class="profilebanner"></div>
       <div class="profile">
         <div class="avatar big" id="profileAvatar"></div>
         <div class="profiletext">
