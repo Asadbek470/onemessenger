@@ -55,7 +55,7 @@ function verifiedBadge(isVerified) {
 }
 
 // ================== ПЕРСОНАЛИЗАЦИЯ: аватар, цвет имени, статус ==================
-const LETTER_COLORS = ["#e17076", "#faa774", "#a695e7", "#7bc862", "#6ec9cb", "#65aadd", "#ee7aae", "#f5b041"];
+const LETTER_COLORS = ["#ff4d5e", "#ff8a1f", "#8b5cf6", "#16c25b", "#06b6d4", "#2f80ff", "#ec4899", "#f5a500"];
 
 function safeColor(c) {
   return /^#[0-9a-fA-F]{6}$/.test(String(c || "")) ? c : "";
@@ -72,15 +72,41 @@ function isPrivateChat(c) {
   return c !== "global" && c !== "support" && !isGroupChat(c) && !isSelfChat(c);
 }
 
-// Аватар: фото → если нет, цветной кружок с первой буквой.
-// У «Поддержки» — фирменный значок OM.
+// ----- цвета: светлее / темнее, градиенты -----
+function shade(hex, amt) {
+  const n = parseInt(String(hex).slice(1), 16);
+  const ch = [n >> 16, (n >> 8) & 255, n & 255].map(v => {
+    const out = amt < 0 ? v * (1 + amt / 100) : v + (255 - v) * (amt / 100);
+    return Math.max(0, Math.min(255, Math.round(out))).toString(16).padStart(2, "0");
+  });
+  return "#" + ch.join("");
+}
+function isLightColor(hex) {
+  const n = parseInt(String(hex).slice(1), 16);
+  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) > 190;
+}
+function avatarGradient(c) {
+  return `linear-gradient(140deg, ${shade(c, 22)} 0%, ${c} 45%, ${shade(c, -28)} 100%)`;
+}
+// Шапка профиля: насыщенный градиент от выбранного цвета (или фирменный, если цвета нет)
+function profileGradient(c) {
+  c = safeColor(c);
+  if (!c) return "linear-gradient(135deg, var(--blue) 0%, #6a5cff 100%)";
+  return `linear-gradient(135deg, ${shade(c, 24)} 0%, ${c} 45%, ${shade(c, -42)} 100%)`;
+}
+
+// Аватар: фото → если нет, круг с первой буквой (как в Телеграме).
+// У «Поддержки» — фирменный значок OM. Размеры заданы прямо в разметке,
+// поэтому картинка никогда не растянется на весь экран.
+const AVA_IMG_STYLE = "width:100%;height:100%;object-fit:cover;display:block;border-radius:50%";
 function avatarHtml(info) {
   info = info || {};
-  if (info.username === "support") return `<img src="${OM_ICON}" alt="OM">`;
-  if (info.avatarUrl) return `<img src="${esc(info.avatarUrl)}" alt="">`;
+  if (info.username === "support") return `<img src="${OM_ICON}" alt="OM" style="${AVA_IMG_STYLE}">`;
+  if (info.avatarUrl) return `<img src="${esc(info.avatarUrl)}" alt="" style="${AVA_IMG_STYLE}">`;
   const letter = esc(String(info.displayName || info.username || "?")[0].toUpperCase());
-  const bg = safeColor(info.nameColor) || colorFromName(info.username);
-  return `<span class="letterava" style="background:${bg}">${letter}</span>`;
+  let bg = safeColor(info.nameColor);
+  if (!bg || isLightColor(bg)) bg = colorFromName(info.username);
+  return `<span class="letterava" style="width:100%;height:100%;display:grid;place-items:center;border-radius:50%;color:#fff;font-weight:800;background:${avatarGradient(bg)}">${letter}</span>`;
 }
 
 // Имя: цвет имени + эмодзи-статус + галочка + 🎂 в день рождения
@@ -352,6 +378,7 @@ async function initApp() {
   await refreshChats();
   await loadStories();
   await showBirthdays();
+  refreshContactInbox();
 
   document.getElementById("callBtn").style.display = "none";
 
@@ -592,6 +619,12 @@ function connectWS() {
       return;
     }
 
+    if (data.type === "contactRequest") {
+      toast("📨 Тебе хотят написать — проверь список чатов");
+      refreshContactInbox();
+      return;
+    }
+
     if (data.type === "birthday") {
       toast(`🎂 Сегодня день рождения у ${data.displayName || "@" + data.username}!`);
       showBirthdays();
@@ -639,6 +672,7 @@ document.addEventListener("visibilitychange", () => {
 
 function msgPreview(msg) {
   if (msg.mediaType === "list") return "📋 Список";
+  if (msg.mediaType === "location") return "📍 Геолокация";
   if (msg.mediaType === "file") return "📎 " + (msg.fileName || "Файл");
   if (msg.mediaType === "image") return "🖼 Фото";
   if (msg.mediaType === "video") return "🎬 Видео";
@@ -841,6 +875,8 @@ function renderMessage(m) {
     body = renderListBody(m);
   } else if (m.mediaType === "file") {
     body = renderFileBody(m);
+  } else if (m.mediaType === "location") {
+    body = renderLocationBody(m);
   } else {
     const text = m.text || "";
     body = EMOJI_ONLY_RE.test(text.trim())
@@ -864,7 +900,7 @@ function renderMessage(m) {
   const time = new Date(m.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 
   const avatarClick = m.sender === "support" ? "" : `onclick="openProfile('${esc(m.sender)}', false)"`;
-  const avatar = mine ? "" : `<div class="mava" ${avatarClick}>${avatarHtml(info)}</div>`;
+  const avatar = mine ? "" : `<div class="mava" ${avatarClick} style="width:34px;height:34px;min-width:34px;overflow:hidden;border-radius:50%">${avatarHtml(info)}</div>`;
 
   const row = document.createElement("div");
   row.className = "mrow " + (mine ? "mine" : "other");
@@ -1128,6 +1164,10 @@ function attachPickGif() {
 function attachPickDoc() {
   document.getElementById("attachMenu").classList.add("hidden");
   document.getElementById("docInput").click();
+}
+function attachPickLocation() {
+  document.getElementById("attachMenu").classList.add("hidden");
+  sendLocation();
 }
 function attachPickList() {
   document.getElementById("attachMenu").classList.add("hidden");
@@ -1633,9 +1673,7 @@ async function openProfile(username, isMe) {
   const p = await getUserInfo(username, true);
   if (!p.fetched) { alert("Не найден"); return closeProfile(); }
 
-  const profCol = safeColor(p.profileColor);
-  banner.style.background = profCol ? `linear-gradient(135deg, ${profCol}, ${profCol}55)` : "";
-  banner.classList.toggle("hidden", !profCol);
+  banner.style.background = profileGradient(p.profileColor);
 
   avatar.innerHTML = avatarHtml(p);
   name.innerHTML = nameHtml(p, { noBday: true });
@@ -1961,13 +1999,13 @@ const WALLPAPER_PRESETS = [
 ];
 const ACCENT_PRESETS = ["#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff", "#f5c542", "#00c2c7", "#ff5c5c", "#7c8cff", "#8bd450"];
 const NAME_COLORS = [
-  "#ff5c5c", "#ff7a45", "#ffa940", "#ffc53d", "#fadb14", "#d3f261", "#95de64", "#52c41a",
-  "#36cfc9", "#13c2c2", "#69c0ff", "#2a9df4", "#597ef7", "#85a5ff", "#9254de", "#b37feb",
-  "#d3adf7", "#f759ab", "#ff85c0", "#eb2f96", "#ff9c6e", "#e6c79c", "#bfbfbf", "#ffffff"
+  "#ff3b47", "#ff6a1a", "#ff9500", "#ffc400", "#ffe14d", "#b6f03a", "#4cd964", "#00c853",
+  "#00d4b4", "#00bcd4", "#40c4ff", "#1e9bff", "#3d6bff", "#6c7bff", "#8b45ff", "#b45cff",
+  "#d66bff", "#ff4db8", "#ff5c9a", "#ff2d78", "#ff8a65", "#e6b980", "#cfd4dc", "#ffffff"
 ];
 const PROFILE_COLORS = [
-  "#2a9df4", "#1f3b5a", "#7b3fe4", "#c2185b", "#e65100", "#2e7d32",
-  "#00897b", "#455a64", "#6d4c41", "#ad1457", "#283593", "#f9a825"
+  "#0a84ff", "#5e5ce6", "#8b3dff", "#ff2d92", "#ff3b30", "#ff8a00",
+  "#00c46a", "#00b8a9", "#2ec5ff", "#f5b301", "#c026d3", "#475569"
 ];
 const STATUS_EMOJIS = ["😎", "🔥", "⭐", "💎", "👑", "🎮", "🎧", "📚", "💼", "✈️", "🏖️", "❤️", "🌙", "☕", "🚀", "⚽", "🎨", "💻", "🤔", "😴", "🎉", "🍀", "🌸", "🐱", "🦁", "⚡", "🌈", "🎵"];
 
@@ -2062,7 +2100,7 @@ function renderPersonalizeSection() {
   const profileColor = safeColor(s.profileColor);
 
   box.innerHTML = `
-    <div class="namepreview" style="${profileColor ? `background:linear-gradient(135deg, ${profileColor}, ${profileColor}55)` : ""}">
+    <div class="namepreview" style="background:${profileGradient(profileColor)}">
       <div class="avatar">${avatarHtml(myCard())}</div>
       <div>${nameHtml(myCard(), { noBday: true })}<div class="hint">так тебя видят другие</div></div>
     </div>
@@ -2077,7 +2115,7 @@ function renderPersonalizeSection() {
     <label>Цвет профиля</label>
     <div class="swatchrow">
       <button class="colorswatch reset ${!profileColor ? "active" : ""}" onclick="pickProfileColor('')" title="Без цвета"><i class="fa-solid fa-ban"></i></button>
-      ${PROFILE_COLORS.map(c => `<button class="colorswatch ${profileColor.toLowerCase() === c ? "active" : ""}" style="background:linear-gradient(135deg, ${c}, ${c}66)" onclick="pickProfileColor('${c}')"></button>`).join("")}
+      ${PROFILE_COLORS.map(c => `<button class="colorswatch ${profileColor.toLowerCase() === c ? "active" : ""}" style="background:${profileGradient(c)}" onclick="pickProfileColor('${c}')"></button>`).join("")}
       <label class="colorswatch custompick" title="Любой цвет"><i class="fa-solid fa-eye-dropper"></i><input type="color" value="${profileColor || "#2a9df4"}" onchange="pickProfileColor(this.value)"></label>
     </div>
   `;
@@ -2252,7 +2290,7 @@ function renderVerificationSection() {
       <div class="hint">Аккаунт официально подтверждён ✅</div>
       <label class="checkrow"><input type="checkbox" id="dmGateToggle" ${on ? "checked" : ""} onchange="toggleDmGate(this.checked)">
         Незнакомые пишут мне только через администрацию</label>
-      <div class="hint">Когда включено, человек увидит «Этот аккаунт официально подтверждён» и сможет отправить заявку — администрация передаст её тебе. Люди из исключений и те, кому ты уже писал(а) сам(а), пишут напрямую.</div>
+      <div class="hint">Когда включено, человек увидит «Этот аккаунт официально подтверждён» и сможет отправить заявку. Сначала её проверит администрация, а потом ты сам(а) решишь — «Принять» или «Отклонить» (кнопки появятся вверху списка чатов). Люди из исключений и те, кому ты уже писал(а) сам(а), пишут напрямую.</div>
       <label>Исключения — могут писать напрямую</label>
       <div class="row">
         <input id="dmExceptionInput" placeholder="@username">
@@ -2400,10 +2438,8 @@ function stopHoldVoice() {
 // ================== MY PROFILE TAB ==================
 async function loadMyProfileTab() {
   const card = myCard();
-  const profCol = safeColor((me.settings || {}).profileColor);
   const banner = document.getElementById("myProfileBanner");
-  banner.style.background = profCol ? `linear-gradient(135deg, ${profCol}, ${profCol}55)` : "";
-  banner.classList.toggle("hidden", !profCol);
+  banner.style.background = profileGradient((me.settings || {}).profileColor);
 
   document.getElementById("myProfileAvatar").innerHTML = avatarHtml(card);
   document.getElementById("myProfileName").innerHTML = nameHtml(card);
@@ -2884,4 +2920,159 @@ function cleanupCall() {
   speakerBtn.innerHTML = `<i class="fa-solid fa-volume-high"></i>`;
 
   document.getElementById("remoteAudio").srcObject = null;
+}
+
+
+// ================== ГЕОЛОКАЦИЯ ==================
+let locBusy = false;
+
+function locErrorText(err) {
+  if (!err) return "Не удалось определить местоположение";
+  if (err.code === 1) return "Доступ к геолокации запрещён. Разреши его в настройках браузера (значок замка рядом с адресом сайта).";
+  if (err.code === 2) return "Не получилось определить местоположение. Проверь, что на телефоне включён GPS.";
+  if (err.code === 3) return "Слишком долго определялось местоположение. Попробуй ещё раз на открытом месте.";
+  return "Не удалось определить местоположение";
+}
+
+// Ждём до 8 секунд, пока телефон уточнит точку, и отправляем самую точную
+function sendLocation() {
+  if (!navigator.geolocation) return alert("Этот браузер не умеет определять геолокацию");
+  if (!ws || ws.readyState !== 1) return alert("WS не подключен");
+  if (locBusy) return;
+  if (!confirm("Отправить твою точную геолокацию в этот чат?")) return;
+
+  locBusy = true;
+  toast("📍 Определяю точное местоположение...");
+  let best = null, done = false, watchId = null, timer = null;
+
+  const stop = () => {
+    done = true;
+    locBusy = false;
+    clearTimeout(timer);
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  };
+  const sendBest = () => {
+    if (done) return;
+    stop();
+    if (!best) return alert("Не удалось определить местоположение");
+    if (!ws || ws.readyState !== 1) return alert("WS не подключен");
+    ws.send(JSON.stringify({
+      type: "location-message",
+      receiver: currentChat,
+      lat: best.coords.latitude,
+      lng: best.coords.longitude,
+      accuracy: Math.round(best.coords.accuracy || 0)
+    }));
+  };
+
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      if (done) return;
+      if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
+      if (pos.coords.accuracy <= 25) sendBest();
+    },
+    (err) => {
+      if (done) return;
+      if (best) return sendBest();
+      stop();
+      alert(locErrorText(err));
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+  );
+  timer = setTimeout(sendBest, 8000);
+}
+
+function parseLoc(m) {
+  try {
+    const o = JSON.parse(m.text);
+    if (Number.isFinite(o.lat) && Number.isFinite(o.lng)) return o;
+  } catch {}
+  return null;
+}
+
+// Карта без ключей и сервисов: 9 плиток OpenStreetMap, центрированных на точке
+function renderLocationBody(m) {
+  const loc = parseLoc(m);
+  if (!loc) return `<div class="mtext">📍 Геолокация</div>`;
+
+  const Z = 16, n = 2 ** Z;
+  const xf = (loc.lng + 180) / 360 * n;
+  const latRad = loc.lat * Math.PI / 180;
+  const yf = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+  const tx = Math.floor(xf), ty = Math.floor(yf);
+  const offX = (1 + (xf - tx)) * 256, offY = (1 + (yf - ty)) * 256;
+
+  let tiles = "";
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const x = ((tx + dx) % n + n) % n, y = ty + dy;
+      if (y < 0 || y >= n) continue;
+      tiles += `<img src="https://tile.openstreetmap.org/${Z}/${x}/${y}.png" alt="" loading="lazy" onerror="this.style.display='none'" style="position:absolute;left:${(dx + 1) * 256}px;top:${(dy + 1) * 256}px;width:256px;height:256px">`;
+    }
+  }
+
+  const coords = `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`;
+  const acc = loc.acc ? ` · ±${loc.acc} м` : "";
+  const google = `https://www.google.com/maps?q=${loc.lat},${loc.lng}`;
+  const yandex = `https://yandex.com/maps/?pt=${loc.lng},${loc.lat}&z=17&l=map`;
+
+  return `
+    <div class="loccard">
+      <div class="locmap">
+        <div class="locmosaic" style="left:${130 - offX}px;top:${80 - offY}px">${tiles}</div>
+        <div class="locpin"><span></span></div>
+      </div>
+      <div class="loctitle">📍 Геолокация</div>
+      <div class="loccoords">${coords}${acc}</div>
+      <div class="locbtns">
+        <a class="locbtn" href="${google}" target="_blank" rel="noopener">Google Карты</a>
+        <a class="locbtn" href="${yandex}" target="_blank" rel="noopener">Яндекс Карты</a>
+      </div>
+    </div>
+  `;
+}
+
+// ================== ЗАЯВКИ НА СВЯЗЬ: решение владельца официального аккаунта ==================
+async function refreshContactInbox() {
+  const box = document.getElementById("contactInbox");
+  if (!box || !me) return;
+  let d;
+  try {
+    const r = await fetch("/api/me/contact-requests", { headers: authHeaders() });
+    d = await r.json();
+  } catch { return; }
+  if (!d || !d.ok || d.requests.length === 0) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  box.classList.remove("hidden");
+  box.innerHTML = `
+    <div class="inboxtitle">📨 Хотят тебе написать (${d.requests.length})</div>
+    ${d.requests.map(r => `
+      <div class="inboxitem">
+        <div class="inboxhead">
+          <div class="avatar">${avatarHtml(r.from)}</div>
+          <div class="meta">
+            <div class="name">${nameHtml(r.from, { noBday: true })}</div>
+            <div class="preview">@${esc(r.fromUser)} · одобрено администрацией</div>
+          </div>
+        </div>
+        <div class="inboxtext">${esc(r.text)}</div>
+        <div class="inboxbtns">
+          <button class="btn primary small" onclick="answerContactRequest(${r.id}, true)">Принять</button>
+          <button class="btn ghost small" onclick="answerContactRequest(${r.id}, false)">Отклонить</button>
+        </div>
+      </div>
+    `).join("")}
+  `;
+}
+
+async function answerContactRequest(id, accept) {
+  const r = await fetch(`/api/me/contact-requests/${id}/${accept ? "accept" : "reject"}`, { method: "POST", headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast(accept ? "Заявка принята ✅ Сообщение появилось в чатах" : "Заявка отклонена");
+  refreshContactInbox();
+  refreshChats();
 }
