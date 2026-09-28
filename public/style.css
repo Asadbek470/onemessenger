@@ -985,6 +985,210 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
   width:100%;height:100%;display:grid;place-items:center;
   color:#fff;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.25);
 }
+/* ================================================================
+   One Messenger — стиль Telegram для списка чатов и переписки.
+   Вставить в САМЫЙ КОНЕЦ style.css (после profile-telegram.css).
+   ================================================================ */
+
+:root{
+  --tg-bg:#0e1621;
+  --tg-card:#17212b;
+  --tg-sep:rgba(255,255,255,.07);
+  --tg-label:#7f92a8;
+  --tg-link:#62b6ff;
+  --tg-in:#182533;
+  --tg-out:#2b5278;
+}
+
+/* ---------- Общий фон: плоский, без «жидкого стекла» ---------- */
+body::before, body::after{display:none}
+.screen, .chatscreen{
+  background:var(--tg-bg);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+
+/* ================= СПИСОК ЧАТОВ ================= */
+#screenChats .screen-header{
+  padding:10px 12px 8px;background:var(--tg-card);
+}
+#screenChats .search{
+  background:var(--tg-bg);border:none;border-radius:22px;padding:10px 14px;
+}
+
+/* сторис */
+#screenChats .stories{margin-top:10px;gap:12px}
+#screenChats .story-add{
+  width:52px;height:52px;border-radius:50%;flex:0 0 auto;
+  display:grid;place-items:center;font-size:18px;color:#fff;cursor:pointer;
+  border:2px dashed rgba(98,182,255,.7);background:rgba(42,157,244,.15);
+}
+#screenChats .storyava{
+  width:56px;height:56px;padding:2px;
+  border:2px solid transparent;
+  background:linear-gradient(var(--tg-card),var(--tg-card)) padding-box,
+             linear-gradient(135deg,#6a5cff,#2a9df4,#43e08a) border-box;
+}
+#screenChats .storyava img{border-radius:50%}
+#screenChats .storyname{font-size:12px;color:var(--tg-label)}
+
+/* быстрые действия — компактные «таблетки» вместо больших плиток */
+#screenChats .sidebar-actions{
+  display:flex;gap:8px;margin-top:10px;
+  overflow-x:auto;scrollbar-width:none;padding-bottom:2px;
+}
+#screenChats .sidebar-actions::-webkit-scrollbar{display:none}
+#screenChats .sidebar-actions .btn.small{
+  flex:0 0 auto;flex-direction:row;gap:7px;
+  min-height:34px;padding:0 14px;border-radius:999px;
+  font-size:13px;font-weight:600;white-space:nowrap;
+  background:rgba(255,255,255,.07);border:none;box-shadow:none;
+  backdrop-filter:none;color:var(--text);
+}
+#screenChats .sidebar-actions .btn.small i{
+  width:auto;height:auto;border-radius:0;background:none!important;
+  box-shadow:none;font-size:13px;color:var(--tg-link);
+}
+
+/* строки чатов */
+#screenChats .chatlist{padding:0 0 10px;background:var(--tg-bg)}
+#screenChats .chatitem{
+  border:none;border-radius:0;padding:9px 14px;gap:12px;
+  background:transparent;box-shadow:none;position:relative;
+}
+#screenChats .chatitem::after{
+  content:"";position:absolute;left:80px;right:0;bottom:0;height:1px;background:var(--tg-sep);
+}
+#screenChats .chatitem:hover{background:rgba(255,255,255,.04)}
+#screenChats .chatitem.active{background:rgba(42,157,244,.16);border:none;box-shadow:none}
+#screenChats .chatitem .avatar{width:54px;height:54px;border-radius:50%}
+#screenChats .chatitem .avatar.circle{
+  background:linear-gradient(135deg,#3fb0ff,#2f6bff);color:#fff;font-size:20px;
+}
+#screenChats .chatitem .avatar.circle.group{background:linear-gradient(135deg,#ffb23f,#ff6a1a)}
+#screenChats .chatitem .avatar img{border-radius:50%}
+#screenChats .chatitem .meta .name{font-size:16px;font-weight:700}
+#screenChats .chatitem .meta .preview{font-size:14px;color:var(--tg-label);margin-top:3px}
+/* индикатор «в сети» — точка на аватарке, как в Telegram */
+#screenChats .chatitem .dot{
+  position:absolute;left:56px;bottom:12px;width:14px;height:14px;
+  border:3px solid var(--tg-bg);background:#43e08a;
+}
+#screenChats .chatitem .dot.offline{display:none}
+#searchResults .chatitem::after{display:none}
+
+/* ================= ШАПКА ЧАТА ================= */
+#screenChat .topbar{
+  padding:8px 10px;gap:8px;
+  background:var(--tg-card);border-bottom:1px solid var(--tg-sep);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+#screenChat .topbar .iconbtn{
+  width:40px;height:40px;border:none;box-shadow:none;background:transparent;
+  backdrop-filter:none;color:var(--text);font-size:18px;
+}
+#screenChat .topbar .iconbtn:active{background:rgba(255,255,255,.1)}
+#screenChat #callBtn{background:transparent;box-shadow:none;color:var(--tg-link)}
+.chatava{
+  width:42px;height:42px;min-width:42px;border-radius:50%;overflow:hidden;
+  flex:0 0 auto;cursor:pointer;
+}
+.chatava > *{width:100%;height:100%;border-radius:50%}
+.chatava .letterava{font-size:17px}
+#screenChat .topbar .title{flex:1;min-width:0}
+#screenChat .title .h{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#screenChat .title .s{font-size:13px;color:var(--tg-label)}
+
+/* ================= СООБЩЕНИЯ ================= */
+#messages{padding:10px 10px 6px}
+#messages .mrow{margin:3px 0}
+#messages .mrow.other{gap:6px;align-items:flex-end}
+
+#messages .bubble{
+  max-width:min(560px,82%);
+  padding:6px 10px 5px;
+  background:var(--tg-in);border:none;
+  border-radius:16px 16px 16px 5px;
+  box-shadow:0 1px 1px rgba(0,0,0,.25);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+#messages .mrow.mine .bubble{
+  background:var(--tg-out);border:none;
+  border-radius:16px 16px 5px 16px;
+  box-shadow:0 1px 1px rgba(0,0,0,.25);
+}
+#messages .mtext{font-size:16px;line-height:1.3;color:#fff}
+#messages .who{font-size:13.5px;font-weight:700;color:var(--tg-link)}
+#messages .mrow.mine .who{display:none}
+
+/* время — маленькое, справа снизу */
+#messages .mtime{
+  font-size:11px;color:rgba(255,255,255,.55);
+  text-align:right;margin-top:2px;
+}
+#messages .mrow.mine .mtime{color:rgba(190,220,255,.8)}
+
+/* кнопки ☆ / 🗑: мелкие, полупрозрачные, а не серые кнопки браузера */
+#messages .btop{margin:0 0 2px;gap:6px;min-height:0}
+#messages .btop:empty{display:none}
+#messages .mactions{display:flex;gap:0;margin-left:auto}
+#messages .mact, #messages .trash{
+  -webkit-appearance:none;appearance:none;
+  width:24px;height:24px;padding:0;border:0;border-radius:50%;
+  display:grid;place-items:center;font-size:12px;cursor:pointer;
+  background:transparent;color:rgba(255,255,255,.4);
+  box-shadow:none;
+}
+#messages .mact:active, #messages .trash:active{background:rgba(255,255,255,.12)}
+#messages .mact:hover{color:#ffc53d;background:transparent}
+#messages .trash:hover{color:var(--danger)}
+
+/* аватарка отправителя рядом с сообщением */
+#messages .mava{width:32px;height:32px;border-radius:50%;flex:0 0 auto;overflow:hidden}
+
+/* крупные эмодзи без «пузыря» */
+#messages .bubble:has(.bigemoji){background:transparent;box-shadow:none}
+
+/* фото и видео — с аккуратными углами */
+#messages .mimg, #messages .mvid{border-radius:12px}
+
+/* ================= ПОЛЕ ВВОДА ================= */
+#screenChat .composer{
+  padding:6px 8px;gap:4px;
+  background:var(--tg-card);border-top:1px solid var(--tg-sep);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+#screenChat .composer .iconbtn{
+  width:42px;height:42px;border:none;box-shadow:none;border-radius:50%;
+  background:transparent;color:var(--tg-label);font-size:20px;
+  backdrop-filter:none;flex:0 0 auto;
+}
+#screenChat .composer .iconbtn:active{background:rgba(255,255,255,.1)}
+#screenChat .composer .text{
+  flex:1 1 0;min-width:0;
+  padding:11px 14px;border:none;border-radius:22px;
+  background:var(--tg-bg);font-size:16px;
+}
+#screenChat .composer .iconbtn.send{
+  color:#fff;font-size:17px;
+  background:linear-gradient(135deg,var(--blue),#5b6dff);
+  box-shadow:0 6px 14px -6px var(--blue);
+}
+#voiceBtn.recording{background:#ff4d4d!important;color:#fff!important}
+
+/* меню скрепки */
+.attachmenu{background:var(--tg-card);border-radius:16px;border:1px solid var(--tg-sep)}
+
+/* ================= НИЖНЕЕ МЕНЮ ================= */
+.bottomnav{
+  background:var(--tg-card);border-top:1px solid var(--tg-sep);
+  box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+.bottomnav .navbtn{color:var(--tg-label);font-weight:600;font-size:11px;gap:3px;padding:8px 4px 6px}
+.bottomnav .navbtn i{
+  width:auto;height:auto;border-radius:0;background:none;box-shadow:none;font-size:22px;
+}
+.bottomnav .navbtn.active{color:var(--blue)}
+.bottomnav .navbtn.active i{background:none;box-shadow:none;color:var(--blue)}
 
 /* ---------- Окно чужого профиля ---------- */
 .tgcard-modal{max-height:92vh;overflow-y:auto;padding-bottom:16px;border-radius:24px}
