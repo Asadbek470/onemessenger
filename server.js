@@ -420,6 +420,8 @@ async function initSchema() {
   await addColumn("users", "totpEnabled", "INTEGER NOT NULL DEFAULT 0");
   await addColumn("users", "settings", "TEXT NOT NULL DEFAULT '{}'");
   await addColumn("users", "lastSeen", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("users", "googleSub", "TEXT NOT NULL DEFAULT ''");
+  await addColumn("users", "googleEmail", "TEXT NOT NULL DEFAULT ''");
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS messages (
@@ -500,6 +502,15 @@ async function initSchema() {
       friend TEXT NOT NULL,
       createdAt INTEGER NOT NULL,
       PRIMARY KEY (owner, friend)
+    )
+  `);
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS blocked_users (
+      owner TEXT NOT NULL,
+      blocked TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (owner, blocked)
     )
   `);
 
@@ -682,6 +693,7 @@ async function getUserCard(username) {
 }
 
 function previewText(m) {
+  if (m.mediaType === "gift") return "🎁 Подарок";
   if (m.mediaType === "list") return "📋 Список";
   if (m.mediaType === "location") return "📍 Геолокация";
   if (m.mediaType === "file") return "📎 " + (m.fileName || "Файл");
@@ -1002,6 +1014,127 @@ app.put("/api/me", verifyAuth, (req, res) => {
   );
 });
 
+// ---------------- СМЕНА ЮЗЕРНЕЙМА ----------------
+app.post("/api/me/username", verifyAuth, rateLimit(3, 60 * 60 * 1000), async (req, res) => {
+  const newUsername = String(req.body.username || "").trim().replace(/^@+/, "").toLowerCase();
+  const password = String(req.body.password || "");
+
+  if (!/^[a-z0-9_]{4,20}$/.test(newUsername)) {
+    return res.status(400).json({ ok: false, error: "Юзернейм: 4-20 символов, латиница/цифры/подчёркивание" });
+  }
+  if (RESERVED_USERNAMES.includes(newUsername)) {
+    return res.status(400).json({ ok: false, error: "Этот юзернейм зарезервирован" });
+  }
+  const passOk = await bcrypt.compare(password, req.user.passwordHash);
+  if (!passOk) return res.status(400).json({ ok: false, error: "Неверный пароль" });
+
+  const old = req.user.username;
+  if (newUsername === old) return res.json({ ok: true, username: old });
+
+  const taken = await dbGet(`SELECT username FROM users WHERE username=?`, [newUsername]);
+  if (taken) return res.status(409).json({ ok: false, error: "Этот юзернейм уже занят" });
+
+  try {
+    await dbRun(`UPDATE users SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE messages SET sender=? WHERE sender=?`, [newUsername, old]);
+    await dbRun(`UPDATE messages SET receiver=? WHERE receiver=?`, [newUsername, old]);
+    await dbRun(`UPDATE messages SET forwardedFrom=? WHERE forwardedFrom=?`, [newUsername, old]);
+    await dbRun(`UPDATE stories SET owner=? WHERE owner=?`, [newUsername, old]);
+    await dbRun(`UPDATE groups SET owner=? WHERE owner=?`, [newUsername, old]);
+    await dbRun(`UPDATE group_members SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE group_bans SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE group_bans SET bannedBy=? WHERE bannedBy=?`, [newUsername, old]);
+    await dbRun(`UPDATE gifts SET sender=? WHERE sender=?`, [newUsername, old]);
+    await dbRun(`UPDATE gifts SET recipient=? WHERE recipient=?`, [newUsername, old]);
+    await dbRun(`UPDATE friends SET owner=? WHERE owner=?`, [newUsername, old]);
+    await dbRun(`UPDATE friends SET friend=? WHERE friend=?`, [newUsername, old]);
+    await dbRun(`UPDATE blocked_users SET owner=? WHERE owner=?`, [newUsername, old]);
+    await dbRun(`UPDATE blocked_users SET blocked=? WHERE blocked=?`, [newUsername, old]);
+    await dbRun(`UPDATE sessions SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE push_subscriptions SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE verification_requests SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE dm_exceptions SET owner=? WHERE owner=?`, [newUsername, old]);
+    await dbRun(`UPDATE dm_exceptions SET allowed=? WHERE allowed=?`, [newUsername, old]);
+    await dbRun(`UPDATE contact_requests SET fromUser=? WHERE fromUser=?`, [newUsername, old]);
+    await dbRun(`UPDATE contact_requests SET toUser=? WHERE toUser=?`, [newUsername, old]);
+    await dbRun(`UPDATE chat_wallpapers SET owner=? WHERE owner=?`, [newUsername, old]);
+    await dbRun(`UPDATE chat_wallpapers SET chat=? WHERE chat=?`, [newUsername, old]);
+    await dbRun(`UPDATE birthday_log SET username=? WHERE username=?`, [newUsername, old]);
+  } catch (e) {
+    console.error("[USERNAME CHANGE]", e.message);
+    return res.status(500).json({ ok: false, error: "Ошибка смены юзернейма" });
+  }
+
+  closeAllConnections(old);
+  const user = await dbGet(`SELECT * FROM users WHERE username=?`, [newUsername]);
+  const jti = await recordSession(req, newUsername);
+  res.json({ ok: true, username: newUsername, token: signToken(newUsername, { jti }), profile: safeUser(user) });
+});
+
+// ---------------- GOOGLE OAUTH ----------------
+app.get("/api/oauth/google-client-id", (req, res) => {
+  res.json({ ok: true, clientId: process.env.GOOGLE_CLIENT_ID || "" });
+});
+
+app.post("/api/auth/google", rateLimit(15, 60 * 1000), async (req, res) => {
+  const credential = String(req.body.credential || "");
+  if (!credential) return res.status(400).json({ ok: false, error: "Нет токена Google" });
+  if (!process.env.GOOGLE_CLIENT_ID) return res.status(500).json({ ok: false, error: "Google-вход не настроен на сервере" });
+
+  let payload;
+  try {
+    const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+    if (!r.ok) throw new Error("bad token");
+    payload = await r.json();
+  } catch {
+    return res.status(400).json({ ok: false, error: "Не удалось проверить токен Google" });
+  }
+
+  if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+    return res.status(400).json({ ok: false, error: "Неверный клиент Google" });
+  }
+  if (payload.email_verified !== "true" && payload.email_verified !== true) {
+    return res.status(400).json({ ok: false, error: "Email в Google не подтверждён" });
+  }
+
+  const sub = String(payload.sub || "");
+  const email = String(payload.email || "").toLowerCase();
+  if (!sub || !email) return res.status(400).json({ ok: false, error: "Неполные данные Google" });
+
+  let user = await dbGet(`SELECT * FROM users WHERE googleSub=?`, [sub]);
+
+  if (!user) {
+    user = await dbGet(`SELECT * FROM users WHERE googleEmail=? AND googleSub=''`, [email]);
+    if (user) await dbRun(`UPDATE users SET googleSub=? WHERE username=?`, [sub, user.username]);
+  }
+
+  if (!user) {
+    let base = email.split("@")[0].toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 16) || "user";
+    if (base.length < 4) base = (base + "user").slice(0, 16);
+    let candidate = base, i = 0;
+    while (
+      RESERVED_USERNAMES.includes(candidate) ||
+      (await dbGet(`SELECT username FROM users WHERE username=?`, [candidate]))
+    ) {
+      i++; candidate = (base.slice(0, 16 - String(i).length) + i);
+    }
+    const randomPass = crypto.randomBytes(24).toString("hex");
+    const hash = await bcrypt.hash(randomPass, 10);
+    const displayName = String(payload.name || candidate).trim().slice(0, 40);
+    const avatarUrl = String(payload.picture || "").slice(0, 300);
+    await dbRun(
+      `INSERT INTO users (username, passwordHash, displayName, avatarUrl, googleSub, googleEmail, createdAt) VALUES (?,?,?,?,?,?,?)`,
+      [candidate, hash, displayName, avatarUrl, sub, email, now()]
+    );
+    user = await dbGet(`SELECT * FROM users WHERE username=?`, [candidate]);
+  }
+
+  if (user.banned) return res.status(403).json({ ok: false, error: "Аккаунт заблокирован" });
+
+  const jti = await recordSession(req, user.username);
+  res.json({ ok: true, token: signToken(user.username, { jti }), user: safeUser(user) });
+});
+
 app.put("/api/me/settings", verifyAuth, (req, res) => {
   const current = parseSettings(req.user);
   const incoming = req.body && typeof req.body === "object" ? req.body : {};
@@ -1023,7 +1156,10 @@ app.put("/api/me/settings", verifyAuth, (req, res) => {
   if (typeof incoming.dmGate === "boolean") merged.dmGate = incoming.dmGate;
 
   const privacyEnum = ["everyone", "friends", "nobody"];
-  for (const k of ["storyPrivacy", "bioPrivacy", "lastSeenPrivacy"]) {
+  for (const k of [
+    "storyPrivacy", "bioPrivacy", "lastSeenPrivacy",
+    "birthdayPrivacy", "photoPrivacy", "forwardPrivacy", "callsPrivacy", "giftsPrivacy"
+  ]) {
     if (privacyEnum.includes(incoming[k])) merged[k] = incoming[k];
   }
 
@@ -1061,6 +1197,34 @@ app.delete("/api/friends/:username", verifyAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------------- ЧЁРНЫЙ СПИСОК ----------------
+app.get("/api/me/blocked", verifyAuth, async (req, res) => {
+  const rows = await dbAll(
+    `SELECT u.username, u.displayName, u.avatarUrl, u.verified, u.settings, u.birthDate
+     FROM blocked_users b JOIN users u ON u.username=b.blocked
+     WHERE b.owner=? ORDER BY u.username ASC`,
+    [req.user.username]
+  );
+  res.json({ ok: true, blocked: rows.map(userCardFromRow) });
+});
+
+app.post("/api/me/blocked", verifyAuth, async (req, res) => {
+  const u = String(req.body.username || "").replace(/^@+/, "").toLowerCase();
+  if (!u || u === req.user.username) return res.status(400).json({ ok: false, error: "Неверный юзернейм" });
+  const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [u]);
+  if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+  await dbRun(`INSERT OR IGNORE INTO blocked_users (owner, blocked, createdAt) VALUES (?,?,?)`, [req.user.username, u, now()]);
+  await dbRun(`DELETE FROM friends WHERE owner=? AND friend=?`, [req.user.username, u]);
+  await dbRun(`DELETE FROM friends WHERE owner=? AND friend=?`, [u, req.user.username]);
+  res.json({ ok: true });
+});
+
+app.delete("/api/me/blocked/:username", verifyAuth, async (req, res) => {
+  const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  await dbRun(`DELETE FROM blocked_users WHERE owner=? AND blocked=?`, [req.user.username, u]);
+  res.json({ ok: true });
+});
+
 async function isFriendOf(ownerUsername, viewerUsername) {
   if (ownerUsername === viewerUsername) return true;
   const row = await dbGet(`SELECT 1 FROM friends WHERE owner=? AND friend=?`, [ownerUsername, viewerUsername]);
@@ -1080,6 +1244,23 @@ async function visibleLastSeen(row, viewer) {
   return { lastSeen: Number(row.lastSeen || 0) || null, lastSeenHidden: false };
 }
 
+// ---------------- ЧЁРНЫЙ СПИСОК ----------------
+async function isBlocked(a, b) {
+  const row = await dbGet(
+    `SELECT 1 FROM blocked_users WHERE (owner=? AND blocked=?) OR (owner=? AND blocked=?)`,
+    [a, b, b, a]
+  );
+  return !!row;
+}
+
+async function canCallUser(ownerUsername, callerUsername) {
+  if (ownerUsername === callerUsername) return true;
+  if (await isBlocked(ownerUsername, callerUsername)) return false;
+  const owner = await dbGet(`SELECT username, settings FROM users WHERE username=?`, [ownerUsername]);
+  if (!owner) return false;
+  return isAllowedByPrivacy(owner, callerUsername, "callsPrivacy");
+}
+
 // ---------------- OFFICIAL ACCOUNT DM GATE ----------------
 function dmGateOn(u) {
   return !!(u && u.verified) && parseSettings(u).dmGate !== false;
@@ -1087,6 +1268,7 @@ function dmGateOn(u) {
 
 async function dmAllowed(target, sender) {
   if (!target || target.username === sender) return true;
+  if (await isBlocked(target.username, sender)) return false;
   if (!dmGateOn(target)) return true;
   if (await dbGet(`SELECT 1 FROM dm_exceptions WHERE owner=? AND allowed=?`, [target.username, sender])) return true;
   const wrote = await dbGet(`SELECT 1 FROM messages WHERE chatType='private' AND sender=? AND receiver=? LIMIT 1`, [target.username, sender]);
@@ -1272,18 +1454,25 @@ app.get("/api/users/:username", verifyAuth, async (req, res) => {
 
   const viewer = req.user.username;
   const bioAllowed = await isAllowedByPrivacy(row, viewer, "bioPrivacy");
+  const photoAllowed = await isAllowedByPrivacy(row, viewer, "photoPrivacy");
+  const birthdayAllowed = await isAllowedByPrivacy(row, viewer, "birthdayPrivacy");
   const s = parseSettings(row);
   const ls = await visibleLastSeen(row, viewer);
+  const blocked = await isBlocked(row.username, viewer);
 
   res.json({
     ok: true,
     user: {
       ...userCardFromRow(row),
+      avatarUrl: photoAllowed ? (row.avatarUrl || "") : "",
+      birthdayToday: birthdayAllowed ? isBirthdayToday(row.birthDate) : false,
       bio: bioAllowed ? row.bio : "",
       online: isOnline(row.username),
       ...ls,
       dmGated: dmGateOn(row) && row.username !== viewer,
-      canMessage: await dmAllowed(row, viewer)
+      canMessage: blocked ? false : await dmAllowed(row, viewer),
+      blocked,
+      iBlockedThem: !!(await dbGet(`SELECT 1 FROM blocked_users WHERE owner=? AND blocked=?`, [viewer, row.username]))
     }
   });
 });
@@ -1694,6 +1883,13 @@ app.post("/api/messages/:id/save", verifyAuth, async (req, res) => {
   const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
   if (!row || !(await canReadMessage(row, me))) return res.status(404).json({ ok: false, error: "Сообщение не найдено" });
 
+  if (row.sender !== me && row.sender !== "support") {
+    const senderUser = await dbGet(`SELECT username, settings FROM users WHERE username=?`, [row.sender]);
+    if (senderUser && !(await isAllowedByPrivacy(senderUser, me, "forwardPrivacy"))) {
+      return res.status(403).json({ ok: false, error: "Автор запретил пересылку своих сообщений" });
+    }
+  }
+
   const createdAt = now();
   const forwardedFrom = row.sender === me ? "" : row.sender;
   const result = await dbRun(
@@ -1872,23 +2068,39 @@ app.post("/api/gifts/send", verifyAuth, rateLimit(30, 60 * 1000), async (req, re
   if (!GIFT_EMOJIS.includes(emoji)) return res.status(400).json({ ok: false, error: "Недопустимый подарок" });
   if (recipient === req.user.username) return res.status(400).json({ ok: false, error: "Нельзя подарить самому себе" });
 
-  const exists = await dbGet(`SELECT username FROM users WHERE username=? AND banned=0`, [recipient]);
-  if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+  const target = await dbGet(`SELECT username, settings FROM users WHERE username=? AND banned=0`, [recipient]);
+  if (!target) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+
+  if (await isBlocked(recipient, req.user.username)) {
+    return res.status(403).json({ ok: false, error: "Недоступно" });
+  }
+  if (!(await isAllowedByPrivacy(target, req.user.username, "giftsPrivacy"))) {
+    return res.status(403).json({ ok: false, error: "Этот пользователь ограничил получение подарков" });
+  }
 
   const codeOk = code && GIFT_SECRET_CODES.includes(code);
   if (!isGiftDay() && !codeOk) {
     return res.status(403).json({ ok: false, error: "Подарки бесплатно — только по пятницам, либо по секретному коду" });
   }
 
+  const createdAt = now();
   await dbRun(
     `INSERT INTO gifts (sender, recipient, emoji, createdAt) VALUES (?,?,?,?)`,
-    [req.user.username, recipient, emoji, now()]
+    [req.user.username, recipient, emoji, createdAt]
   );
 
+  // Подарок также приходит обычным сообщением в чат — красивая рамка на клиенте (mediaType 'gift')
+  const giftText = JSON.stringify({ emoji });
+  const result = await dbRun(
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES ('private',?,?,?,?,?,?)`,
+    [req.user.username, recipient, giftText, "gift", "", createdAt]
+  );
+  const msg = {
+    id: result.lastID, chatType: "private", sender: req.user.username, receiver: recipient,
+    text: giftText, mediaType: "gift", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: ""
+  };
+  await broadcastMessage(msg);
   wsSendToUser(recipient, { type: "giftReceived", from: req.user.username, emoji });
-  if (!isOnline(recipient)) {
-    sendPushToUser(recipient, { title: "Подарок 🎁", body: `@${req.user.username} подарил тебе ${emoji}`, url: "/chat.html" }).catch(() => {});
-  }
   res.json({ ok: true });
 });
 
@@ -2374,7 +2586,8 @@ async function broadcastDelete(row, id) {
 const calls = require("./calls-server")({
   app, verifyAuth, rateLimit, dbGet, dbAll, dbRun,
   isOnline, wsSend, wsSendToUser, getUserCard, isMember,
-  getWebpush: () => webpush
+  getWebpush: () => webpush,
+  canCall: canCallUser
 });
 
 wss.on("connection", (ws, req) => {
