@@ -82,7 +82,6 @@
       <div class="screen-header"><h2 class="screentitle" data-i18n="profile.title">Профиль</h2></div>
 
       <div class="profiletab">
-        <div id="myProfileBanner" class="profilebanner"></div>
         <div class="avatar big" id="myProfileAvatar"></div>
         <div class="pname" id="myProfileName"></div>
         <div class="puser" id="myProfileUser"></div>
@@ -128,11 +127,6 @@
         <div class="settingsblock">
           <div class="blocktitle" data-i18n="settings.appearance">Оформление</div>
           <div id="wallpaperSection" class="formgrid"></div>
-        </div>
-
-        <div class="settingsblock">
-          <div class="blocktitle" data-i18n="settings.personalize">Цвет имени и профиля</div>
-          <div id="personalizeSection" class="formgrid"></div>
         </div>
 
         <div class="settingsblock">
@@ -224,7 +218,7 @@
             <button onclick="attachPickMedia()"><i class="fa-solid fa-image"></i> Фото/Видео</button>
             <button onclick="attachPickLocation()"><i class="fa-solid fa-location-dot"></i> Геолокация</button>
             <button onclick="attachPickGif()"><i class="fa-solid fa-film"></i> GIF</button>
-            <button onclick="attachPickDoc()"><i class="fa-solid fa-file-lines"></i> Файл (Word, Excel, PDF...)</button>
+            <button onclick="attachPickDoc()"><i class="fa-solid fa-file-lines"></i> Документ или файл</button>
             <button onclick="attachPickList()"><i class="fa-solid fa-list-check"></i> Список (покупки, дела)</button>
           </div>
         </div>
@@ -271,7 +265,6 @@
         <button class="iconbtn" onclick="closeProfile()"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
-      <div id="profileBanner" class="profilebanner"></div>
       <div class="profile">
         <div class="avatar big" id="profileAvatar"></div>
         <div class="profiletext">
