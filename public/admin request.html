@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>One Messenger | Заявки к официальным аккаунтам</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="features.css" />
   <link rel="icon" href="/icon-192.png" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
   <style>
     .req-text{white-space:pre-wrap;word-break:break-word;margin:8px 0;padding:10px;border-radius:10px;background:rgba(0,0,0,.2)}
     .req-meta{font-size:13px;color:var(--muted)}
@@ -33,8 +35,8 @@
     <div class="admin-topbar">
       <h1>Заявки к официальным аккаунтам ✅</h1>
       <div class="admin-actions" style="margin:0">
-        <button onclick="loadRequests()">Обновить</button>
-        <button onclick="logout()">Выйти</button>
+        <button class="btn ghost small" onclick="loadRequests()"><i class="fa-solid fa-rotate"></i> Обновить</button>
+        <button class="btn ghost small" onclick="logout()">Выйти</button>
       </div>
     </div>
     <p class="hint">Когда человек хочет написать аккаунту с галочкой, заявка приходит сюда. «Передать владельцу» — заявка уходит самому владельцу аккаунта, и он решает: принять или отклонить. Если примет, человек сможет писать ему напрямую. «Отклонить» — человеку придёт уведомление в «Поддержку».</p>
@@ -94,8 +96,8 @@
           <div class="req-meta">${new Date(r.createdAt).toLocaleString("ru-RU")}</div>
           <div class="req-text">${esc(r.text)}</div>
           <div class="ver-actions">
-            <button class="success" onclick="decide(${r.id}, 'approve')">Передать владельцу</button>
-            <button class="danger" onclick="decide(${r.id}, 'reject')">Отклонить</button>
+            <button class="btn primary small" onclick="decide(${r.id}, 'approve')">Передать владельцу</button>
+            <button class="btn danger small" onclick="decide(${r.id}, 'reject')">Отклонить</button>
           </div>
         </div>
       `).join("");
