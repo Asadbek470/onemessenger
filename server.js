@@ -1076,10 +1076,10 @@ app.get("/api/oauth/google-client-id", (req, res) => {
   res.json({ ok: true, clientId: process.env.GOOGLE_CLIENT_ID || "" });
 });
 
-app.post("/api/auth/google", rateLimit(15, 60 * 1000), async (req, res) => {
-  const credential = String(req.body.credential || "");
-  if (!credential) return res.status(400).json({ ok: false, error: "Нет токена Google" });
-  if (!process.env.GOOGLE_CLIENT_ID) return res.status(500).json({ ok: false, error: "Google-вход не настроен на сервере" });
+// Проверяет id_token от Google и возвращает { sub, email, name, picture } или бросает ошибку с понятным текстом
+async function verifyGoogleCredential(credential) {
+  if (!credential) throw new Error("Нет токена Google");
+  if (!process.env.GOOGLE_CLIENT_ID) throw new Error("Google-вход не настроен на сервере");
 
   let payload;
   try {
@@ -1087,19 +1087,55 @@ app.post("/api/auth/google", rateLimit(15, 60 * 1000), async (req, res) => {
     if (!r.ok) throw new Error("bad token");
     payload = await r.json();
   } catch {
-    return res.status(400).json({ ok: false, error: "Не удалось проверить токен Google" });
+    throw new Error("Не удалось проверить токен Google");
   }
 
-  if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
-    return res.status(400).json({ ok: false, error: "Неверный клиент Google" });
-  }
+  if (payload.aud !== process.env.GOOGLE_CLIENT_ID) throw new Error("Неверный клиент Google");
   if (payload.email_verified !== "true" && payload.email_verified !== true) {
-    return res.status(400).json({ ok: false, error: "Email в Google не подтверждён" });
+    throw new Error("Email в Google не подтверждён");
   }
 
   const sub = String(payload.sub || "");
   const email = String(payload.email || "").toLowerCase();
-  if (!sub || !email) return res.status(400).json({ ok: false, error: "Неполные данные Google" });
+  if (!sub || !email) throw new Error("Неполные данные Google");
+
+  return { sub, email, name: String(payload.name || ""), picture: String(payload.picture || "") };
+}
+
+// ---------------- ПРИВЯЗКА / ОТВЯЗКА GOOGLE К УЖЕ СУЩЕСТВУЮЩЕМУ АККАУНТУ ----------------
+app.get("/api/me/google", verifyAuth, (req, res) => {
+  res.json({ ok: true, linked: !!req.user.googleSub, email: req.user.googleEmail || "" });
+});
+
+app.post("/api/me/google", verifyAuth, rateLimit(15, 60 * 1000), async (req, res) => {
+  let g;
+  try {
+    g = await verifyGoogleCredential(String(req.body.credential || ""));
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: e.message });
+  }
+
+  const other = await dbGet(`SELECT username FROM users WHERE googleSub=? AND username!=?`, [g.sub, req.user.username]);
+  if (other) return res.status(409).json({ ok: false, error: `Этот Google-аккаунт уже привязан к @${other.username}` });
+
+  await dbRun(`UPDATE users SET googleSub=?, googleEmail=? WHERE username=?`, [g.sub, g.email, req.user.username]);
+  res.json({ ok: true, email: g.email });
+});
+
+app.delete("/api/me/google", verifyAuth, async (req, res) => {
+  await dbRun(`UPDATE users SET googleSub='', googleEmail='' WHERE username=?`, [req.user.username]);
+  res.json({ ok: true });
+});
+
+app.post("/api/auth/google", rateLimit(15, 60 * 1000), async (req, res) => {
+  let g;
+  try {
+    g = await verifyGoogleCredential(String(req.body.credential || ""));
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: e.message });
+  }
+  const { sub, email } = g;
+  const payload = { name: g.name, picture: g.picture };
 
   let user = await dbGet(`SELECT * FROM users WHERE googleSub=?`, [sub]);
 
