@@ -706,6 +706,7 @@ async function getUserCard(username) {
 
 function previewText(m) {
   if (m.mediaType === "list") return "📋 Список";
+  if (m.mediaType === "location") return "📍 Геолокация";
   if (m.mediaType === "file") return "📎 " + (m.fileName || "Файл");
   if (m.mediaType === "image") return "🖼 Фото";
   if (m.mediaType === "video") return "🎬 Видео";
@@ -1161,7 +1162,7 @@ app.post("/api/contact-requests", verifyAuth, rateLimit(10, 60 * 60 * 1000), asy
   if (!target) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
   if (await dmAllowed(target, req.user.username)) return res.status(400).json({ ok: false, error: "Этому человеку можно писать напрямую" });
 
-  const pending = await dbGet(`SELECT id FROM contact_requests WHERE fromUser=? AND toUser=? AND status='pending'`, [req.user.username, to]);
+  const pending = await dbGet(`SELECT id FROM contact_requests WHERE fromUser=? AND toUser=? AND status IN ('pending','forwarded')`, [req.user.username, to]);
   if (pending) return res.status(400).json({ ok: false, error: "Заявка уже отправлена, дождись ответа администрации" });
 
   await dbRun(
@@ -2159,24 +2160,22 @@ app.get("/api/admin/contact-requests", verifySuperAdmin, async (req, res) => {
   res.json({ ok: true, requests: rows });
 });
 
+// Шаг 1: администрация проверяет заявку. Одобрила — заявка уходит самому
+// владельцу официального аккаунта, и последнее слово за ним.
 app.post("/api/admin/contact-requests/:id/approve", verifySuperAdmin, async (req, res) => {
   const id = Number(req.params.id);
   const r = await dbGet(`SELECT * FROM contact_requests WHERE id=?`, [id]);
   if (!r || r.status !== "pending") return res.status(404).json({ ok: false, error: "Заявка не найдена" });
 
-  await dbRun(`UPDATE contact_requests SET status='approved', decidedAt=? WHERE id=?`, [now(), id]);
-  await dbRun(`INSERT OR IGNORE INTO dm_exceptions (owner, allowed, createdAt) VALUES (?,?,?)`, [r.toUser, r.fromUser, now()]);
+  await dbRun(`UPDATE contact_requests SET status='forwarded', decidedAt=? WHERE id=?`, [now(), id]);
 
-  // Передаём само сообщение адресату
-  const createdAt = now();
-  const text = `✉️ Через администрацию:\n${r.text}`;
-  const result = await dbRun(
-    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES ('private',?,?,?,'text','',?)`,
-    [r.fromUser, r.toUser, text, createdAt]
+  const fromCard = await getUserCard(r.fromUser);
+  await sendSupportMessage(
+    r.toUser,
+    `📨 ${fromCard.displayName} (@${r.fromUser}) хочет тебе написать. Администрация проверила заявку и передала её тебе. Открой список чатов — там кнопки «Принять» и «Отклонить».`
   );
-  await broadcastMessage({ id: result.lastID, chatType: "private", sender: r.fromUser, receiver: r.toUser, text, mediaType: "text", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "" });
-
-  await sendSupportMessage(r.fromUser, `✅ Администрация одобрила твою заявку. Сообщение передано @${r.toUser}, теперь можно писать напрямую.`);
+  wsSendToUser(r.toUser, { type: "contactRequest", from: r.fromUser });
+  await sendSupportMessage(r.fromUser, `✅ Администрация одобрила твою заявку. Теперь решение за @${r.toUser} — ответ придёт сюда.`);
   res.json({ ok: true });
 });
 
@@ -2187,6 +2186,53 @@ app.post("/api/admin/contact-requests/:id/reject", verifySuperAdmin, async (req,
 
   await dbRun(`UPDATE contact_requests SET status='rejected', decidedAt=? WHERE id=?`, [now(), id]);
   await sendSupportMessage(r.fromUser, `❌ Администрация отклонила заявку на связь с @${r.toUser}.`);
+  res.json({ ok: true });
+});
+
+// Шаг 2: владелец официального аккаунта видит заявки, прошедшие проверку
+app.get("/api/me/contact-requests", verifyAuth, async (req, res) => {
+  const rows = await dbAll(
+    `SELECT * FROM contact_requests WHERE toUser=? AND status='forwarded' ORDER BY createdAt ASC LIMIT 50`,
+    [req.user.username]
+  );
+  const cards = await getUserCards(rows.map(r => r.fromUser));
+  res.json({
+    ok: true,
+    requests: rows.map(r => ({ ...r, from: cards[r.fromUser] || { username: r.fromUser, displayName: r.fromUser } }))
+  });
+});
+
+app.post("/api/me/contact-requests/:id/accept", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const r = await dbGet(`SELECT * FROM contact_requests WHERE id=?`, [id]);
+  if (!r || r.toUser !== req.user.username || r.status !== "forwarded") {
+    return res.status(404).json({ ok: false, error: "Заявка не найдена" });
+  }
+
+  await dbRun(`UPDATE contact_requests SET status='approved', decidedAt=? WHERE id=?`, [now(), id]);
+  await dbRun(`INSERT OR IGNORE INTO dm_exceptions (owner, allowed, createdAt) VALUES (?,?,?)`, [r.toUser, r.fromUser, now()]);
+
+  const createdAt = now();
+  const text = `✉️ Через администрацию:\n${r.text}`;
+  const result = await dbRun(
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES ('private',?,?,?,'text','',?)`,
+    [r.fromUser, r.toUser, text, createdAt]
+  );
+  await broadcastMessage({ id: result.lastID, chatType: "private", sender: r.fromUser, receiver: r.toUser, text, mediaType: "text", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "" });
+
+  await sendSupportMessage(r.fromUser, `🎉 @${r.toUser} принял(а) твою заявку. Теперь можно писать напрямую!`);
+  res.json({ ok: true, from: r.fromUser });
+});
+
+app.post("/api/me/contact-requests/:id/reject", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const r = await dbGet(`SELECT * FROM contact_requests WHERE id=?`, [id]);
+  if (!r || r.toUser !== req.user.username || r.status !== "forwarded") {
+    return res.status(404).json({ ok: false, error: "Заявка не найдена" });
+  }
+
+  await dbRun(`UPDATE contact_requests SET status='rejected', decidedAt=? WHERE id=?`, [now(), id]);
+  await sendSupportMessage(r.fromUser, `❌ @${r.toUser} не готов(а) сейчас переписываться.`);
   res.json({ ok: true });
 });
 
@@ -2457,6 +2503,30 @@ wss.on("connection", (ws, req) => {
             [chatType, from, receiver, JSON.stringify(list), "list", "", createdAt]
           );
           const msg = { id: result.lastID, chatType, sender: from, receiver, text: JSON.stringify(list), mediaType: "list", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "" };
+          await broadcastMessage(msg);
+          return;
+        }
+
+        if (data.type === "location-message") {
+          const user = await dbGet(`SELECT muted, banned FROM users WHERE username=?`, [from]);
+          if (!user || user.banned || user.muted) return;
+
+          const receiver = String(data.receiver || "global").replace(/^@+/, "").toLowerCase();
+          const chatType = resolveChatType(receiver);
+          const lat = Number(data.lat), lng = Number(data.lng);
+          const acc = Math.max(0, Math.min(100000, Math.round(Number(data.accuracy) || 0)));
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+
+          const perm = await canPostTo(chatType, receiver, from);
+          if (!perm.canPost) return wsSend(ws, { type: "post-error", gated: !!perm.gated, to: receiver, message: perm.error || "Нет доступа" });
+
+          const text = JSON.stringify({ lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)), acc });
+          const createdAt = now();
+          const result = await dbRun(
+            `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES (?,?,?,?,?,?,?)`,
+            [chatType, from, receiver, text, "location", "", createdAt]
+          );
+          const msg = { id: result.lastID, chatType, sender: from, receiver, text, mediaType: "location", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "" };
           await broadcastMessage(msg);
           return;
         }
