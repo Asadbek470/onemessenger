@@ -866,3 +866,126 @@ body[data-wallpaper="forest"] .messages{ background: linear-gradient(160deg, rgb
   .call-actions-row{gap:16px}
   .callbtn{width:52px;height:52px;font-size:18px}
 }
+/* ===== One Messenger — профиль в стиле Telegram (встроенный, не зависит от features.css) ===== */
+:root{
+  --blue:#2a9df4;
+  --tg-bg:#0e1621;
+  --tg-card:#17212b;
+  --tg-sep:rgba(255,255,255,.07);
+  --tg-label:#7f92a8;
+  --tg-link:#62b6ff;
+}
+
+/* сброс стандартных серых кнопок браузера внутри профиля */
+#screenProfile button, #profileModal button{
+  font:inherit;color:inherit;border:0;background:none;
+  -webkit-appearance:none;appearance:none;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+
+#screenProfile, #profileModal .tgcard-modal{background:var(--tg-bg)}
+.tgscroll{flex:1;min-height:0;overflow-y:auto;padding-bottom:28px;background:var(--tg-bg)}
+
+/* ---------- Шапка ---------- */
+.tghead{
+  position:relative;padding:10px 16px 20px;text-align:center;overflow:hidden;
+  background:linear-gradient(160deg,#6a5cff 0%,#4b8bff 55%,#2a9df4 100%);
+  border-radius:0 0 28px 28px;
+}
+.tghead::before{
+  content:"";position:absolute;inset:0;opacity:.5;pointer-events:none;
+  background-image:
+    radial-gradient(circle,rgba(255,255,255,.28) 2.5px,transparent 3px),
+    radial-gradient(circle,rgba(255,255,255,.18) 2px,transparent 2.5px);
+  background-size:62px 62px;background-position:0 0,31px 31px;
+}
+.tghead > *{position:relative;z-index:1}
+.tgheadbar{display:flex;align-items:center;justify-content:space-between;min-height:44px}
+.tgheadtitle{font-weight:700;font-size:18px;color:#fff}
+#screenProfile .tgheadbtn, #profileModal .tgheadbtn{
+  width:38px;height:38px;border-radius:50%;
+  display:grid;place-items:center;font-size:15px;color:#fff;
+  background:rgba(255,255,255,.22);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+.tgheadbtn:active{transform:scale(.9)}
+
+.tghead .avatar.big{
+  width:104px;height:104px;margin:6px auto 12px;border-radius:50%;overflow:hidden;
+  border:3px solid rgba(255,255,255,.4);
+  box-shadow:0 14px 28px -12px rgba(0,0,0,.6);
+  display:block;background:rgba(255,255,255,.15);
+}
+.tghead .avatar.big img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
+.tghead .avatar.big .letterava{font-size:42px}
+
+.tgname{
+  display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;
+  font-size:23px;font-weight:700;color:#fff;
+}
+.tgname .uname, .tgname .verified-badge{color:#fff}
+.tgname .verified-badge{font-size:.8em}
+.tgstatus{margin-top:3px;color:rgba(255,255,255,.85);font-size:14px}
+
+/* ---------- Кнопки действий (История / Изменить / Избранное / Пригласить) ---------- */
+.tgactions{
+  display:flex;gap:8px;margin-top:18px;
+  overflow-x:auto;scrollbar-width:none;
+}
+.tgactions::-webkit-scrollbar{display:none}
+#screenProfile .tgact, #profileModal .tgact{
+  flex:1 0 76px;min-width:76px;
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  padding:12px 6px 10px;border-radius:16px;
+  font-size:11.5px;font-weight:600;color:#fff;
+  background:rgba(255,255,255,.2);
+  border:1px solid rgba(255,255,255,.22);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+}
+.tgact:active{transform:scale(.94)}
+.tgact i{font-size:19px}
+.tgact span{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- Карточки «подпись + значение» ---------- */
+.tginfo{padding:0}
+.tgcard{
+  margin:12px 12px 0;padding:2px 16px;
+  background:var(--tg-card);border-radius:16px;
+}
+.tgcardtitle{padding:14px 0 10px;font-weight:700;font-size:15px;color:var(--tg-link)}
+.tgrow{padding:12px 0;border-bottom:1px solid var(--tg-sep)}
+.tgrow:last-child{border-bottom:0}
+.tglabel{font-size:12.5px;color:var(--tg-label);margin-bottom:3px}
+.tgvalue{font-size:16px;line-height:1.35;word-break:break-word;color:#fff}
+.tglink{color:var(--tg-link)}
+.tgverified{color:var(--blue);display:inline-flex;align-items:center;gap:6px}
+
+/* ---------- Подарки ---------- */
+.giftcard .gifts-row{
+  display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-start;
+  font-size:30px;padding-bottom:14px;min-height:28px;
+}
+.giftcard .gifts-row:empty::after{content:"Пока нет подарков";color:var(--tg-label);font-size:14px}
+
+/* ---------- Истории ---------- */
+.tgcard .stories-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding-bottom:14px;
+}
+.tgcard .stories-grid > *{
+  position:relative;overflow:hidden;border-radius:12px;aspect-ratio:9/14;background:#0b141d;
+}
+.tgcard .stories-grid img, .tgcard .stories-grid video{
+  width:100%;height:100%;object-fit:cover;display:block;
+}
+.stories-grid .hint{grid-column:1/-1;aspect-ratio:auto;text-align:center;margin:8px 0;color:var(--tg-label)}
+
+/* ---------- Круглые аватарки и буква вместо фото ---------- */
+.avatar, .avatar img{border-radius:50%}
+.letterava{
+  width:100%;height:100%;display:grid;place-items:center;
+  color:#fff;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.25);
+}
+
+/* ---------- Окно чужого профиля ---------- */
+.tgcard-modal{max-height:92vh;overflow-y:auto;padding-bottom:16px;border-radius:24px}
+.tgcard-modal .tghead{border-radius:24px 24px 28px 28px}
