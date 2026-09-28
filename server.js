@@ -666,7 +666,6 @@ const SUPPORT_CARD = {
   displayName: "Поддержка One Messenger",
   avatarUrl: "/icon-192.png",
   verified: true,
-  nameColor: "#2a9df4",
   emojiStatus: "",
   birthdayToday: false
 };
@@ -678,7 +677,6 @@ function userCardFromRow(u) {
     displayName: u.displayName || u.username,
     avatarUrl: u.avatarUrl || "",
     verified: !!u.verified,
-    nameColor: HEX_COLOR.test(s.nameColor || "") ? s.nameColor : "",
     emojiStatus: cleanEmojiStatus(s.emojiStatus || ""),
     birthdayToday: isBirthdayToday(u.birthDate)
   };
@@ -701,7 +699,7 @@ async function getUserCards(usernames) {
 
 async function getUserCard(username) {
   const map = await getUserCards([username]);
-  return map[username] || { username, displayName: username, avatarUrl: "", verified: false, nameColor: "", emojiStatus: "", birthdayToday: false };
+  return map[username] || { username, displayName: username, avatarUrl: "", verified: false, emojiStatus: "", birthdayToday: false };
 }
 
 function previewText(m) {
@@ -1038,11 +1036,9 @@ app.put("/api/me/settings", verifyAuth, (req, res) => {
   if (typeof incoming.accent === "string" && HEX_COLOR.test(incoming.accent)) merged.accent = incoming.accent;
   if (["ru", "en", "uz"].includes(incoming.language)) merged.language = incoming.language;
 
-  // Цвет имени / цвет профиля: HEX или "" (сброс)
-  for (const k of ["nameColor", "profileColor"]) {
-    if (incoming[k] === "") delete merged[k];
-    else if (typeof incoming[k] === "string" && HEX_COLOR.test(incoming[k])) merged[k] = incoming[k];
-  }
+  // Цвет имени и цвет профиля убраны из мессенджера — стираем старые значения из базы
+  delete merged.nameColor;
+  delete merged.profileColor;
 
   if (typeof incoming.emojiStatus === "string") {
     const s = cleanEmojiStatus(incoming.emojiStatus);
@@ -1317,7 +1313,6 @@ app.get("/api/users/:username", verifyAuth, async (req, res) => {
     user: {
       ...userCardFromRow(row),
       bio: bioAllowed ? row.bio : "",
-      profileColor: HEX_COLOR.test(s.profileColor || "") ? s.profileColor : "",
       online: isOnline(row.username),
       ...ls,
       dmGated: dmGateOn(row) && row.username !== viewer,
@@ -1643,7 +1638,7 @@ app.get("/api/chats", verifyAuth, async (req, res) => {
   for (const o of others) {
     const u = map.get(o);
     if (!u) {
-      out.push({ username: o, displayName: o, avatarUrl: "", verified: false, nameColor: "", emojiStatus: "", preview: preview.get(o) || "" });
+      out.push({ username: o, displayName: o, avatarUrl: "", verified: false, emojiStatus: "", preview: preview.get(o) || "" });
       continue;
     }
     out.push({ ...userCardFromRow(u), ...(await visibleLastSeen(u, me)), preview: preview.get(o) || "" });
