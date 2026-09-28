@@ -1783,6 +1783,7 @@ function openSettings() {
   renderFriendsSection();
   renderBlacklistSection();
   renderUsernameSection();
+  renderGoogleSection();
   renderVerificationSection();
   renderSessionsSection();
   renderDeleteAccountSection();
@@ -2003,6 +2004,65 @@ async function changeUsername() {
   renderUsernameSection();
   updateHeader();
   location.reload();
+}
+
+// ---------------- GOOGLE-АККАУНТ (привязка к уже существующему аккаунту) ----------------
+async function renderGoogleSection() {
+  const box = document.getElementById("googleSection");
+  if (!box) return;
+
+  const r = await fetch("/api/me/google", { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) { box.innerHTML = `<div class="hint">Не удалось загрузить</div>`; return; }
+
+  if (d.linked) {
+    box.innerHTML = `
+      <div class="hint">Привязан аккаунт: ${esc(d.email)}</div>
+      <button class="btn ghost full" onclick="unlinkGoogle()"><i class="fa-brands fa-google"></i> Отвязать Google-аккаунт</button>
+    `;
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="hint">Привяжи Google-аккаунт, чтобы можно было входить в @${esc(me.username)} через Google.</div>
+    <div id="googleLinkBtn"></div>
+  `;
+
+  const waitGoogle = setInterval(() => {
+    if (!(window.google && window.google.accounts)) return;
+    clearInterval(waitGoogle);
+    initGoogleLinkButton();
+  }, 100);
+}
+
+async function initGoogleLinkButton() {
+  const r = await fetch("/api/oauth/google-client-id");
+  const d = await r.json();
+  const container = document.getElementById("googleLinkBtn");
+  if (!container) return;
+  if (!d.ok || !d.clientId) { container.innerHTML = `<div class="hint">Google-вход пока не настроен на сервере</div>`; return; }
+
+  google.accounts.id.initialize({ client_id: d.clientId, callback: onGoogleLinkCredential });
+  google.accounts.id.renderButton(container, { theme: "outline", size: "large", shape: "pill", text: "continue_with", width: 260 });
+}
+
+async function onGoogleLinkCredential(response) {
+  const r = await fetch("/api/me/google", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ credential: response.credential })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Не получилось привязать Google-аккаунт");
+  toast("Google-аккаунт привязан ✅");
+  renderGoogleSection();
+}
+
+async function unlinkGoogle() {
+  if (!confirm("Отвязать Google-аккаунт? Вход по Google для этого профиля перестанет работать.")) return;
+  await fetch("/api/me/google", { method: "DELETE", headers: authHeaders() });
+  toast("Google-аккаунт отвязан");
+  renderGoogleSection();
 }
 
 // ---------------- DELETE ACCOUNT ----------------
