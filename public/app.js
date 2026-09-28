@@ -54,12 +54,9 @@ function verifiedBadge(isVerified) {
   return isVerified ? ` <i class="fa-solid fa-circle-check verified-badge" title="Официально подтверждён"></i>` : "";
 }
 
-// ================== ПЕРСОНАЛИЗАЦИЯ: аватар, цвет имени, статус ==================
+// ================== АВАТАРЫ И ИМЕНА ==================
 const LETTER_COLORS = ["#ff4d5e", "#ff8a1f", "#8b5cf6", "#16c25b", "#06b6d4", "#2f80ff", "#ec4899", "#f5a500"];
 
-function safeColor(c) {
-  return /^#[0-9a-fA-F]{6}$/.test(String(c || "")) ? c : "";
-}
 function colorFromName(name) {
   let h = 0;
   for (const ch of String(name || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -81,20 +78,9 @@ function shade(hex, amt) {
   });
   return "#" + ch.join("");
 }
-function isLightColor(hex) {
-  const n = parseInt(String(hex).slice(1), 16);
-  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) > 190;
-}
 function avatarGradient(c) {
   return `linear-gradient(140deg, ${shade(c, 22)} 0%, ${c} 45%, ${shade(c, -28)} 100%)`;
 }
-// Шапка профиля: насыщенный градиент от выбранного цвета (или фирменный, если цвета нет)
-function profileGradient(c) {
-  c = safeColor(c);
-  if (!c) return "linear-gradient(135deg, var(--blue) 0%, #6a5cff 100%)";
-  return `linear-gradient(135deg, ${shade(c, 24)} 0%, ${c} 45%, ${shade(c, -42)} 100%)`;
-}
-
 // Аватар: фото → если нет, круг с первой буквой (как в Телеграме).
 // У «Поддержки» — фирменный значок OM. Размеры заданы прямо в разметке,
 // поэтому картинка никогда не растянется на весь экран.
@@ -104,19 +90,17 @@ function avatarHtml(info) {
   if (info.username === "support") return `<img src="${OM_ICON}" alt="OM" style="${AVA_IMG_STYLE}">`;
   if (info.avatarUrl) return `<img src="${esc(info.avatarUrl)}" alt="" style="${AVA_IMG_STYLE}">`;
   const letter = esc(String(info.displayName || info.username || "?")[0].toUpperCase());
-  let bg = safeColor(info.nameColor);
-  if (!bg || isLightColor(bg)) bg = colorFromName(info.username);
+  const bg = colorFromName(info.username);
   return `<span class="letterava" style="width:100%;height:100%;display:grid;place-items:center;border-radius:50%;color:#fff;font-weight:800;background:${avatarGradient(bg)}">${letter}</span>`;
 }
 
 // Имя: цвет имени + эмодзи-статус + галочка + 🎂 в день рождения
 function nameHtml(info, opts = {}) {
   info = info || {};
-  const color = safeColor(info.nameColor);
   const name = esc(info.displayName || info.username || "");
   const status = info.emojiStatus ? `<span class="emojistatus" title="Статус">${esc(info.emojiStatus)}</span>` : "";
   const bday = info.birthdayToday ? `<span class="bdaymark" title="Сегодня день рождения">🎂</span>` : "";
-  return `<span class="uname"${color ? ` style="color:${color}"` : ""}>${name}</span>${status}${verifiedBadge(info.verified)}${opts.noBday ? "" : bday}`;
+  return `<span class="uname">${name}</span>${status}${verifiedBadge(info.verified)}${opts.noBday ? "" : bday}`;
 }
 
 function mergeUserInfo(username, info) {
@@ -252,7 +236,7 @@ const LANG = {
     "settings.passcode": "Код-пароль устройства", "settings.twoFA": "Двухэтапная аутентификация",
     "settings.verification": "Официальная верификация", "settings.sessions": "Мои сессии", "settings.account": "Аккаунт",
     "settings.logout": "Выйти из аккаунта", "settings.addFriendPlaceholder": "@username", "settings.add": "Добавить",
-    "settings.personalize": "Цвет имени и профиля", "settings.emojiStatus": "Эмодзи-статус",
+    "settings.emojiStatus": "Эмодзи-статус",
     "group.newGroup": "Новая группа", "group.newChannel": "Новый канал", "group.name": "Название",
     "group.desc": "Описание (не обязательно)", "group.members": "Друзья/родные для добавления (через запятую, @username)",
     "group.discoverableLabel": "Показывать в публичном поиске (популярное)", "group.create": "Создать",
@@ -280,7 +264,7 @@ const LANG = {
     "settings.passcode": "Device passcode", "settings.twoFA": "Two-factor authentication",
     "settings.verification": "Official verification", "settings.sessions": "My sessions", "settings.account": "Account",
     "settings.logout": "Log out", "settings.addFriendPlaceholder": "@username", "settings.add": "Add",
-    "settings.personalize": "Name and profile color", "settings.emojiStatus": "Emoji status",
+    "settings.emojiStatus": "Emoji status",
     "group.newGroup": "New group", "group.newChannel": "New channel", "group.name": "Name",
     "group.desc": "Description (optional)", "group.members": "Friends/family to add (comma-separated, @username)",
     "group.discoverableLabel": "Show in public search (Discover)", "group.create": "Create",
@@ -308,7 +292,7 @@ const LANG = {
     "settings.passcode": "Qurilma kodi", "settings.twoFA": "Ikki bosqichli autentifikatsiya",
     "settings.verification": "Rasmiy tasdiqlash", "settings.sessions": "Mening seanslarim", "settings.account": "Hisob",
     "settings.logout": "Hisobdan chiqish", "settings.addFriendPlaceholder": "@username", "settings.add": "Qo'shish",
-    "settings.personalize": "Ism va profil rangi", "settings.emojiStatus": "Emoji-status",
+    "settings.emojiStatus": "Emoji-status",
     "group.newGroup": "Yangi guruh", "group.newChannel": "Yangi kanal", "group.name": "Nomi",
     "group.desc": "Tavsif (ixtiyoriy)", "group.members": "Qo'shiladigan do'stlar/oila a'zolari (vergul bilan, @username)",
     "group.discoverableLabel": "Ommaviy qidiruvda ko'rsatish (Ommabop)", "group.create": "Yaratish",
@@ -397,7 +381,6 @@ function myCard() {
     displayName: me.displayName || me.username,
     avatarUrl: me.avatarUrl || "",
     verified: !!me.verified,
-    nameColor: s.nameColor || "",
     emojiStatus: s.emojiStatus || "",
     birthdayToday: isMyBirthdayToday()
   };
@@ -860,7 +843,7 @@ function renderMessage(m) {
 
   const mine = m.sender === me.username;
   const info = m.sender === "support"
-    ? { username: "support", displayName: "Поддержка One Messenger", verified: true, nameColor: "#2a9df4" }
+    ? { username: "support", displayName: "Поддержка One Messenger", verified: true }
     : (userInfoCache.get(m.sender) || m.senderInfo || { username: m.sender, displayName: m.sender });
 
   let body = "";
@@ -1663,7 +1646,6 @@ async function openProfile(username, isMe) {
   const bio = document.getElementById("profileBio");
   const birth = document.getElementById("profileBirth");
   const seen = document.getElementById("profileLastSeen");
-  const banner = document.getElementById("profileBanner");
   const official = document.getElementById("profileOfficial");
   const actions = document.getElementById("profileActions");
 
@@ -1672,8 +1654,6 @@ async function openProfile(username, isMe) {
 
   const p = await getUserInfo(username, true);
   if (!p.fetched) { alert("Не найден"); return closeProfile(); }
-
-  banner.style.background = profileGradient(p.profileColor);
 
   avatar.innerHTML = avatarHtml(p);
   name.innerHTML = nameHtml(p, { noBday: true });
@@ -1763,7 +1743,6 @@ function openSettings() {
   renderPasscodeSection();
   render2FASection();
   renderWallpaperSection();
-  renderPersonalizeSection();
   renderEmojiStatusSection();
   renderLanguageSection();
   renderPrivacySection();
@@ -1998,15 +1977,6 @@ const WALLPAPER_PRESETS = [
   { id: "mint", label: "Мята" }
 ];
 const ACCENT_PRESETS = ["#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff", "#f5c542", "#00c2c7", "#ff5c5c", "#7c8cff", "#8bd450"];
-const NAME_COLORS = [
-  "#ff3b47", "#ff6a1a", "#ff9500", "#ffc400", "#ffe14d", "#b6f03a", "#4cd964", "#00c853",
-  "#00d4b4", "#00bcd4", "#40c4ff", "#1e9bff", "#3d6bff", "#6c7bff", "#8b45ff", "#b45cff",
-  "#d66bff", "#ff4db8", "#ff5c9a", "#ff2d78", "#ff8a65", "#e6b980", "#cfd4dc", "#ffffff"
-];
-const PROFILE_COLORS = [
-  "#0a84ff", "#5e5ce6", "#8b3dff", "#ff2d92", "#ff3b30", "#ff8a00",
-  "#00c46a", "#00b8a9", "#2ec5ff", "#f5b301", "#c026d3", "#475569"
-];
 const STATUS_EMOJIS = ["😎", "🔥", "⭐", "💎", "👑", "🎮", "🎧", "📚", "💼", "✈️", "🏖️", "❤️", "🌙", "☕", "🚀", "⚽", "🎨", "💻", "🤔", "😴", "🎉", "🍀", "🌸", "🐱", "🦁", "⚡", "🌈", "🎵"];
 
 function applyTheme(settings) {
@@ -2091,46 +2061,6 @@ async function pickAccent(color) {
   renderWallpaperSection();
 }
 
-// ---------------- ЦВЕТ ИМЕНИ И ПРОФИЛЯ ----------------
-function renderPersonalizeSection() {
-  const box = document.getElementById("personalizeSection");
-  if (!box) return;
-  const s = me.settings || {};
-  const nameColor = safeColor(s.nameColor);
-  const profileColor = safeColor(s.profileColor);
-
-  box.innerHTML = `
-    <div class="namepreview" style="background:${profileGradient(profileColor)}">
-      <div class="avatar">${avatarHtml(myCard())}</div>
-      <div>${nameHtml(myCard(), { noBday: true })}<div class="hint">так тебя видят другие</div></div>
-    </div>
-
-    <label>Цвет имени</label>
-    <div class="swatchrow">
-      <button class="colorswatch reset ${!nameColor ? "active" : ""}" onclick="pickNameColor('')" title="Обычный"><i class="fa-solid fa-ban"></i></button>
-      ${NAME_COLORS.map(c => `<button class="colorswatch ${nameColor.toLowerCase() === c ? "active" : ""}" style="background:${c}" onclick="pickNameColor('${c}')"></button>`).join("")}
-      <label class="colorswatch custompick" title="Любой цвет"><i class="fa-solid fa-eye-dropper"></i><input type="color" value="${nameColor || "#2a9df4"}" onchange="pickNameColor(this.value)"></label>
-    </div>
-
-    <label>Цвет профиля</label>
-    <div class="swatchrow">
-      <button class="colorswatch reset ${!profileColor ? "active" : ""}" onclick="pickProfileColor('')" title="Без цвета"><i class="fa-solid fa-ban"></i></button>
-      ${PROFILE_COLORS.map(c => `<button class="colorswatch ${profileColor.toLowerCase() === c ? "active" : ""}" style="background:${profileGradient(c)}" onclick="pickProfileColor('${c}')"></button>`).join("")}
-      <label class="colorswatch custompick" title="Любой цвет"><i class="fa-solid fa-eye-dropper"></i><input type="color" value="${profileColor || "#2a9df4"}" onchange="pickProfileColor(this.value)"></label>
-    </div>
-  `;
-}
-
-async function pickNameColor(c) {
-  await saveSettingsPatch({ nameColor: c });
-  renderPersonalizeSection();
-  refreshChats();
-}
-async function pickProfileColor(c) {
-  await saveSettingsPatch({ profileColor: c });
-  renderPersonalizeSection();
-}
-
 // ---------------- ЭМОДЗИ-СТАТУС (значок рядом с именем) ----------------
 function renderEmojiStatusSection() {
   const box = document.getElementById("emojiStatusSection");
@@ -2152,7 +2082,6 @@ async function pickEmojiStatus(e) {
   const d = await saveSettingsPatch({ emojiStatus: e });
   if (d && d.ok) toast(e ? `Статус ${e} установлен` : "Статус убран");
   renderEmojiStatusSection();
-  renderPersonalizeSection();
   refreshChats();
 }
 
@@ -2438,9 +2367,6 @@ function stopHoldVoice() {
 // ================== MY PROFILE TAB ==================
 async function loadMyProfileTab() {
   const card = myCard();
-  const banner = document.getElementById("myProfileBanner");
-  banner.style.background = profileGradient((me.settings || {}).profileColor);
-
   document.getElementById("myProfileAvatar").innerHTML = avatarHtml(card);
   document.getElementById("myProfileName").innerHTML = nameHtml(card);
   document.getElementById("myProfileUser").textContent = "@" + me.username;
