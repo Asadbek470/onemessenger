@@ -14,7 +14,7 @@
 .avatar.circle.saved{background:linear-gradient(135deg,#2a9df4,#6a5cff);color:#fff}
 .call-avatar .letterava{font-size:36px}
 
-/* ---------- Имя: цвет, эмодзи-статус, 🎂 ---------- */
+/* ---------- Имя: эмодзи-статус, 🎂 ---------- */
 .uname{font-weight:inherit}
 .emojistatus{margin-left:4px;font-size:.95em;line-height:1}
 .bdaymark{margin-left:3px;font-size:.9em}
@@ -172,21 +172,7 @@ body[data-wallpaper="custom"] .messages{
   border-style:dashed;
 }
 
-/* ---------- Палитры цветов ---------- */
 .colorswatch{display:inline-grid;place-items:center}
-.colorswatch.reset{background:rgba(255,255,255,.08);color:var(--muted);font-size:13px}
-.colorswatch.custompick{
-  position:relative;overflow:hidden;color:#fff;font-size:12px;
-  background:conic-gradient(#ff5c5c,#ffc53d,#52c41a,#36cfc9,#2a9df4,#9254de,#f759ab,#ff5c5c);
-}
-.colorswatch.custompick input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-.namepreview{
-  display:flex;align-items:center;gap:12px;
-  padding:12px;border-radius:16px;
-  background:rgba(255,255,255,.04);border:1px solid var(--line);
-  font-weight:800;
-}
-.namepreview .hint{margin-top:2px;font-weight:400}
 
 /* ---------- Эмодзи-статус ---------- */
 .statusgrid{display:grid;grid-template-columns:repeat(auto-fill, minmax(42px,1fr));gap:6px}
@@ -259,43 +245,23 @@ body[data-wallpaper="custom"] .messages{
 .avatar img, .mava img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
 .letterava{letter-spacing:0}
 
-/* ---------- Шапка профиля: скруглённая цветная карточка ---------- */
-.profilebanner{
-  position:relative;height:108px;margin:6px 14px 0;border-radius:26px;overflow:hidden;
-  box-shadow:0 16px 32px -16px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.3);
+/* ---------- Профиль: аватар по центру ---------- */
+.profiletab{padding:24px 16px 28px}
+.profiletab .avatar.big, .profile .avatar.big{
+  width:112px;height:112px;margin-bottom:12px;flex:0 0 auto;
+  border:4px solid rgba(255,255,255,.16);
+  box-shadow:0 0 0 7px rgba(42,157,244,.16), 0 20px 40px -14px rgba(42,157,244,.65);
 }
-.profilebanner::before{
-  content:"";position:absolute;inset:0;
-  background:
-    radial-gradient(280px 130px at 12% 0%, rgba(255,255,255,.38), transparent 65%),
-    radial-gradient(220px 150px at 100% 100%, rgba(255,255,255,.2), transparent 70%);
-}
-.profilebanner::after{
-  content:"";position:absolute;right:-34px;top:-40px;width:140px;height:140px;border-radius:50%;
-  background:rgba(255,255,255,.13);
-}
-
-/* моя вкладка «Профиль» */
-.profiletab{padding:14px 16px 28px}
-.profiletab .profilebanner{width:100%;height:140px;margin:0 0 -60px}
-.profiletab .avatar.big{
-  width:116px;height:116px;margin-bottom:12px;position:relative;z-index:2;
-  border:5px solid #0e1b2d;box-shadow:0 14px 30px -10px rgba(0,0,0,.65);
-}
-.profiletab .avatar.big .letterava{font-size:46px}
+.profiletab .avatar.big .letterava, .profile .avatar.big .letterava{font-size:44px}
 .profiletab .pname{font-size:22px}
 
-/* профиль другого человека (окно) */
 #profileModal .card{max-height:92vh;overflow-y:auto}
-#profileBanner + .profile{position:relative;margin-top:-52px;padding:0 16px 8px}
-#profileBanner + .profile .avatar.big{
-  width:96px;height:96px;flex:0 0 auto;position:relative;z-index:2;
-  border:5px solid #0e1b2d;box-shadow:0 14px 30px -10px rgba(0,0,0,.65);
-}
-#profileBanner + .profile .avatar.big .letterava{font-size:38px}
-#profileBanner + .profile .profiletext{padding-top:60px;min-width:0}
-.profiletext .pname{flex-wrap:wrap}
+#profileModal .profile{flex-direction:column;align-items:center;text-align:center;padding:22px 16px 8px}
+#profileModal .profiletext{min-width:0;display:flex;flex-direction:column;align-items:center}
+.profiletext .pname{flex-wrap:wrap;justify-content:center}
+.profiletext .gifts-row{justify-content:center}
 .pofficial{border-radius:999px}
+#profileActions{flex-direction:column;gap:10px}
 
 /* ---------- Сообщения: насыщенные цвета ---------- */
 .bubble{background:rgba(31,49,72,.94);border-color:rgba(255,255,255,.1)}
@@ -319,22 +285,6 @@ body[data-wallpaper="custom"] .messages{
 .mrow.mine .listitem.checked i{color:#b9ffd6}
 .mrow.mine .listitem.checked span{color:rgba(255,255,255,.72)}
 
-/* ---------- Кнопки ---------- */
-.btn.primary{
-  background:linear-gradient(135deg, var(--blue) 0%, #5b6dff 100%);
-  border-color:rgba(255,255,255,.26);color:#fff;font-weight:700;
-  box-shadow:0 12px 24px -12px var(--blue), inset 0 1px 0 rgba(255,255,255,.32);
-}
-.btn.danger{
-  background:linear-gradient(135deg,#ff4d5e,#e0243a);
-  border-color:rgba(255,255,255,.22);color:#fff;font-weight:700;
-}
-.iconbtn.send{
-  background:linear-gradient(135deg, var(--blue), #5b6dff);
-  border-color:rgba(255,255,255,.25);color:#fff;border-radius:50%;
-  box-shadow:0 10px 20px -8px var(--blue);
-}
-
 /* ---------- Настройки: карточки ---------- */
 .settingsscroll{padding:8px 0 30px}
 .settingsblock, .settingsblock:last-child{
@@ -349,14 +299,6 @@ body[data-wallpaper="custom"] .messages{
 .wallswatch.active{border-color:#fff;box-shadow:0 0 0 2px var(--blue)}
 .colorswatch{width:36px;height:36px;border-width:3px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
 .colorswatch.active{border-color:#fff;box-shadow:0 0 0 2px var(--blue)}
-.namepreview{
-  border-radius:24px;padding:16px;border:1px solid rgba(255,255,255,.22);
-  box-shadow:0 14px 28px -16px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.3);
-  text-shadow:0 1px 8px rgba(0,0,0,.4);
-}
-.namepreview .avatar{width:52px;height:52px;border:3px solid rgba(255,255,255,.35)}
-.namepreview .hint{color:rgba(255,255,255,.85)}
-
 /* ---------- Обои: насыщеннее ---------- */
 body:not([data-wallpaper]) .messages, body[data-wallpaper="default"] .messages{
   background:radial-gradient(620px 420px at 85% 0%, rgba(42,157,244,.22), transparent 62%),
@@ -425,3 +367,238 @@ body[data-wallpaper="mint"] .messages, #messages[data-wp="mint"]{background:line
 
 /* пустая подпись внутри сетки историй не должна сжиматься в узкий столбец */
 .stories-grid .hint{grid-column:1 / -1;text-align:center;margin:8px 0}
+
+
+/* ================================================================
+   ДИЗАЙН v3 — КНОПКИ
+   Единая система: основная (с градиентом и свечением), «стеклянная»,
+   красная, маленькая и круглые кнопки-иконки. У каждой есть нажатие,
+   наведение и рамка фокуса для клавиатуры.
+   ================================================================ */
+
+.btn, .iconbtn, .navbtn, .tagchip, .emojitab, .statusbtn, .story-add{
+  -webkit-tap-highlight-color:transparent;
+}
+
+/* ---------- Обычные кнопки ---------- */
+.btn{
+  position:relative;
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  min-height:48px;padding:0 20px;border-radius:16px;
+  font:inherit;font-size:15px;font-weight:700;line-height:1.1;letter-spacing:.1px;
+  color:var(--text);cursor:pointer;overflow:hidden;
+  border:1px solid rgba(255,255,255,.16);
+  background:linear-gradient(180deg, rgba(255,255,255,.13), rgba(255,255,255,.05));
+  box-shadow:0 10px 20px -12px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.18);
+  transition:transform .15s ease, box-shadow .2s ease, filter .2s ease;
+}
+.btn i{font-size:1.05em}
+.btn:hover{filter:brightness(1.14);transform:translateY(-1px)}
+.btn:active{transform:translateY(0) scale(.97);filter:brightness(.95)}
+.btn:disabled{opacity:.5;cursor:default;transform:none;filter:none}
+.btn.full{width:100%}
+
+.btn.ghost i{color:#5db4ff}
+
+.btn.primary{
+  color:#fff;border-color:rgba(255,255,255,.3);
+  background:linear-gradient(135deg, var(--blue) 0%, #5b6dff 100%);
+  box-shadow:0 16px 28px -14px var(--blue), inset 0 1px 0 rgba(255,255,255,.42);
+}
+.btn.primary::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg, rgba(255,255,255,.2), rgba(255,255,255,0) 55%);
+}
+.btn.primary i{color:#fff}
+
+.btn.danger{
+  color:#fff;border-color:rgba(255,255,255,.26);
+  background:linear-gradient(135deg, #ff5468 0%, #d81e3c 100%);
+  box-shadow:0 16px 28px -14px #ff3b55, inset 0 1px 0 rgba(255,255,255,.36);
+}
+
+.btn.small{
+  min-height:38px;padding:0 15px;border-radius:13px;font-size:13px;flex:0 0 auto;
+}
+.btn.small-link{
+  min-height:0;padding:4px 0;border:none;background:transparent;box-shadow:none;
+  color:#ff6b7c;font-size:13px;font-weight:600;text-decoration:underline;border-radius:0;overflow:visible;
+}
+.btn.small-link:hover{filter:none;transform:none;color:#ff8f9c}
+.row .btn, .settingsblock .row .btn{flex:0 0 auto}
+.row{gap:10px}
+
+/* ---------- Быстрые действия на экране чатов (Группа, Канал, ...) ---------- */
+.sidebar-actions{display:grid;grid-template-columns:repeat(4, 1fr);gap:8px;margin-top:12px}
+.sidebar-actions .btn.small{
+  flex-direction:column;gap:7px;min-height:82px;padding:11px 2px 9px;
+  border-radius:20px;font-size:11px;font-weight:700;letter-spacing:0;white-space:nowrap;
+}
+.sidebar-actions .btn.small i{
+  width:40px;height:40px;border-radius:50%;
+  display:grid;place-items:center;font-size:16px;color:#fff;
+  box-shadow:0 10px 16px -8px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.45);
+}
+.sidebar-actions .btn.small:nth-child(1) i{background:linear-gradient(135deg,#3fb0ff,#2f6bff)}
+.sidebar-actions .btn.small:nth-child(2) i{background:linear-gradient(135deg,#ffb23f,#ff6a1a)}
+.sidebar-actions .btn.small:nth-child(3) i{background:linear-gradient(135deg,#b878ff,#7b3fe4)}
+.sidebar-actions .btn.small:nth-child(4) i{background:linear-gradient(135deg,#43e08a,#12a150)}
+
+/* ---------- Круглые кнопки-иконки ---------- */
+.iconbtn{
+  width:44px;height:44px;border-radius:50%;padding:0;
+  display:inline-grid;place-items:center;font-size:17px;color:var(--text);cursor:pointer;
+  border:1px solid rgba(255,255,255,.16);
+  background:linear-gradient(180deg, rgba(255,255,255,.15), rgba(255,255,255,.05));
+  box-shadow:0 10px 18px -12px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.2);
+  transition:transform .15s ease, filter .2s ease, box-shadow .2s ease;
+}
+.iconbtn:hover{filter:brightness(1.18);transform:translateY(-1px)}
+.iconbtn:active{transform:scale(.9);filter:brightness(.95)}
+.iconbtn.danger{
+  color:#fff;border-color:rgba(255,255,255,.22);
+  background:linear-gradient(135deg,#ff5468,#d81e3c);
+}
+.iconbtn.send{
+  color:#fff;border-color:rgba(255,255,255,.3);
+  background:linear-gradient(135deg, var(--blue), #5b6dff);
+  box-shadow:0 12px 22px -10px var(--blue), inset 0 1px 0 rgba(255,255,255,.42);
+}
+#callBtn{
+  color:#fff;border-color:rgba(255,255,255,.3);
+  background:linear-gradient(135deg,#3fdc84,#12a150);
+  box-shadow:0 12px 22px -10px #22c55e, inset 0 1px 0 rgba(255,255,255,.42);
+}
+#voiceBtn.recording{
+  color:#fff;background:linear-gradient(135deg,#ff5468,#d81e3c);
+  border-color:rgba(255,255,255,.3);animation:recPulse 1s ease-in-out infinite;
+}
+@keyframes recPulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,84,104,.55)}
+  50%{box-shadow:0 0 0 12px rgba(255,84,104,0)}
+}
+.cardtop .iconbtn{width:38px;height:38px;font-size:15px}
+.composer{gap:7px}
+.composer .iconbtn{width:42px;height:42px;flex:0 0 auto}
+.topbar .actions{gap:8px}
+
+/* ---------- Нижнее меню ---------- */
+.navbtn{gap:4px;font-weight:700;transition:color .2s ease}
+.navbtn i{
+  width:54px;height:32px;border-radius:16px;
+  display:grid;place-items:center;font-size:18px;
+  transition:background .2s ease, transform .2s ease, box-shadow .2s ease;
+}
+.navbtn:active i{transform:scale(.9)}
+.navbtn.active{color:#fff}
+.navbtn.active i{
+  color:#fff;
+  background:linear-gradient(135deg, var(--blue), #5b6dff);
+  box-shadow:0 10px 18px -8px var(--blue), inset 0 1px 0 rgba(255,255,255,.4);
+}
+
+/* ---------- Кнопка «добавить сторис» ---------- */
+.story-add{
+  width:48px;height:48px;flex:0 0 auto;border-radius:50%;
+  display:grid;place-items:center;font-size:18px;color:#fff;cursor:pointer;
+  border:2px dashed rgba(96,176,255,.7);
+  background:radial-gradient(circle at 30% 25%, rgba(96,176,255,.45), rgba(42,157,244,.12));
+  transition:transform .15s ease, filter .2s ease;
+}
+.story-add:hover{filter:brightness(1.2)}
+.story-add:active{transform:scale(.9)}
+
+/* ---------- Меню скрепки ---------- */
+.attachmenu{
+  min-width:262px;padding:8px;border-radius:22px;
+  background:rgba(13,25,41,.98);border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 24px 50px -12px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.12);
+}
+.attachmenu button{
+  gap:12px;padding:8px 10px;border-radius:15px;font-size:14.5px;font-weight:600;
+  transition:background .15s ease, transform .12s ease;
+}
+.attachmenu button:active{transform:scale(.97)}
+.attachmenu button i{
+  width:36px;height:36px;border-radius:50%;flex:0 0 auto;
+  display:grid;place-items:center;font-size:15px;color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4);
+}
+.attachmenu button:nth-child(1) i{background:linear-gradient(135deg,#3fb0ff,#2f6bff)}
+.attachmenu button:nth-child(2) i{background:linear-gradient(135deg,#ff6a7a,#e0243a)}
+.attachmenu button:nth-child(3) i{background:linear-gradient(135deg,#b878ff,#7b3fe4)}
+.attachmenu button:nth-child(4) i{background:linear-gradient(135deg,#ffb23f,#ff6a1a)}
+.attachmenu button:nth-child(5) i{background:linear-gradient(135deg,#43e08a,#12a150)}
+
+/* ---------- Мелкие кнопки внутри сообщений ---------- */
+.mact{
+  width:26px;height:26px;padding:0;border-radius:50%;
+  display:grid;place-items:center;font-size:12px;transition:background .15s ease, color .15s ease, transform .12s ease;
+}
+.mact:hover{background:rgba(255,255,255,.14)}
+.mact:active{transform:scale(.88)}
+.locbtn{
+  min-height:38px;display:grid;place-items:center;border-radius:13px;
+  background:linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.1));
+  border:1px solid rgba(255,255,255,.26);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25);
+  transition:transform .12s ease, filter .2s ease;
+}
+.locbtn:active{transform:scale(.96)}
+
+/* ---------- Чипы и переключатели ---------- */
+.tagchip{
+  min-height:36px;padding:0 14px;font-weight:700;
+  transition:transform .12s ease, background .2s ease;
+}
+.tagchip:active{transform:scale(.95)}
+.tagchip.active{
+  color:#fff;border-color:rgba(255,255,255,.3);
+  background:linear-gradient(135deg, var(--blue), #5b6dff);
+  box-shadow:0 8px 16px -8px var(--blue);
+}
+.emojitab{width:42px;height:38px;display:grid;place-items:center;padding:0;border-radius:13px;transition:background .15s ease}
+.emojitab.active{background:linear-gradient(135deg, rgba(42,157,244,.5), rgba(91,109,255,.5))}
+.statusbtn{transition:transform .12s ease, background .15s ease}
+.statusbtn:hover{transform:scale(1.06)}
+.statusbtn:active{transform:scale(.94)}
+.gift-emoji-btn{width:50px;height:50px;border-radius:50%;font-size:22px;transition:transform .12s ease}
+.gift-emoji-btn:active{transform:scale(.9)}
+.wallswatch, .colorswatch{transition:transform .12s ease}
+.wallswatch:hover, .colorswatch:hover{transform:scale(1.07)}
+.wallswatch:active, .colorswatch:active{transform:scale(.94)}
+
+/* ---------- Экран входа: переключатель «Вход / Регистрация» ---------- */
+.tabs{
+  display:flex;gap:4px;padding:5px;border-radius:19px;
+  background:rgba(255,255,255,.06);border:1px solid var(--line);
+}
+.tabs .tab{
+  min-height:44px;border:none;border-radius:15px;background:transparent;
+  color:var(--muted);font:inherit;font-weight:700;cursor:pointer;
+  transition:background .2s ease, color .2s ease, box-shadow .2s ease;
+}
+.tabs .tab.active{
+  color:#fff;
+  background:linear-gradient(135deg, var(--blue), #5b6dff);
+  box-shadow:0 10px 18px -10px var(--blue), inset 0 1px 0 rgba(255,255,255,.4);
+}
+
+/* ---------- Фокус с клавиатуры ---------- */
+.btn:focus-visible, .iconbtn:focus-visible, .navbtn:focus-visible,
+.tagchip:focus-visible, .story-add:focus-visible, .attachmenu button:focus-visible{
+  outline:3px solid rgba(96,176,255,.6);outline-offset:2px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .btn, .iconbtn, .navbtn i, .story-add{transition:none}
+  #voiceBtn.recording{animation:none}
+}
+
+.inboxbtns .btn.small{flex:1}
+
+/* поле ввода сообщения должно сжиматься, чтобы все кнопки помещались в строку */
+.composer .text{min-width:0;flex:1 1 0}
+
+/* отступ у кнопки на странице входа */
+.auth-card .form .btn{margin-top:16px}
