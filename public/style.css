@@ -1245,3 +1245,189 @@ body::before, body::after{display:none}
   background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);
 }
 .locbtn:active{transform:scale(.96)}
+/* ================================================================
+   One Messenger — единый дизайн экрана «Настройки».
+   Вставить в САМЫЙ КОНЕЦ style.css (после остальных вставленных блоков).
+   Только CSS — HTML и JS не меняются.
+   ================================================================ */
+
+:root{
+  --tg-card:#17212b;
+  --tg-sep:rgba(255,255,255,.08);
+  --tg-label:#7f92a8;
+  --tg-link:#62b6ff;
+}
+
+/* ---------- Общий фон экрана ---------- */
+#screenSettings{background:#0d1826}
+#screenSettings .screen-header{padding:16px 16px 6px}
+#screenSettings .screentitle{margin:0;font-size:22px}
+.settingsscroll{padding:6px 0 34px}
+
+/* ---------- Карточки блоков — как в профиле ---------- */
+.settingsblock{
+  margin:14px 14px 0;padding:4px 16px 14px;
+  background:var(--tg-card);
+  border:1px solid var(--tg-sep);
+  border-radius:20px;
+  box-shadow:0 14px 28px -22px rgba(0,0,0,.9);
+}
+.blocktitle{
+  padding:16px 0 12px;
+  font-size:15px;font-weight:800;color:#fff;
+  display:flex;align-items:center;gap:8px;
+}
+/* маленькие иконки-эмодзи перед заголовками — по содержимому блока, без правок HTML */
+.settingsblock:has(#setDisplayName) .blocktitle::before{content:"👤"}
+.settingsblock:has(#wallpaperSection) .blocktitle::before{content:"🎨"}
+.settingsblock:has(#emojiStatusSection) .blocktitle::before{content:"🙂"}
+.settingsblock:has(#languageSection) .blocktitle::before{content:"🌐"}
+.settingsblock:has(#privacySection) .blocktitle::before{content:"🔒"}
+.settingsblock:has(#friendsSection) .blocktitle::before{content:"👥"}
+.settingsblock:has(#passcodeSection) .blocktitle::before{content:"🔢"}
+.settingsblock:has(#twoFASection) .blocktitle::before{content:"🛡️"}
+.settingsblock:has(#verificationSection) .blocktitle::before{content:"✅"}
+.settingsblock:has(#sessionsSection) .blocktitle::before{content:"💻"}
+.blocktitle::before{font-size:15px;line-height:1}
+
+.settingsblock .formgrid{padding:0 0 2px;gap:12px}
+
+/* ---------- Поля ввода и подписи ---------- */
+.formgrid label{
+  font-size:12.5px;color:var(--tg-label);margin:2px 0 -4px;font-weight:600;
+}
+.formgrid input:not([type=checkbox]),
+.formgrid textarea{
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--tg-sep);
+  border-radius:14px;
+  padding:12px 14px;
+  color:#fff;
+  transition:border-color .15s ease, background .15s ease;
+}
+.formgrid input:not([type=checkbox]):focus,
+.formgrid textarea:focus,
+.requestarea:focus{
+  outline:none;border-color:rgba(98,182,255,.6);
+  background:rgba(98,182,255,.06);
+}
+.formgrid input::placeholder,
+.requestarea::placeholder{color:rgba(127,146,168,.75)}
+
+/* ---------- Выпадающие списки (приватность) — своя стрелка вместо системной ---------- */
+.formgrid select{
+  appearance:none;-webkit-appearance:none;
+  background-color:rgba(255,255,255,.05);
+  border:1px solid var(--tg-sep);
+  border-radius:14px;
+  padding:12px 38px 12px 14px;
+  color:#fff;font:inherit;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Cpath fill='%237f92a8' d='M5.5 7.5l4.5 4.5 4.5-4.5' stroke='%237f92a8' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 10px center;
+  transition:border-color .15s ease;
+}
+.formgrid select:focus{outline:none;border-color:rgba(98,182,255,.6)}
+.formgrid select option{background:#17212b;color:#fff}
+
+/* ---------- Ряд «Аватар: ссылка + кнопка из галереи» ---------- */
+.settingsblock .row{gap:8px}
+.settingsblock .row input{flex:1;min-width:0}
+.settingsblock .row .btn{flex:0 0 auto;white-space:nowrap}
+
+/* ---------- Чекбоксы — свой переключатель вместо системного квадрата ---------- */
+.checkrow{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 2px;cursor:pointer;font-size:14px;line-height:1.4;
+}
+.checkrow input[type=checkbox]{
+  appearance:none;-webkit-appearance:none;
+  width:42px;height:26px;min-width:42px;border-radius:999px;
+  background:rgba(255,255,255,.14);
+  border:1px solid var(--tg-sep);
+  position:relative;cursor:pointer;
+  transition:background .18s ease;
+}
+.checkrow input[type=checkbox]::after{
+  content:"";position:absolute;top:2px;left:2px;
+  width:20px;height:20px;border-radius:50%;background:#fff;
+  box-shadow:0 2px 6px rgba(0,0,0,.35);
+  transition:transform .18s ease;
+}
+.checkrow input[type=checkbox]:checked{
+  background:linear-gradient(135deg,var(--blue),#5b6dff);
+  border-color:transparent;
+}
+.checkrow input[type=checkbox]:checked::after{transform:translateX(16px)}
+
+/* ---------- Свотчи (обои / акцентный цвет / эмодзи-статус) ---------- */
+#wallpaperSection .formgrid > label,
+#emojiStatusSection .formgrid > label{margin-bottom:2px}
+.swatchrow, .statusgrid{margin-top:2px}
+
+/* ---------- Языковые кнопки как сегментированный переключатель ---------- */
+#languageSection{display:flex;gap:6px;padding:2px 0 6px;flex-wrap:wrap}
+#languageSection button{
+  flex:1;min-width:84px;min-height:42px;padding:0 12px;
+  border-radius:13px;font-weight:700;font-size:13.5px;
+  border:1px solid var(--tg-sep);background:rgba(255,255,255,.05);color:var(--text);
+  transition:background .15s ease, color .15s ease, border-color .15s ease;
+}
+#languageSection button.active{
+  color:#fff;border-color:transparent;
+  background:linear-gradient(135deg,var(--blue),#5b6dff);
+  box-shadow:0 8px 16px -8px var(--blue);
+}
+
+/* ---------- Список друзей ---------- */
+#friendsSection .memberrow{
+  padding:10px 0;border-bottom:1px solid var(--tg-sep);
+}
+#friendsSection .memberrow:last-child{border-bottom:none}
+#friendsSection .memberrow .avatar{width:42px;height:42px;border-radius:50%}
+#friendsSection .memberrow .iconbtn,
+#friendsSection .memberrow button{
+  margin-left:auto;flex:0 0 auto;
+}
+
+/* ---------- Код-пароль / 2FA / верификация — статусные строки ---------- */
+.settingsblock > .formgrid > div:not([class]),
+#passcodeSection .hint,
+#twoFASection .hint,
+#verificationSection .hint{
+  font-size:13.5px;color:var(--tg-label);line-height:1.5;
+}
+#twoFASection .row{margin-top:2px}
+
+/* значок «официально подтверждён» — как в профиле */
+#verificationSection:has(.pofficial) .checkrow{
+  padding-top:2px;
+}
+
+/* ---------- Кнопки действий: ровные ряды ---------- */
+.settingsblock .btn.full{width:100%}
+.settingsblock .row .btn{min-width:0}
+
+/* ---------- Сессии устройств ---------- */
+#sessionsSection .memberrow,
+#sessionsSection > div{
+  padding:10px 0;border-bottom:1px solid var(--tg-sep);
+  font-size:13.5px;
+}
+#sessionsSection > div:last-child{border-bottom:none}
+
+/* ---------- Блок «Аккаунт» — опасная зона визуально отделена ---------- */
+.settingsblock:last-of-type{
+  border-color:rgba(255,84,104,.22);
+}
+#deleteAccountSection{margin-top:4px}
+
+/* ---------- Мелкие подсказки ---------- */
+.formgrid + .hint, .settingsblock .hint{
+  font-size:12.5px;color:var(--tg-label);margin-top:-4px;line-height:1.5;
+}
+
+@media (max-width:640px){
+  .settingsblock{margin:12px 10px 0;padding:2px 14px 12px}
+  .blocktitle{font-size:14.5px}
+}
