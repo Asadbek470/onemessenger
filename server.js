@@ -84,11 +84,6 @@ app.use(express.json({ limit: "2mb" }));
 
 // ================================================================
 // ЛОГОТИП «OM» — рисуется прямо здесь, в коде.
-// Никаких файлов-картинок закачивать не нужно: сервер сам создаёт
-// настоящий PNG (буквы O и M на сине-фиолетовом фоне) и отдаёт его
-// по адресам /icon-192.png и /icon-512.png. Иконка используется как
-// аватар «Поддержки», значок вкладки, иконка приложения на телефоне
-// и картинка в push-уведомлениях.
 // ================================================================
 const zlib = require("zlib");
 
@@ -115,14 +110,14 @@ function encodePng(size, rgba) {
   const rowLen = size * 4 + 1;
   const raw = Buffer.alloc(rowLen * size);
   for (let y = 0; y < size; y++) {
-    raw[y * rowLen] = 0; // фильтр строки: без фильтра
+    raw[y * rowLen] = 0;
     rgba.copy(raw, y * rowLen + 1, y * size * 4, (y + 1) * size * 4);
   }
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
   ihdr.writeUInt32BE(size, 4);
-  ihdr[8] = 8;  // 8 бит на канал
-  ihdr[9] = 6;  // RGBA
+  ihdr[8] = 8;
+  ihdr[9] = 6;
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     pngChunk("IHDR", ihdr),
@@ -131,7 +126,6 @@ function encodePng(size, rgba) {
   ]);
 }
 
-// расстояние от точки до отрезка — так рисуются палочки буквы M
 function segDist(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;
   const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
@@ -141,13 +135,11 @@ function segDist(px, py, ax, ay, bx, by) {
 function isLetterPixel(x, y, S) {
   const cy = 0.5 * S, hh = 0.165 * S, t = 0.07 * S;
 
-  // буква O — кольцо
   const ox = 0.295 * S, orx = 0.155 * S, ory = hh;
   const outer = Math.hypot((x - ox) / orx, (y - cy) / ory);
   const inner = Math.hypot((x - ox) / (orx - t), (y - cy) / (ory - t));
   if (outer <= 1 && inner >= 1) return true;
 
-  // буква M — четыре линии
   const x0 = 0.50 * S, x1 = 0.78 * S, xm = (x0 + x1) / 2;
   const top = cy - hh, bot = cy + hh, mid = cy + hh * 0.35, w = t / 2;
   if (segDist(x, y, x0, bot, x0, top) <= w) return true;
@@ -171,9 +163,9 @@ function buildIcon(S) {
 
   const px = Buffer.alloc(S * S * 4);
   const radius = S * 0.23;
-  const AA = 3; // сглаживание краёв
-  const c1 = [42, 157, 244];   // синий
-  const c2 = [106, 92, 255];   // фиолетовый
+  const AA = 3;
+  const c1 = [42, 157, 244];
+  const c2 = [106, 92, 255];
 
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
@@ -217,7 +209,6 @@ app.get("/icon-192.png", serveIcon(192));
 app.get("/icon-512.png", serveIcon(512));
 app.get("/favicon.ico", serveIcon(64));
 
-// Манифест тоже живёт в коде — отдельный файл manifest.json не нужен.
 app.get("/manifest.json", (req, res) => {
   res.json({
     name: APP_NAME,
@@ -258,10 +249,6 @@ function isBirthdayToday(bd) {
 }
 
 // ---------------- UPLOAD SAFETY ----------------
-// Эти типы безопасно показывать прямо в чате (картинка/видео/аудио).
-// ЛЮБОЙ другой файл (Word, Excel, PowerPoint, PDF, ZIP...) тоже можно
-// отправить, но сервер отдаёт его только как «скачать», а не открывает
-// в браузере — так через файл нельзя подсунуть вредный HTML/скрипт.
 const MIME_EXT = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -285,11 +272,9 @@ function normMime(m) {
 }
 
 function fileFilter(req, file, cb) {
-  cb(null, true); // любые форматы — опасные отдаются только на скачивание (см. /media/:id)
+  cb(null, true);
 }
 
-// multer отдаёт имя файла в latin1 — переводим обратно в UTF-8, чтобы
-// русские названия вроде «Отчёт.docx» не превращались в кракозябры.
 function decodeFileName(name) {
   let n = String(name || "");
   try { n = Buffer.from(n, "latin1").toString("utf8"); } catch {}
@@ -443,7 +428,7 @@ async function initSchema() {
       sender TEXT NOT NULL,
       receiver TEXT NOT NULL,
       text TEXT DEFAULT '',
-      mediaType TEXT DEFAULT 'text',   -- text|image|video|audio|list|file
+      mediaType TEXT DEFAULT 'text',
       mediaUrl TEXT DEFAULT '',
       createdAt INTEGER NOT NULL
     )
@@ -557,7 +542,6 @@ async function initSchema() {
     )
   `);
 
-  // Официальные аккаунты: кто может писать напрямую (исключения)
   await dbRun(`
     CREATE TABLE IF NOT EXISTS dm_exceptions (
       owner TEXT NOT NULL,
@@ -567,7 +551,6 @@ async function initSchema() {
     )
   `);
 
-  // Заявки «написать официальному аккаунту» — рассматривает администрация
   await dbRun(`
     CREATE TABLE IF NOT EXISTS contact_requests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -580,7 +563,6 @@ async function initSchema() {
     )
   `);
 
-  // Обои для конкретного чата (свои и «для собеседника»)
   await dbRun(`
     CREATE TABLE IF NOT EXISTS chat_wallpapers (
       owner TEXT NOT NULL,
@@ -592,7 +574,6 @@ async function initSchema() {
     )
   `);
 
-  // Чтобы поздравление с ДР отправлялось один раз в год
   await dbRun(`
     CREATE TABLE IF NOT EXISTS birthday_log (
       username TEXT NOT NULL,
@@ -659,8 +640,6 @@ function safeUser(u) {
   };
 }
 
-// «Карточка» пользователя — то, что приходит вместе с каждым сообщением:
-// аватар, имя, цвет имени, эмодзи-статус, галочка, 🎂 если сегодня ДР.
 const SUPPORT_CARD = {
   username: "support",
   displayName: "Поддержка One Messenger",
@@ -767,8 +746,6 @@ function resolveChatType(receiver) {
   return "private";
 }
 
-// Только безопасные типы показываются в чате как фото/видео/аудио,
-// всё остальное — это «файл» (документ), который скачивается.
 function guessMediaType(mime) {
   const m = normMime(mime);
   if (!MIME_EXT[m]) return "file";
@@ -1025,7 +1002,6 @@ app.put("/api/me", verifyAuth, (req, res) => {
   );
 });
 
-// Оформление + приватность + кастомизация профиля
 app.put("/api/me/settings", verifyAuth, (req, res) => {
   const current = parseSettings(req.user);
   const incoming = req.body && typeof req.body === "object" ? req.body : {};
@@ -1036,7 +1012,6 @@ app.put("/api/me/settings", verifyAuth, (req, res) => {
   if (typeof incoming.accent === "string" && HEX_COLOR.test(incoming.accent)) merged.accent = incoming.accent;
   if (["ru", "en", "uz"].includes(incoming.language)) merged.language = incoming.language;
 
-  // Цвет имени и цвет профиля убраны из мессенджера — стираем старые значения из базы
   delete merged.nameColor;
   delete merged.profileColor;
 
@@ -1100,16 +1075,12 @@ async function isAllowedByPrivacy(ownerUser, viewerUsername, settingKey) {
   return isFriendOf(ownerUser.username, viewerUsername);
 }
 
-// «Был(а) в сети» — бесплатно для всех, но владелец может скрыть в приватности
 async function visibleLastSeen(row, viewer) {
   if (!(await isAllowedByPrivacy(row, viewer, "lastSeenPrivacy"))) return { lastSeen: null, lastSeenHidden: true };
   return { lastSeen: Number(row.lastSeen || 0) || null, lastSeenHidden: false };
 }
 
 // ---------------- OFFICIAL ACCOUNT DM GATE ----------------
-// У аккаунтов с галочкой ✅ по умолчанию включено: незнакомым людям
-// написать напрямую нельзя — только через заявку в администрацию.
-// Владелец может выключить это в настройках или добавить исключения.
 function dmGateOn(u) {
   return !!(u && u.verified) && parseSettings(u).dmGate !== false;
 }
@@ -1118,7 +1089,6 @@ async function dmAllowed(target, sender) {
   if (!target || target.username === sender) return true;
   if (!dmGateOn(target)) return true;
   if (await dbGet(`SELECT 1 FROM dm_exceptions WHERE owner=? AND allowed=?`, [target.username, sender])) return true;
-  // если официальный аккаунт сам уже писал этому человеку — отвечать можно
   const wrote = await dbGet(`SELECT 1 FROM messages WHERE chatType='private' AND sender=? AND receiver=? LIMIT 1`, [target.username, sender]);
   return !!wrote;
 }
@@ -1223,7 +1193,6 @@ app.post("/api/me/avatar", verifyAuth, singleUpload("file"), async (req, res) =>
   });
 });
 
-// Картинка для обоев (из галереи). Возвращает ссылку /media/...
 app.post("/api/upload-image", verifyAuth, singleUpload("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
   if (guessMediaType(req.file.mimetype) !== "image") {
@@ -1266,7 +1235,6 @@ app.put("/api/wallpaper", verifyAuth, async (req, res) => {
 
   await setFor(me, chat);
 
-  // «Обои для собеседника» — только в личном чате с реальным человеком
   const isPrivate = resolveChatType(chat) === "private" && chat !== me;
   if (forBoth && isPrivate) {
     const other = await dbGet(`SELECT username FROM users WHERE username=?`, [chat]);
@@ -1278,7 +1246,6 @@ app.put("/api/wallpaper", verifyAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// search users
 app.get("/api/users/search", verifyAuth, async (req, res) => {
   const q = String(req.query.q || "").trim().replace(/^@+/, "").toLowerCase();
   if (!q) return res.json({ ok: true, users: [] });
@@ -1721,7 +1688,6 @@ app.delete("/api/messages/:id", verifyAuth, (req, res) => {
   });
 });
 
-// Сохранить любое сообщение в «Избранное» (личный чат с самим собой)
 app.post("/api/messages/:id/save", verifyAuth, async (req, res) => {
   const id = Number(req.params.id);
   const me = req.user.username;
@@ -1955,9 +1921,6 @@ async function birthdayContacts(username) {
   return rows.map(r => r.other).filter(Boolean);
 }
 
-// Раз в 15 минут: у кого сегодня ДР — поздравляем от имени One Messenger
-// (приходит в чат «Поддержка» + пуш), а всем друзьям и собеседникам
-// приходит напоминание «Сегодня день рождения у ...».
 async function runBirthdayJob() {
   try {
     const t = localToday();
@@ -2155,8 +2118,6 @@ app.get("/api/admin/contact-requests", verifySuperAdmin, async (req, res) => {
   res.json({ ok: true, requests: rows });
 });
 
-// Шаг 1: администрация проверяет заявку. Одобрила — заявка уходит самому
-// владельцу официального аккаунта, и последнее слово за ним.
 app.post("/api/admin/contact-requests/:id/approve", verifySuperAdmin, async (req, res) => {
   const id = Number(req.params.id);
   const r = await dbGet(`SELECT * FROM contact_requests WHERE id=?`, [id]);
@@ -2184,7 +2145,6 @@ app.post("/api/admin/contact-requests/:id/reject", verifySuperAdmin, async (req,
   res.json({ ok: true });
 });
 
-// Шаг 2: владелец официального аккаунта видит заявки, прошедшие проверку
 app.get("/api/me/contact-requests", verifyAuth, async (req, res) => {
   const rows = await dbAll(
     `SELECT * FROM contact_requests WHERE toUser=? AND status='forwarded' ORDER BY createdAt ASC LIMIT 50`,
@@ -2343,7 +2303,7 @@ async function canPostTo(chatType, receiver, username) {
   if (chatType === "global") return { canPost: true, canRead: true };
   if (chatType === "support") return { canPost: true, canRead: true };
   if (chatType === "private") {
-    if (receiver === username) return { canPost: true, canRead: true }; // «Избранное»
+    if (receiver === username) return { canPost: true, canRead: true };
     const target = await dbGet(`SELECT username, verified, settings FROM users WHERE username=?`, [receiver]);
     if (!target) return { canPost: false, canRead: false, error: "Пользователь не найден" };
     if (!(await dmAllowed(target, username))) {
@@ -2382,7 +2342,6 @@ async function broadcastToChat(chatType, receiver, sender, payload) {
   for (const u of usernames) wsSendToUser(u, payload);
 }
 
-// Каждое сообщение уходит вместе с карточкой отправителя (аватар, цвет имени, статус)
 async function broadcastMessage(msg) {
   try { msg.senderInfo = await getUserCard(msg.sender); } catch {}
   await broadcastToChat(msg.chatType, msg.receiver, msg.sender, { type: "message", message: msg });
@@ -2408,6 +2367,16 @@ async function broadcastDelete(row, id) {
   await broadcastToChat(row.chatType, row.receiver, row.sender, { type: "messageDeleted", id });
 }
 
+// ================================================================
+// ЗВОНКИ (аудио/видео, push на заблокированный телефон, TURN, группы)
+// Логика вынесена в отдельный файл calls-server.js (лежит рядом с server.js)
+// ================================================================
+const calls = require("./calls-server")({
+  app, verifyAuth, rateLimit, dbGet, dbAll, dbRun,
+  isOnline, wsSend, wsSendToUser, getUserCard, isMember,
+  getWebpush: () => webpush
+});
+
 wss.on("connection", (ws, req) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -2423,6 +2392,7 @@ wss.on("connection", (ws, req) => {
       addOnline(username, ws);
 
       wsSend(ws, { type: "ws-ready", username });
+      calls.onConnect(ws, username);
       broadcastPresence();
 
       ws.on("message", async (raw) => {
@@ -2445,12 +2415,7 @@ wss.on("connection", (ws, req) => {
           return;
         }
 
-        if (["call-offer", "call-answer", "ice", "call-end", "call-reject"].includes(data.type)) {
-          const to = String(data.to || "").replace(/^@+/, "").toLowerCase();
-          if (!isOnline(to)) return wsSend(ws, { type: "call-error", message: "Пользователь не онлайн" });
-          wsSendToUser(to, { ...data, from });
-          return;
-        }
+        if (calls.handleSignal(ws, data, from)) return;
 
         if (data.type === "text-message") {
           const user = await dbGet(`SELECT muted, banned FROM users WHERE username=?`, [from]);
