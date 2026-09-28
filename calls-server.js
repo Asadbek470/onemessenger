@@ -13,7 +13,7 @@ const crypto = require("crypto");
 module.exports = function setupCalls(ctx) {
   const {
     app, verifyAuth, rateLimit, dbGet, dbAll, dbRun,
-    isOnline, wsSend, wsSendToUser, getUserCard, isMember, getWebpush
+    isOnline, wsSend, wsSendToUser, getUserCard, isMember, getWebpush, canCall
   } = ctx;
 
   const RING_MS = 45 * 1000;
@@ -74,6 +74,11 @@ module.exports = function setupCalls(ctx) {
 
     if (type === "call-offer") {
       if (!data.offer) return;
+
+      if (canCall && !(await canCall(to, from))) {
+        wsSend(ws, { type: "call-reject", from: to, reason: "blocked" });
+        return;
+      }
 
       // старый неотвеченный звонок этого человека этому же адресату заменяем новым
       const old = findPending(from, to);
