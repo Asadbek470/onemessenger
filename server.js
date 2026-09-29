@@ -707,6 +707,7 @@ async function getUserCard(username) {
 
 function previewText(m) {
   if (m.mediaType === "gift") return "🎁 Подарок";
+  if (m.mediaType === "round") return "⭕ Видеосообщение";
   if (m.mediaType === "list") return "📋 Список";
   if (m.mediaType === "location") return "📍 Геолокация";
   if (m.mediaType === "file") return "📎 " + (m.fileName || "Файл");
@@ -2088,7 +2089,10 @@ app.post("/api/upload", verifyAuth, singleUpload("file"), async (req, res) => {
   const perm = await canPostTo(chatType, receiver, me);
   if (!perm.canPost) return res.status(403).json({ ok: false, error: perm.error || "Нет доступа", gated: !!perm.gated });
 
-  const mediaType = guessMediaType(req.file.mimetype);
+  let mediaType = guessMediaType(req.file.mimetype);
+  // кружочек (видео-сообщение как в Telegram) — тот же /api/upload, но с пометкой kind=round
+  if (String(req.body.kind || "") === "round" && mediaType === "video") mediaType = "round";
+
   const fileName = decodeFileName(req.file.originalname);
   const fileSize = req.file.size || req.file.buffer.length;
   const mediaUrl = await saveUploadedFile(req.file.buffer, req.file.mimetype, "msg", fileName);
