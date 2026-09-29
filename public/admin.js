@@ -207,6 +207,21 @@ async function loadUserOverview(username) {
           </div>
         </button>
       `).join("");
+
+  const contactBox = document.getElementById("userContactsList");
+  if (contactBox) {
+    const contacts = data.contacts || [];
+    contactBox.innerHTML = contacts.length === 0
+      ? "<p class='hint'>Нет сохранённых контактов</p>"
+      : contacts.map(c => `
+          <div class="chatitem" style="cursor:default">
+            <div class="meta">
+              <div class="name">${esc(c.name || c.username)}</div>
+              <div class="preview">@${esc(c.username)}${c.note ? " · " + esc(c.note) : ""}</div>
+            </div>
+          </div>
+        `).join("");
+  }
 }
 
 function pluralRu(n) {
@@ -436,12 +451,21 @@ async function sendSupportReply() {
 }
 
 // ---------------- SESSIONS ----------------
+// Сессии — это IP, устройство, история входов конкретного человека, то есть
+// тоже личные данные. Поэтому, как и с перепиской/профилем, без кода
+// разблокировки список сессий не отдаётся.
 async function loadAdminSessions() {
+  if (!msgUnlockToken) return openMsgUnlockModal(() => loadAdminSessions());
+
   const q = document.getElementById("searchSessions").value.trim();
-  const res = await fetch(`/api/admin/sessions?q=${encodeURIComponent(q)}`, { headers: adminHeaders() });
+  const res = await fetch(`/api/admin/sessions?q=${encodeURIComponent(q)}`, { headers: msgHeaders() });
   const data = await res.json();
   const box = document.getElementById("sessionsList");
-  if (!data.ok) { box.innerHTML = "<p>Ошибка загрузки</p>"; return; }
+  if (!data.ok) {
+    if (data.needUnlock) { msgUnlockToken = null; return openMsgUnlockModal(() => loadAdminSessions()); }
+    box.innerHTML = "<p>Ошибка загрузки</p>";
+    return;
+  }
 
   if (data.sessions.length === 0) {
     box.innerHTML = "<p class='hint'>Сессий не найдено</p>";
@@ -459,8 +483,12 @@ async function loadAdminSessions() {
 }
 
 async function revokeAdminSession(id) {
-  const res = await fetch(`/api/admin/sessions/${id}/revoke`, { method: "POST", headers: adminHeaders() });
+  if (!msgUnlockToken) return openMsgUnlockModal(() => revokeAdminSession(id));
+  const res = await fetch(`/api/admin/sessions/${id}/revoke`, { method: "POST", headers: msgHeaders() });
   const data = await res.json();
-  if (!data.ok) return alert(data.error || "Ошибка");
+  if (!data.ok) {
+    if (data.needUnlock) { msgUnlockToken = null; return openMsgUnlockModal(() => revokeAdminSession(id)); }
+    return alert(data.error || "Ошибка");
+  }
   loadAdminSessions();
 }
