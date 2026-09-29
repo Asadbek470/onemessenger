@@ -487,6 +487,20 @@ async function initSchema() {
     )
   `);
 
+  // Просмотры историй + реакции на них
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS story_views (
+      storyId INTEGER NOT NULL,
+      viewer TEXT NOT NULL,
+      viewedAt INTEGER NOT NULL,
+      reaction TEXT NOT NULL DEFAULT '',
+      reactedAt INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (storyId, viewer)
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_views_story ON story_views(storyId)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_views_viewer ON story_views(viewer)`);
+
   await dbRun(`
     CREATE TABLE IF NOT EXISTS groups (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -838,6 +852,8 @@ function guessMediaType(mime) {
 
 function cleanupStories() {
   db.run(`DELETE FROM stories WHERE expiresAt <= ?`, [now()]);
+  // подчищаем просмотры/реакции историй, которых уже нет (истекли/удалены)
+  db.run(`DELETE FROM story_views WHERE storyId NOT IN (SELECT id FROM stories)`);
 }
 setInterval(cleanupStories, 60 * 1000);
 
@@ -1044,6 +1060,8 @@ app.get("/api/me", verifyAuth, (req, res) => res.json({ ok: true, profile: safeU
 
 async function wipeUserData(u) {
   await dbRun(`DELETE FROM messages WHERE sender=? OR receiver=?`, [u, u]);
+  await dbRun(`DELETE FROM story_views WHERE storyId IN (SELECT id FROM stories WHERE owner=?)`, [u]);
+  await dbRun(`DELETE FROM story_views WHERE viewer=?`, [u]);
   await dbRun(`DELETE FROM stories WHERE owner=?`, [u]);
   await dbRun(`DELETE FROM group_members WHERE username=?`, [u]);
   await dbRun(`DELETE FROM friends WHERE owner=? OR friend=?`, [u, u]);
@@ -1116,6 +1134,7 @@ app.post("/api/me/username", verifyAuth, rateLimit(3, 60 * 60 * 1000), async (re
     await dbRun(`UPDATE messages SET receiver=? WHERE receiver=?`, [newUsername, old]);
     await dbRun(`UPDATE messages SET forwardedFrom=? WHERE forwardedFrom=?`, [newUsername, old]);
     await dbRun(`UPDATE stories SET owner=? WHERE owner=?`, [newUsername, old]);
+    await dbRun(`UPDATE story_views SET viewer=? WHERE viewer=?`, [newUsername, old]);
     await dbRun(`UPDATE groups SET owner=? WHERE owner=?`, [newUsername, old]);
     await dbRun(`UPDATE group_members SET username=? WHERE username=?`, [newUsername, old]);
     await dbRun(`UPDATE group_bans SET username=? WHERE username=?`, [newUsername, old]);
@@ -2240,22 +2259,25 @@ app.post("/api/upload", verifyAuth, singleUpload("file"), async (req, res) => {
 // ---------------- STORIES ----------------
 app.get("/api/stories", verifyAuth, async (req, res) => {
   cleanupStories();
+  const me = req.user.username;
   const rows = await dbAll(
     `
-    SELECT s.*, u.displayName, u.avatarUrl, u.verified, u.settings AS ownerSettings
+    SELECT s.*, u.displayName, u.avatarUrl, u.verified, u.settings AS ownerSettings,
+           COALESCE(sv.reaction, '') AS myReaction
     FROM stories s
     LEFT JOIN users u ON u.username=s.owner
+    LEFT JOIN story_views sv ON sv.storyId=s.id AND sv.viewer=?
     WHERE s.expiresAt > ? AND u.banned=0
     ORDER BY s.createdAt DESC
     LIMIT 200
     `,
-    [now()]
+    [me, now()]
   );
 
   const visible = [];
   for (const row of rows) {
     const ownerLike = { username: row.owner, settings: row.ownerSettings };
-    if (await isAllowedByPrivacy(ownerLike, req.user.username, "storyPrivacy")) {
+    if (await isAllowedByPrivacy(ownerLike, me, "storyPrivacy")) {
       delete row.ownerSettings;
       visible.push(row);
     }
@@ -2265,23 +2287,36 @@ app.get("/api/stories", verifyAuth, async (req, res) => {
 
 app.get("/api/stories/user/:username", verifyAuth, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  const me = req.user.username;
   const owner = await dbGet(`SELECT username, settings FROM users WHERE username=? AND banned=0`, [u]);
   if (!owner) return res.status(404).json({ ok: false, error: "Не найден" });
 
-  if (!(await isAllowedByPrivacy(owner, req.user.username, "storyPrivacy"))) {
+  if (!(await isAllowedByPrivacy(owner, me, "storyPrivacy"))) {
     return res.json({ ok: true, stories: [] });
   }
 
   const rows = await dbAll(
-    `SELECT * FROM stories WHERE owner=? AND expiresAt > ? ORDER BY createdAt DESC LIMIT 50`,
-    [u, now()]
+    `
+    SELECT s.*, COALESCE(sv.reaction, '') AS myReaction
+    FROM stories s
+    LEFT JOIN story_views sv ON sv.storyId=s.id AND sv.viewer=?
+    WHERE s.owner=? AND s.expiresAt > ?
+    ORDER BY s.createdAt DESC LIMIT 50
+    `,
+    [me, u, now()]
   );
   res.json({ ok: true, stories: rows });
 });
 
 app.get("/api/stories/mine", verifyAuth, async (req, res) => {
   const rows = await dbAll(
-    `SELECT * FROM stories WHERE owner=? ORDER BY createdAt DESC LIMIT 500`,
+    `
+    SELECT s.*,
+           (SELECT COUNT(*) FROM story_views sv WHERE sv.storyId=s.id) AS viewCount,
+           (SELECT COUNT(*) FROM story_views sv WHERE sv.storyId=s.id AND sv.reaction<>'') AS reactionCount
+    FROM stories s
+    WHERE s.owner=? ORDER BY s.createdAt DESC LIMIT 500
+    `,
     [req.user.username]
   );
   const withStatus = rows.map(s => ({ ...s, active: s.expiresAt > now() }));
@@ -2295,7 +2330,97 @@ app.delete("/api/stories/:id", verifyAuth, async (req, res) => {
   if (row.owner !== req.user.username) return res.status(403).json({ ok: false, error: "Можно удалить только свою историю" });
 
   await dbRun(`DELETE FROM stories WHERE id=?`, [id]);
+  await dbRun(`DELETE FROM story_views WHERE storyId=?`, [id]);
   res.json({ ok: true });
+});
+
+// ---------------- ПРОСМОТРЫ И РЕАКЦИИ НА ИСТОРИИ ----------------
+
+// Отмечаем историю как просмотренную (вызывается при открытии чужой сторис)
+app.post("/api/stories/:id/view", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+
+  const story = await dbGet(`SELECT id, owner FROM stories WHERE id=?`, [id]);
+  if (!story) return res.status(404).json({ ok: false, error: "Не найдена" });
+  if (story.owner === me) return res.json({ ok: true }); // свою сторис не считаем просмотром
+
+  const existing = await dbGet(`SELECT storyId FROM story_views WHERE storyId=? AND viewer=?`, [id, me]);
+  if (!existing) {
+    await dbRun(
+      `INSERT INTO story_views (storyId, viewer, viewedAt, reaction, reactedAt) VALUES (?,?,?,'',0)`,
+      [id, me, now()]
+    );
+  }
+  res.json({ ok: true });
+});
+
+// Поставить/поменять реакцию (любой эмодзи) на чужую историю
+app.post("/api/stories/:id/react", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  const reaction = cleanEmojiStatus(req.body.reaction);
+  if (!reaction) return res.status(400).json({ ok: false, error: "Пустая реакция" });
+
+  const story = await dbGet(`SELECT id, owner FROM stories WHERE id=? AND expiresAt > ?`, [id, now()]);
+  if (!story) return res.status(404).json({ ok: false, error: "История не найдена или уже истекла" });
+  if (story.owner === me) return res.status(400).json({ ok: false, error: "Нельзя ставить реакцию на свою историю" });
+
+  const t = now();
+  await dbRun(
+    `INSERT INTO story_views (storyId, viewer, viewedAt, reaction, reactedAt) VALUES (?,?,?,?,?)
+     ON CONFLICT(storyId, viewer) DO UPDATE SET
+       reaction=excluded.reaction,
+       reactedAt=excluded.reactedAt`,
+    [id, me, t, reaction, t]
+  );
+
+  const viewer = await dbGet(`SELECT displayName FROM users WHERE username=?`, [me]);
+  wsSendToUser(story.owner, {
+    type: "storyReaction",
+    storyId: id,
+    from: me,
+    fromDisplayName: (viewer && viewer.displayName) || me,
+    reaction
+  });
+  sendPushToUser(story.owner, {
+    title: "Реакция на историю",
+    body: `${reaction} @${me} отреагировал(а) на твою историю`,
+    url: "/chat.html"
+  }).catch(() => {});
+
+  res.json({ ok: true, reaction });
+});
+
+// Убрать свою реакцию с истории
+app.delete("/api/stories/:id/react", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  await dbRun(`UPDATE story_views SET reaction='', reactedAt=0 WHERE storyId=? AND viewer=?`, [id, me]);
+  res.json({ ok: true });
+});
+
+// Список тех, кто посмотрел историю (и их реакции) — видит только автор
+app.get("/api/stories/:id/viewers", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+
+  const story = await dbGet(`SELECT id, owner FROM stories WHERE id=?`, [id]);
+  if (!story) return res.status(404).json({ ok: false, error: "Не найдена" });
+  if (story.owner !== me) return res.status(403).json({ ok: false, error: "Список просмотров видит только автор истории" });
+
+  const rows = await dbAll(
+    `
+    SELECT sv.viewer AS username, sv.viewedAt, sv.reaction, sv.reactedAt,
+           u.displayName, u.avatarUrl, u.verified
+    FROM story_views sv
+    LEFT JOIN users u ON u.username = sv.viewer
+    WHERE sv.storyId=?
+    ORDER BY (sv.reaction <> '') DESC, sv.reactedAt DESC, sv.viewedAt DESC
+    `,
+    [id]
+  );
+  res.json({ ok: true, viewers: rows, count: rows.length });
 });
 
 app.post("/api/stories", verifyAuth, singleUpload("story"), async (req, res) => {
