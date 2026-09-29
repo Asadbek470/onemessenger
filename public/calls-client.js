@@ -38,6 +38,72 @@
   const tiles = new Map();
   let bannerChat = null;
 
+  // ---------------- РИНГТОН (громкий звук + вибрация до ответа) ----------------
+  let ringAudioCtx = null;
+  let ringTimer = null, ringVibeTimer = null;
+
+  // Разблокируем звук по первому касанию/клику в приложении — иначе браузер
+  // не даст программно включить звук без явного жеста пользователя,
+  // и входящий звонок будет "немым".
+  function unlockRingAudio() {
+    if (ringAudioCtx) return;
+    try {
+      ringAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ringAudioCtx.state === "suspended") ringAudioCtx.resume().catch(() => {});
+    } catch {}
+  }
+  ["pointerdown", "touchstart", "keydown"].forEach((ev) =>
+    document.addEventListener(ev, unlockRingAudio, { once: true, passive: true })
+  );
+
+  // Один "дзынь-дзынь" классического телефонного рингтона
+  function ringBurst() {
+    if (!ringAudioCtx) return;
+    if (ringAudioCtx.state === "suspended") ringAudioCtx.resume().catch(() => {});
+    const ctx = ringAudioCtx;
+    const now0 = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.value = 0.9; // громко
+    master.connect(ctx.destination);
+
+    const playTone = (start, dur) => {
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc1.type = "sine"; osc1.frequency.value = 950;
+      osc2.type = "sine"; osc2.frequency.value = 1400;
+      g.gain.setValueAtTime(0, now0 + start);
+      g.gain.linearRampToValueAtTime(1, now0 + start + 0.03);
+      g.gain.setValueAtTime(1, now0 + start + dur - 0.05);
+      g.gain.linearRampToValueAtTime(0, now0 + start + dur);
+      osc1.connect(g); osc2.connect(g); g.connect(master);
+      osc1.start(now0 + start); osc2.start(now0 + start);
+      osc1.stop(now0 + start + dur); osc2.stop(now0 + start + dur);
+    };
+
+    // два коротких гудка подряд — как классический вызов
+    playTone(0, 0.4);
+    playTone(0.5, 0.4);
+  }
+
+  function startRingtone() {
+    stopRingtone();
+    unlockRingAudio();
+    ringBurst();
+    ringTimer = setInterval(ringBurst, 2000);
+
+    // непрерывная сильная вибрация до ответа (Android; iOS Safari её не поддерживает)
+    const vibe = () => { try { navigator.vibrate && navigator.vibrate([700, 400, 700, 400]); } catch {} };
+    vibe();
+    ringVibeTimer = setInterval(vibe, 2200);
+  }
+
+  function stopRingtone() {
+    clearInterval(ringTimer); ringTimer = null;
+    clearInterval(ringVibeTimer); ringVibeTimer = null;
+    try { navigator.vibrate && navigator.vibrate(0); } catch {}
+  }
+
   // ---------------- стили ----------------
   const CSS = `
   .toast{z-index:400}
@@ -371,7 +437,7 @@
     await openIncoming(incomingFrom);
     const sub = document.querySelector("#incomingCallModal .call-sub");
     if (sub) sub.textContent = incomingVideo ? "Видеозвонок" : "Аудиозвонок";
-    try { if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 400]); } catch {}
+    startRingtone();
 
     if (autoAcceptId && data.callId === autoAcceptId) {
       autoAcceptId = null;
@@ -383,6 +449,7 @@
     if (!incomingFrom || !incomingOffer) return;
     const from = incomingFrom, offer = incomingOffer;
 
+    stopRingtone();
     closeIncoming();
     callVideo = incomingVideo;
     callPeer = from;
@@ -409,6 +476,7 @@
   }
 
   function declineIncomingCall() {
+    stopRingtone();
     if (incomingFrom && ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ type: "call-reject", to: incomingFrom }));
     }
@@ -447,6 +515,7 @@
   function cleanupCall() {
     clearTimeout(ringGuard); clearTimeout(connectGuard); clearTimeout(discTimer);
     ringGuard = connectGuard = discTimer = null;
+    stopRingtone();
 
     closeCall();
     closeIncoming();
