@@ -150,6 +150,21 @@
           </div>
         </div>
 
+        <!-- ===== КАТЕГОРИЯ: Контакты ===== -->
+        <div class="settingscategory" data-cat="contacts">
+          <button type="button" class="categoryhead" onclick="toggleSettingsCategory(this)">
+            <span class="cathead-icon">📇</span>
+            <span class="cathead-label">Контакты</span>
+            <i class="fa-solid fa-chevron-down cathead-chevron"></i>
+          </button>
+          <div class="categorybody">
+            <div class="settingsblock">
+              <div class="blocktitle">Сохранённые контакты</div>
+              <div id="contactsSection" class="formgrid"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- ===== КАТЕГОРИЯ: Оформление ===== -->
         <div class="settingscategory" data-cat="appearance">
           <button type="button" class="categoryhead" onclick="toggleSettingsCategory(this)">
@@ -243,6 +258,11 @@
             <i class="fa-solid fa-chevron-down cathead-chevron"></i>
           </button>
           <div class="categorybody">
+            <div class="settingsblock">
+              <div class="blocktitle">Политика использования</div>
+              <div id="legalSection" class="formgrid"></div>
+            </div>
+
             <div class="settingsblock">
               <div class="blocktitle" data-i18n="settings.account">Аккаунт</div>
               <div class="formgrid">
@@ -428,6 +448,45 @@
         <button class="iconbtn" onclick="closeForwardPicker()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="forwardList" class="formgrid"></div>
+    </div>
+  </div>
+
+  <!-- SAVE CONTACT -->
+  <div id="saveContactModal" class="modal hidden" onclick="if(event.target===this) closeSaveContactModal()">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">Сохранить контакт</div>
+        <button class="iconbtn" onclick="closeSaveContactModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="formgrid">
+        <input id="saveContactUsername" type="hidden" value="">
+        <label>Юзернейм</label>
+        <div id="saveContactUsernameLabel" class="hint"></div>
+
+        <label>Имя контакта</label>
+        <input id="saveContactName" maxlength="40" placeholder="Например, Мама">
+
+        <label>Заметка (необязательно)</label>
+        <input id="saveContactNote" maxlength="120" placeholder="Например, близкий человек">
+
+        <button class="btn primary full" onclick="submitSaveContact()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ПОЛИТИКА ИСПОЛЬЗОВАНИЯ -->
+  <div id="legalModal" class="modal hidden" onclick="if(event.target===this) closeLegalModal()">
+    <div class="card" style="max-height:82vh;overflow-y:auto">
+      <div class="cardtop">
+        <div class="cardtitle">Политика использования</div>
+        <button class="iconbtn" onclick="closeLegalModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="tabs" id="legalTabs">
+        <button class="tab active" id="legalTabTerms" onclick="switchLegalTab('terms')">Условия использования</button>
+        <button class="tab" id="legalTabPrivacy" onclick="switchLegalTab('privacy')">Конфиденциальность</button>
+      </div>
+      <div id="legalTermsBody" class="hint" style="white-space:pre-wrap;line-height:1.55;margin-top:12px"></div>
+      <div id="legalPrivacyBody" class="hint hidden" style="white-space:pre-wrap;line-height:1.55;margin-top:12px"></div>
     </div>
   </div>
 
