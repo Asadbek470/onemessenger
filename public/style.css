@@ -1534,3 +1534,72 @@ body::before, body::after{display:none}
 }
 .giftmsg .gift-badge{width:64px;height:64px;font-size:30px}
 .giftmsg-label{font-size:12.5px;color:var(--muted);font-weight:600}
+/* ================================================================
+   One Messenger — галочки «прочитано», ответы, редактирование,
+   пересылка и меню действий по долгому нажатию на сообщение.
+   Вставить в САМЫЙ КОНЕЦ style.css. Только CSS — HTML/JS уже готовы.
+   ================================================================ */
+
+/* ---------- Галочки отправлено/прочитано ---------- */
+.ticks{
+  display:inline-flex;margin-left:4px;position:relative;
+  width:16px;height:12px;vertical-align:middle;
+}
+.ticks i{
+  font-size:11px;color:rgba(255,255,255,.55);
+  position:absolute;top:0;
+}
+.ticks i:first-child{left:0}
+.ticks i:last-child{left:5px;opacity:0}
+.ticks.read i{color:#62b6ff}
+.ticks.read i:last-child{opacity:1}
+
+.editedmark{
+  font-size:10.5px;color:rgba(255,255,255,.45);margin-right:5px;font-style:italic;
+}
+
+/* ---------- Цитата ответа внутри пузыря ---------- */
+.replyquote{
+  display:flex;gap:8px;align-items:stretch;
+  margin:2px 0 6px;padding:2px 0;
+  cursor:pointer;
+}
+.replyquote-line{width:3px;border-radius:3px;background:var(--blue,#2a9df4);flex:0 0 auto}
+.replyquote-body{min-width:0}
+.replyquote-who{font-size:12.5px;font-weight:700;color:var(--blue,#2a9df4)}
+.replyquote-text{font-size:12.5px;color:rgba(255,255,255,.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+
+/* ---------- Панель "Ответ / Редактирование" над полем ввода ---------- */
+.replybar{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 14px;
+  background:rgba(255,255,255,.04);
+  border-top:1px solid rgba(255,255,255,.08);
+}
+.replybar-line{width:3px;align-self:stretch;border-radius:3px;background:var(--blue,#2a9df4)}
+.replybar-body{flex:1;min-width:0}
+.replybar-title{font-size:12.5px;font-weight:700;color:var(--blue,#2a9df4)}
+.replybar-text{font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- Меню действий по долгому нажатию ---------- */
+.sheet{
+  width:min(320px, 88vw);
+  padding:8px;
+  border-radius:18px;
+}
+.msgactions{display:flex;flex-direction:column;gap:2px}
+.msgaction{
+  display:flex;align-items:center;gap:12px;
+  padding:12px 14px;border-radius:12px;
+  background:transparent;border:none;color:var(--text,#eaf2ff);
+  font-size:14.5px;text-align:left;
+  transition:background .12s ease;
+}
+.msgaction i{width:18px;text-align:center;color:var(--blue,#2a9df4)}
+.msgaction:hover{background:rgba(255,255,255,.06)}
+.msgaction.danger{color:#ff5c5c}
+.msgaction.danger i{color:#ff5c5c}
+
+/* пузырь получает лёгкую подсветку, пока меню открыто по долгому нажатию */
+.bubble{ -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+.bubble .mtext, .bubble a{ -webkit-user-select:text; user-select:text; }
