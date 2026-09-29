@@ -155,12 +155,17 @@ async function searchUser() {
 }
 
 async function openUser(username) {
+  if (!msgUnlockToken) return openMsgUnlockModal(() => openUser(username));
+
   currentUser = username;
   closeThread();
 
-  const res = await fetch(`/api/admin/user/${encodeURIComponent(username)}`, { headers: adminHeaders() });
+  const res = await fetch(`/api/admin/user/${encodeURIComponent(username)}`, { headers: msgHeaders() });
   const data = await res.json();
-  if (!data.ok) { alert(data.error || "Не найден"); return; }
+  if (!data.ok) {
+    if (data.needUnlock) { msgUnlockToken = null; return openMsgUnlockModal(() => openUser(username)); }
+    return alert(data.error || "Не найден");
+  }
 
   const user = data.user;
   document.getElementById("userCard").classList.remove("hidden");
@@ -175,7 +180,7 @@ async function openUser(username) {
 }
 
 async function loadUserOverview(username) {
-  const res = await fetch(`/api/admin/user/${encodeURIComponent(username)}/overview`, { headers: adminHeaders() });
+  const res = await fetch(`/api/admin/user/${encodeURIComponent(username)}/overview`, { headers: msgHeaders() });
   const data = await res.json();
   if (!data.ok) return;
 
