@@ -325,8 +325,12 @@
       <button class="iconbtn roundclose" onclick="closeRoundRecorder()"><i class="fa-solid fa-xmark"></i></button>
 
       <div class="roundstage">
-        <video id="roundLiveVideo" autoplay playsinline muted></video>
+        <video id="roundLiveVideo" autoplay playsinline muted class="roundsrc"></video>
+        <canvas id="roundCanvas" width="480" height="480"></canvas>
         <div id="roundTimer" class="roundtimer hidden">00:00</div>
+        <button id="roundFlipBtn" class="roundflipbtn" onclick="flipRoundCamera()" title="Перевернуть камеру">
+          <i class="fa-solid fa-camera-rotate"></i>
+        </button>
       </div>
 
       <div class="roundcontrols">
