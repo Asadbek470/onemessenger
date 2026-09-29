@@ -236,7 +236,16 @@ app.get("/manifest.json", (req, res) => {
   });
 });
 
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "public"), {
+  setHeaders: (res, filePath) => {
+    // HTML и JS — часто меняются, браузер не должен кэшировать их надолго,
+    // иначе после деплоя люди продолжают видеть старую версию (старые
+    // переводы, старый код) пока сами не сделают hard-refresh.
+    if (/\.(html|js)$/i.test(filePath)) {
+      res.setHeader("Cache-Control", "no-cache");
+    }
+  }
+}));
 
 // ---------------- CUSTOMIZATION HELPERS ----------------
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
