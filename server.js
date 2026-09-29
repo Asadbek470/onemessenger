@@ -681,7 +681,10 @@ function userCardFromRow(u) {
     avatarUrl: u.avatarUrl || "",
     verified: !!u.verified,
     emojiStatus: cleanEmojiStatus(s.emojiStatus || ""),
-    birthdayToday: isBirthdayToday(u.birthDate)
+    birthdayToday: isBirthdayToday(u.birthDate),
+    headerTop: HEX_COLOR.test(s.headerTop || "") ? s.headerTop : "",
+    headerBottom: HEX_COLOR.test(s.headerBottom || "") ? s.headerBottom : "",
+    headerPattern: cleanEmojiStatus(s.headerPattern || "")
   };
 }
 
@@ -1197,6 +1200,20 @@ app.put("/api/me/settings", verifyAuth, (req, res) => {
   if (isValidWallpaper(incoming.wallpaper)) merged.wallpaper = incoming.wallpaper;
   if (typeof incoming.accent === "string" && HEX_COLOR.test(incoming.accent)) merged.accent = incoming.accent;
   if (["ru", "en", "uz"].includes(incoming.language)) merged.language = incoming.language;
+
+  // шапка профиля — цвет градиента (верх/низ) и фоновый узор (эмодзи), видны всем, кто смотрит профиль
+  if (typeof incoming.headerTop === "string") {
+    if (incoming.headerTop === "") delete merged.headerTop;
+    else if (HEX_COLOR.test(incoming.headerTop)) merged.headerTop = incoming.headerTop;
+  }
+  if (typeof incoming.headerBottom === "string") {
+    if (incoming.headerBottom === "") delete merged.headerBottom;
+    else if (HEX_COLOR.test(incoming.headerBottom)) merged.headerBottom = incoming.headerBottom;
+  }
+  if (typeof incoming.headerPattern === "string") {
+    const hp = cleanEmojiStatus(incoming.headerPattern);
+    if (hp) merged.headerPattern = hp; else delete merged.headerPattern;
+  }
 
   delete merged.nameColor;
   delete merged.profileColor;
