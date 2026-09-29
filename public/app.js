@@ -382,8 +382,39 @@ function myCard() {
     avatarUrl: me.avatarUrl || "",
     verified: !!me.verified,
     emojiStatus: s.emojiStatus || "",
-    birthdayToday: isMyBirthdayToday()
+    birthdayToday: isMyBirthdayToday(),
+    headerTop: s.headerTop || "",
+    headerBottom: s.headerBottom || "",
+    headerPattern: s.headerPattern || ""
   };
+}
+
+// ---------------- ШАПКА ПРОФИЛЯ (градиент + узор) ----------------
+function headerPatternImage(emoji) {
+  if (!emoji) return null;
+  const glyph = String(emoji).trim().slice(0, 4);
+  if (!glyph) return null;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='56' height='56'>`
+    + `<text x='28' y='38' font-size='24' text-anchor='middle' opacity='0.55'>${glyph}</text></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+function applyProfileHeader(el, info) {
+  if (!el) return;
+  info = info || {};
+  if (info.headerTop) el.style.setProperty("--hd-top", info.headerTop);
+  else el.style.removeProperty("--hd-top");
+  if (info.headerBottom) el.style.setProperty("--hd-bottom", info.headerBottom);
+  else el.style.removeProperty("--hd-bottom");
+  const img = headerPatternImage(info.headerPattern);
+  if (img) {
+    el.style.setProperty("--hd-pattern-img", img);
+    el.style.setProperty("--hd-pattern-size", "56px 56px");
+    el.style.setProperty("--hd-pattern-pos", "0 0");
+  } else {
+    el.style.removeProperty("--hd-pattern-img");
+    el.style.removeProperty("--hd-pattern-size");
+    el.style.removeProperty("--hd-pattern-pos");
+  }
 }
 
 function isMyBirthdayToday() {
@@ -2192,6 +2223,7 @@ async function openProfile(username, isMe) {
   document.getElementById("profileAvatar").innerHTML = avatarHtml(p);
   document.getElementById("profileName").innerHTML = nameHtml(p, { noBday: true });
   document.getElementById("profileLastSeen").textContent = lastSeenText(p);
+  applyProfileHeader(document.querySelector("#profileModal .tghead"), p);
 
   // круглые кнопки действий — как в Телеграме
   const acts = [];
@@ -2293,6 +2325,12 @@ function closeProfile() {
 }
 
 // ================== SETTINGS ==================
+function toggleSettingsCategory(btn) {
+  const cat = btn.closest(".settingscategory");
+  if (!cat) return;
+  cat.classList.toggle("open");
+}
+
 function openSettings() {
   document.getElementById("setDisplayName").value = me.displayName || "";
   document.getElementById("setBio").value = me.bio || "";
@@ -2302,6 +2340,7 @@ function openSettings() {
   renderPasscodeSection();
   render2FASection();
   renderWallpaperSection();
+  renderProfileHeaderSection();
   renderEmojiStatusSection();
   renderLanguageSection();
   renderPrivacySection();
@@ -2778,6 +2817,69 @@ async function pickAccent(color) {
   renderWallpaperSection();
 }
 
+// ---------------- ШАПКА ПРОФИЛЯ: настройки ----------------
+const HEADER_COLOR_PRESETS = ["#6a5cff", "#4b8bff", "#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff", "#f5c542", "#00c2c7", "#ff5c5c", "#0e1621", "#7c8cff"];
+const HEADER_PATTERN_PRESETS = [
+  { e: "", label: "Точки (по умолчанию)" },
+  { e: "⭐", label: "Звёзды" },
+  { e: "✨", label: "Блёстки" },
+  { e: "❤️", label: "Сердца" },
+  { e: "🔥", label: "Огонь" },
+  { e: "🌙", label: "Луна" },
+  { e: "🍀", label: "Клевер" },
+  { e: "🎉", label: "Конфетти" },
+  { e: "💎", label: "Кристаллы" },
+  { e: "⚡", label: "Молнии" }
+];
+function renderProfileHeaderSection() {
+  const box = document.getElementById("profileHeaderSection");
+  if (!box) return;
+  const s = (me.settings || {});
+  const top = s.headerTop || "#6a5cff";
+  const bottom = s.headerBottom || "#2a9df4";
+  const pattern = s.headerPattern || "";
+
+  box.innerHTML = `
+    <div class="hint">Цвет и узор шапки твоего профиля — их видят все, кто открывает твою страницу.</div>
+    <div class="hdpreview" id="hdPreviewBox"></div>
+
+    <label>Цвет сверху</label>
+    <div class="swatchrow">
+      ${HEADER_COLOR_PRESETS.map(c => `
+        <button class="colorswatch ${top === c ? "active" : ""}" style="background:${c}" onclick="pickHeaderColor('top','${c}')"></button>
+      `).join("")}
+    </div>
+
+    <label>Цвет снизу</label>
+    <div class="swatchrow">
+      ${HEADER_COLOR_PRESETS.map(c => `
+        <button class="colorswatch ${bottom === c ? "active" : ""}" style="background:${c}" onclick="pickHeaderColor('bottom','${c}')"></button>
+      `).join("")}
+    </div>
+
+    <label>Узор фона</label>
+    <div class="statusgrid">
+      ${HEADER_PATTERN_PRESETS.map(p => `
+        <button class="statusbtn ${pattern === p.e ? "active" : ""}" title="${esc(p.label)}" onclick="pickHeaderPattern('${esc(p.e)}')">${p.e || '<i class="fa-solid fa-ellipsis"></i>'}</button>
+      `).join("")}
+    </div>
+    <div class="row">
+      <input id="customHeaderPatternInput" maxlength="4" placeholder="Свой эмодзи">
+      <button class="btn ghost" onclick="pickHeaderPattern(document.getElementById('customHeaderPatternInput').value)">Поставить</button>
+    </div>
+  `;
+  applyProfileHeader(document.getElementById("hdPreviewBox"), { headerTop: top, headerBottom: bottom, headerPattern: pattern });
+}
+async function pickHeaderColor(which, color) {
+  await saveSettingsPatch(which === "top" ? { headerTop: color } : { headerBottom: color });
+  renderProfileHeaderSection();
+}
+async function pickHeaderPattern(e) {
+  const d = await saveSettingsPatch({ headerPattern: e || "" });
+  if (d && d.ok) toast(e ? `Узор ${e} установлен` : "Узор сброшен");
+  renderProfileHeaderSection();
+}
+
 // ---------------- ЭМОДЗИ-СТАТУС (значок рядом с именем) ----------------
 function renderEmojiStatusSection() {
   const box = document.getElementById("emojiStatusSection");
@@ -3088,6 +3190,7 @@ async function loadMyProfileTab() {
   document.getElementById("myProfileAvatar").innerHTML = avatarHtml(card);
   document.getElementById("myProfileName").innerHTML = nameHtml(card);
   document.getElementById("myProfileStatus").textContent = "в сети";
+  applyProfileHeader(document.querySelector("#screenProfile .tghead"), card);
 
   document.getElementById("myProfileActions").innerHTML = [
     actionBtn("fa-camera", "История", "openStoryComposer()", "act-blue"),
