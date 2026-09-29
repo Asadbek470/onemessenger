@@ -72,7 +72,13 @@
             <button onclick="deleteUser()" class="danger">Удалить аккаунт</button>
         </div>
 
-        <div class="admin-overview">
+        <div class="row">
+          <button class="btn ghost full" onclick="revealUserOverview()">
+            <i class="fa-solid fa-lock"></i> Показать переписки / сессии / контакты (код доступа)
+          </button>
+        </div>
+
+        <div id="userOverviewBox" class="admin-overview hidden">
           <div class="overview-col">
             <h3>Личные переписки</h3>
             <div id="partnerList" class="partner-list"></div>
