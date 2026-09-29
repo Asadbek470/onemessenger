@@ -587,6 +587,22 @@ function connectWS() {
       return;
     }
 
+    if (data.type === "messageEdited") {
+      const el = document.querySelector(`[data-mid="${data.id}"] .mtext`);
+      if (el) el.innerHTML = formatText(data.text);
+      const row = document.querySelector(`[data-mid="${data.id}"]`);
+      if (row && !row.querySelector(".editedmark")) {
+        const timeEl = row.querySelector(".mtime");
+        if (timeEl) timeEl.insertAdjacentHTML("beforebegin", `<span class="editedmark">изменено</span>`);
+      }
+      return;
+    }
+
+    if (data.type === "read") {
+      if (data.chatKey === currentChat) markTicksRead(data.upToId);
+      return;
+    }
+
     if (data.type === "listUpdated") {
       updateListBubble(data.id, data.list);
       return;
@@ -636,6 +652,7 @@ function connectWS() {
       if (shouldRender(msg)) {
         renderMessage(msg);
         if (isSelfChat(currentChat)) { renderFavTags(); applyTagFilter(); }
+        if (msg.sender !== me.username && !document.hidden) markRead(msg.id);
       }
 
       if (!shouldRender(msg) || document.hidden) maybeNotify(msg);
@@ -779,6 +796,9 @@ async function loadMessages() {
   if (d.users) Object.entries(d.users).forEach(([u, info]) => mergeUserInfo(u, info));
   d.messages.forEach(renderMessage);
 
+  const lastIncoming = [...d.messages].reverse().find(m => m.sender !== me.username);
+  if (lastIncoming) markRead(lastIncoming.id);
+
   const tagBar = document.getElementById("favTagBar");
   if (isSelfChat(currentChat)) {
     renderFavTags();
@@ -856,7 +876,21 @@ function renderGiftBody(m) {
   `;
 }
 
+const messageCache = new Map(); // id -> последнее известное сообщение (для меню действий/ответа/редактирования)
+
+function replyQuoteHtml(preview) {
+  if (!preview) return "";
+  const who = preview.sender === me.username ? "Вы" : ("@" + preview.sender);
+  const snippet = preview.mediaType === "text" ? esc((preview.text || "").slice(0, 80)) : esc(msgPreview(preview));
+  return `<div class="replyquote">
+    <div class="replyquote-line"></div>
+    <div class="replyquote-body"><div class="replyquote-who">${who}</div><div class="replyquote-text">${snippet}</div></div>
+  </div>`;
+}
+
 function renderMessage(m) {
+  messageCache.set(m.id, m);
+
   const box = document.getElementById("messages");
   const empty = box.querySelector(".emptyhint");
   if (empty) empty.remove();
@@ -907,6 +941,12 @@ function renderMessage(m) {
   const avatarClick = m.sender === "support" ? "" : `onclick="openProfile('${esc(m.sender)}', false)"`;
   const avatar = mine ? "" : `<div class="mava" ${avatarClick} style="width:34px;height:34px;min-width:34px;overflow:hidden;border-radius:50%">${avatarHtml(info)}</div>`;
 
+  const reply = replyQuoteHtml(m.replyPreview);
+  const editedMark = m.edited ? `<span class="editedmark">изменено</span>` : "";
+  const ticks = mine && m.chatType !== "support"
+    ? `<span class="ticks ${m.readCount > 0 ? "read" : ""}"><i class="fa-solid fa-check"></i><i class="fa-solid fa-check"></i></span>`
+    : "";
+
   const row = document.createElement("div");
   row.className = "mrow " + (mine ? "mine" : "other");
   row.dataset.mid = String(m.id);
@@ -920,13 +960,15 @@ function renderMessage(m) {
         <div class="mactions">${actions.join("")}</div>
       </div>
       ${fwd}
+      ${reply}
       ${body}
-      <div class="mtime">${time}</div>
+      <div class="mtime">${editedMark}${time}${ticks}</div>
     </div>
   `;
 
   box.appendChild(row);
   if (m.mediaType === "audio") setupVoicePlayer(m.id);
+  attachLongPress(row.querySelector(".bubble"), m.id);
   scrollBottom();
 }
 
@@ -1080,11 +1122,47 @@ async function deleteMsg(id) {
   if (!confirm("Удалить сообщение?")) return;
   const r = await fetch(`/api/messages/${id}`, { method: "DELETE", headers: authHeaders() });
   const d = await r.json();
-  if (!d.ok) alert(d.error || "Ошибка удаления");
+  if (!d.ok) return alert(d.error || "Ошибка удаления");
+  messageCache.delete(id);
 }
 
 function onEnter(e) {
   if (e.key === "Enter") sendText();
+}
+
+// ---------------- ОТВЕТ / РЕДАКТИРОВАНИЕ ----------------
+let replyToId = null;
+let editingMsgId = null;
+
+function startReply(id) {
+  const m = messageCache.get(id);
+  if (!m) return;
+  editingMsgId = null;
+  replyToId = id;
+  document.getElementById("replyBarTitle").textContent = "Ответ " + (m.sender === me.username ? "себе" : "@" + m.sender);
+  document.getElementById("replyBarText").textContent = m.mediaType === "text" ? (m.text || "") : msgPreview(m);
+  document.getElementById("replyBar").classList.remove("hidden");
+  document.getElementById("textInput").focus();
+}
+
+function startEdit(id) {
+  const m = messageCache.get(id);
+  if (!m || m.mediaType !== "text") return;
+  replyToId = null;
+  editingMsgId = id;
+  document.getElementById("replyBarTitle").textContent = "Редактирование";
+  document.getElementById("replyBarText").textContent = m.text || "";
+  document.getElementById("replyBar").classList.remove("hidden");
+  const input = document.getElementById("textInput");
+  input.value = m.text || "";
+  input.focus();
+}
+
+function cancelReplyOrEdit() {
+  replyToId = null;
+  editingMsgId = null;
+  document.getElementById("replyBar").classList.add("hidden");
+  document.getElementById("textInput").value = "";
 }
 
 function sendText() {
@@ -1093,11 +1171,176 @@ function sendText() {
   if (!text) return;
   if (!ws || ws.readyState !== 1) return alert("WS не подключен");
 
+  if (editingMsgId) {
+    ws.send(JSON.stringify({ type: "edit-message", id: editingMsgId, text }));
+    cancelReplyOrEdit();
+    return;
+  }
+
   lastSentText = text;
-  ws.send(JSON.stringify({ type: "text-message", receiver: currentChat, text }));
+  const payload = { type: "text-message", receiver: currentChat, text };
+  if (replyToId) payload.replyTo = replyToId;
+  ws.send(JSON.stringify(payload));
   input.value = "";
   typing(false);
   closeEmojiPanel();
+  cancelReplyOrEdit();
+}
+
+// ---------------- ПРОЧИТАНО (галочки) ----------------
+function markRead(upToId) {
+  if (!ws || ws.readyState !== 1 || !upToId) return;
+  ws.send(JSON.stringify({ type: "mark-read", to: currentChat, upToId }));
+}
+
+function markTicksRead(upToId) {
+  document.querySelectorAll(".mrow.mine").forEach(row => {
+    const id = Number(row.dataset.mid);
+    if (id && id <= upToId) {
+      const t = row.querySelector(".ticks");
+      if (t) t.classList.add("read");
+    }
+  });
+}
+
+// ---------------- ДОЛГОЕ НАЖАТИЕ НА СООБЩЕНИЕ → МЕНЮ ДЕЙСТВИЙ ----------------
+function attachLongPress(el, id) {
+  if (!el) return;
+  let timer = null, moved = false, startX = 0, startY = 0;
+
+  const start = (x, y) => {
+    moved = false;
+    startX = x; startY = y;
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (!moved) openMsgActions(id); }, 420);
+  };
+  const move = (x, y) => {
+    if (Math.abs(x - startX) > 10 || Math.abs(y - startY) > 10) { moved = true; clearTimeout(timer); }
+  };
+  const end = () => clearTimeout(timer);
+
+  el.addEventListener("mousedown", (e) => start(e.clientX, e.clientY));
+  el.addEventListener("mousemove", (e) => move(e.clientX, e.clientY));
+  el.addEventListener("mouseup", end);
+  el.addEventListener("mouseleave", end);
+  el.addEventListener("touchstart", (e) => { const t = e.touches[0]; start(t.clientX, t.clientY); }, { passive: true });
+  el.addEventListener("touchmove", (e) => { const t = e.touches[0]; move(t.clientX, t.clientY); }, { passive: true });
+  el.addEventListener("touchend", end);
+  el.addEventListener("contextmenu", (e) => { e.preventDefault(); openMsgActions(id); });
+}
+
+function openMsgActions(id) {
+  const m = messageCache.get(id);
+  if (!m) return;
+  const mine = m.sender === me.username;
+
+  const items = [];
+  items.push({ icon: "fa-reply", label: "Ответить", fn: `startReply(${id}); closeMsgActions();` });
+  if (m.mediaType === "text" && m.text) {
+    items.push({ icon: "fa-copy", label: "Копировать текст", fn: `copyMsgText(${id}); closeMsgActions();` });
+  }
+  items.push({ icon: "fa-share", label: "Переслать", fn: `openForwardPicker(${id}); closeMsgActions();` });
+  if (mine && m.mediaType === "text") {
+    items.push({ icon: "fa-pen", label: "Изменить", fn: `startEdit(${id}); closeMsgActions();` });
+  }
+  if (mine && m.chatType !== "support") {
+    items.push({ icon: "fa-eye", label: "Прочитано", fn: `openReadInfo(${id}); closeMsgActions();` });
+  }
+  if (mine) {
+    items.push({ icon: "fa-trash", label: "Удалить", fn: `closeMsgActions(); deleteMsg(${id});`, danger: true });
+  }
+
+  document.getElementById("msgActionsList").innerHTML = items.map(it => `
+    <button class="msgaction ${it.danger ? "danger" : ""}" onclick="${it.fn}">
+      <i class="fa-solid ${it.icon}"></i><span>${it.label}</span>
+    </button>
+  `).join("");
+  document.getElementById("msgActionsSheet").classList.remove("hidden");
+}
+
+function closeMsgActions() {
+  document.getElementById("msgActionsSheet").classList.add("hidden");
+}
+
+function copyMsgText(id) {
+  const m = messageCache.get(id);
+  if (!m) return;
+  navigator.clipboard?.writeText(m.text || "").then(
+    () => toast("Скопировано"),
+    () => alert("Не удалось скопировать")
+  );
+}
+
+// ---------------- ПРОЧИТАНО: КТО И КОГДА ----------------
+async function openReadInfo(id) {
+  const box = document.getElementById("readInfoBody");
+  box.innerHTML = `<div class="hint">Загрузка...</div>`;
+  document.getElementById("readInfoModal").classList.remove("hidden");
+
+  const r = await fetch(`/api/messages/${id}/reads`, { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok || d.reads.length === 0) {
+    box.innerHTML = `<div class="hint">Пока никто не прочитал</div>`;
+    return;
+  }
+  box.innerHTML = d.reads.map(r => `
+    <div class="memberrow">
+      <div class="avatar">${avatarHtml({ avatarUrl: r.avatarUrl, displayName: r.displayName, username: r.reader })}</div>
+      <div class="meta">
+        <div class="name">${esc(r.displayName || r.reader)}</div>
+        <div class="preview">@${esc(r.reader)}</div>
+      </div>
+      <div class="hint">${new Date(r.readAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</div>
+    </div>
+  `).join("");
+}
+
+function closeReadInfo() {
+  document.getElementById("readInfoModal").classList.add("hidden");
+}
+
+// ---------------- ПЕРЕСЛАТЬ В ЛЮБОЙ ЧАТ ----------------
+let forwardMsgId = null;
+
+function openForwardPicker(id) {
+  forwardMsgId = id;
+  const box = document.getElementById("forwardList");
+
+  const extra = Array.from(document.querySelectorAll(".chatitem[data-chat]"))
+    .map(b => b.dataset.chat)
+    .filter(c => c !== "global" && c !== "support" && c !== me.username)
+    .map(c => {
+      const btn = document.querySelector(`.chatitem[data-chat="${c}"]`);
+      const label = c.startsWith("group:") ? (btn?.querySelector(".name")?.textContent || c) : "@" + c;
+      return { chat: c, label };
+    });
+
+  const chats = [{ chat: "global", label: "Общий чат" }, { chat: "self", label: "⭐ Избранное" }].concat(extra);
+
+  box.innerHTML = chats.map(c => `
+    <button class="btn ghost full" style="text-align:left;margin-bottom:6px" onclick="doForward('${esc(c.chat)}')">${esc(c.label)}</button>
+  `).join("");
+
+  document.getElementById("forwardModal").classList.remove("hidden");
+}
+
+function closeForwardPicker() {
+  document.getElementById("forwardModal").classList.add("hidden");
+  forwardMsgId = null;
+}
+
+async function doForward(to) {
+  if (!forwardMsgId) return;
+  const target = to === "self" ? me.username : to;
+  const r = await fetch(`/api/messages/${forwardMsgId}/forward`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ to: target })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Не получилось переслать");
+  toast("Переслано ✅");
+  closeForwardPicker();
 }
 
 // Фото, видео, GIF и ЛЮБЫЕ файлы (Word, Excel, PowerPoint, PDF, ZIP...)
