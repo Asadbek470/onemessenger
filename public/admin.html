@@ -93,6 +93,27 @@
       </div>
     </div>
 
+    <!-- MESSAGE UNLOCK MODAL — отдельный длинный код для чтения переписок.
+         Обычного входа в админку недостаточно, чтобы открыть чью-то переписку. -->
+    <div id="msgUnlockModal" class="admin-login-wrap hidden" style="position:fixed;inset:0;z-index:999;">
+      <div class="auth-card">
+        <div class="brand">
+          <div class="logo"><i class="fa-solid fa-lock"></i></div>
+          <div>
+            <h1>Код доступа</h1>
+            <p>Чтение переписок закрыто отдельным кодом</p>
+          </div>
+        </div>
+        <div class="form">
+          <label>Код разблокировки</label>
+          <input id="msgUnlockInput" type="password" placeholder="Введите код" autocomplete="off" onkeydown="if(event.key==='Enter') submitMsgUnlockCode()">
+          <button class="btn primary full" onclick="submitMsgUnlockCode()">Разблокировать</button>
+          <button class="btn ghost full" onclick="closeMsgUnlockModal()">Отмена</button>
+          <div id="msgUnlockError" class="passcode-error"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- VERIFICATION TAB -->
     <div id="tabVerification" class="admintabpanel hidden">
       <div id="verificationList" class="ver-list"></div>
