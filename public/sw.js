@@ -48,7 +48,8 @@ self.addEventListener("push", (event) => {
         tag: "om-call",
         renotify: true,
         requireInteraction: true,
-        vibrate: [400, 200, 400, 200, 400, 200, 400, 200, 400],
+        vibrate: [700, 350, 700, 350, 700, 350, 700],
+        silent: false,
         data: { type: "call", callId: d.callId, url: d.url || "/chat.html" },
         actions: [
           { action: "accept", title: "Принять" },
