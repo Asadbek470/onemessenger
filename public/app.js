@@ -154,7 +154,7 @@ async function unlockAttempt() {
     err.textContent = "";
     boot();
   } else {
-    err.textContent = "Неверный код";
+    err.textContent = t("passcode.wrong");
     input.value = "";
   }
 }
@@ -166,43 +166,44 @@ function passcodeKeydown(e) {
 async function setPasscodeFromSettings() {
   const p1 = document.getElementById("newPasscode").value.trim();
   const p2 = document.getElementById("newPasscodeConfirm").value.trim();
-  if (!/^\d{4,8}$/.test(p1)) return alert("Код: 4-8 цифр");
-  if (p1 !== p2) return alert("Коды не совпадают");
+  if (!/^\d{4,8}$/.test(p1)) return alert(t("passcode.badFormat"));
+  if (p1 !== p2) return alert(t("passcode.mismatch"));
   localStorage.setItem("passcodeHash", await sha256Hex(p1));
   document.getElementById("newPasscode").value = "";
   document.getElementById("newPasscodeConfirm").value = "";
   renderPasscodeSection();
-  toast("Код-пароль установлен ✅");
+  toast(t("passcode.setToast"));
 }
 
 function removePasscodeFromSettings() {
-  if (!confirm("Убрать код-пароль с этого устройства?")) return;
+  if (!confirm(t("passcode.confirmRemove"))) return;
   localStorage.removeItem("passcodeHash");
   renderPasscodeSection();
 }
 
 function lockNow() {
-  if (!passcodeEnabled()) return alert("Сначала установи код-пароль");
+  if (!passcodeEnabled()) return alert(t("passcode.setFirst"));
   document.getElementById("passcodeOverlay").classList.remove("hidden");
 }
 
 function renderPasscodeSection() {
   const box = document.getElementById("passcodeSection");
+  if (!box) return;
   if (passcodeEnabled()) {
     box.innerHTML = `
-      <div class="hint">Код-пароль включён на этом устройстве.</div>
+      <div class="hint">${t("passcode.enabledHint")}</div>
       <div class="row">
-        <button class="btn ghost" onclick="lockNow()">Заблокировать сейчас</button>
-        <button class="btn danger" onclick="removePasscodeFromSettings()">Убрать код</button>
+        <button class="btn ghost" onclick="lockNow()">${t("passcode.lockNow")}</button>
+        <button class="btn danger" onclick="removePasscodeFromSettings()">${t("passcode.removeBtn")}</button>
       </div>
     `;
   } else {
     box.innerHTML = `
-      <label>Новый код (4-8 цифр)</label>
+      <label>${t("passcode.newCode")}</label>
       <input id="newPasscode" type="password" inputmode="numeric" maxlength="8">
-      <label>Повтори код</label>
+      <label>${t("passcode.repeatCode")}</label>
       <input id="newPasscodeConfirm" type="password" inputmode="numeric" maxlength="8">
-      <button class="btn primary full" onclick="setPasscodeFromSettings()">Установить код-пароль</button>
+      <button class="btn primary full" onclick="setPasscodeFromSettings()">${t("passcode.setBtn")}</button>
     `;
   }
 }
@@ -247,7 +248,86 @@ const LANG = {
     "story.publish": "Опубликовать",
     "call.audioCall": "Аудиозвонок", "call.connecting": "Соединение...",
     "discover.title": "Популярные группы и каналы", "discover.searchPlaceholder": "Поиск по названию...", "discover.join": "Вступить",
-    "common.messagePlaceholder": "Сообщение...", "gift.codeLabel": "Секретный код (не нужен по пятницам)"
+    "common.messagePlaceholder": "Сообщение...", "gift.codeLabel": "Секретный код (не нужен по пятницам)",
+
+    "passcode.enter": "Введи код-пароль", "passcode.unlock": "Разблокировать", "passcode.wrong": "Неверный код",
+    "common.back": "Назад", "common.close": "Закрыть", "common.send": "Отправить", "common.save": "Сохранить",
+    "common.typing": "печатает…", "common.cancel": "Отмена", "common.delete": "Удалить", "common.edit": "Изменить",
+    "common.loading": "Загрузка...", "common.error": "Ошибка", "common.notFound": "Не найден",
+    "profile.openProfile": "Открыть профиль",
+    "wallpaper.chatTitle": "Обои для этого чата", "wallpaper.presets": "Готовые", "wallpaper.ownPhoto": "Своё фото из галереи",
+    "wallpaper.forBoth": "Поставить эти обои и собеседнику", "wallpaper.reset": "Сбросить обои чата",
+    "attach.title": "Прикрепить", "attach.photoVideo": "Фото/Видео", "attach.location": "Геолокация", "attach.gif": "GIF",
+    "attach.doc": "Документ или файл", "attach.list": "Список (покупки, дела)", "attach.emoji": "Эмодзи", "attach.voice": "Голосовое (удерживай)",
+    "reply.title": "Ответ",
+    "round.title": "Видеосообщение (кружочек)", "round.flip": "Перевернуть камеру", "round.record": "Записать",
+    "round.stop": "Стоп", "round.retake": "Ещё раз",
+    "gift.pickerHint": "Подарить эмодзи-подарок на профиль:",
+    "readInfo.title": "Прочитано", "readInfo.empty": "Пока никто не прочитал",
+    "forward.title": "Переслать", "forward.self": "Избранное (себе)", "forward.sent": "Переслано",
+    "contact.title": "Сохранить контакт", "contact.username": "Юзернейм", "contact.name": "Имя контакта",
+    "contact.namePlaceholder": "Например, Мама", "contact.note": "Заметка (необязательно)",
+    "contact.notePlaceholder": "Например, близкий человек", "contact.needName": "Введи имя контакта",
+    "contact.saved": "сохранён", "contact.confirmDelete": "Удалить контакт?", "contact.empty": "Пока нет сохранённых контактов. Открой чей-нибудь профиль и нажми «Контакт», чтобы сохранить.",
+    "contact.action": "Контакт",
+    "legal.title": "Политика использования", "legal.tabTerms": "Условия использования", "legal.tabPrivacy": "Конфиденциальность",
+    "legal.accepted": "Принято", "legal.notAccepted": "Ты ещё не принял(а) политику условий", "legal.accept": "Принять",
+    "legal.acceptedToast": "Спасибо! Политика принята ✅",
+    "reply.toSelf": "себе", "reply.editing": "Редактирование сообщения",
+    "msgact.copied": "Скопировано", "msgact.copyFailed": "Не удалось скопировать",
+    "forward.failed": "Ошибка пересылки",
+    "passcode.enabledHint": "Пароль на переписки включён", "passcode.lockNow": "Заблокировать сейчас",
+    "passcode.removeBtn": "Отключить пароль", "passcode.newCode": "Новый код (4-6 цифр)",
+    "passcode.repeatCode": "Повтори код", "passcode.setBtn": "Установить пароль",
+    "passcode.badFormat": "Код должен быть из 4-6 цифр", "passcode.mismatch": "Коды не совпадают",
+    "passcode.setToast": "Пароль на переписки установлен ✅", "passcode.confirmRemove": "Отключить пароль на переписки?",
+    "passcode.setFirst": "Сначала установи пароль в Настройках",
+    "settings.patternReset": "Узор сброшен", "settings.emojiStatusHint": "Значок рядом с твоим именем — его видят все в чатах и в профиле.",
+    "settings.noStatus": "Без статуса", "settings.statusSetPrefix": "Статус", "settings.statusRemoved": "Статус убран",
+    "profile.blocked": "Заблокирован", "profile.request": "Заявка", "profile.write": "Написать",
+    "profile.gift": "Подарить", "profile.congratulate": "Поздравить", "profile.addFriend": "В друзья",
+    "sessions.empty": "Пока нет истории входов", "sessions.thisDevice": "это устройство", "sessions.ipUnknown": "IP неизвестен",
+    "sessions.endSession": "Завершить сессию", "sessions.confirmEnd": "Завершить эту сессию? Устройство будет разлогинено.",
+    "sessions.ended": "Сессия завершена", "sessions.unknownDevice": "устройство неизвестно",
+    "privacy.everyone": "Все", "privacy.friendsOnly": "Только друзья", "privacy.nobody": "Никто",
+    "privacy.stories": "Кому показывать мои истории", "privacy.bio": "Кому показывать мою анкету (bio)",
+    "privacy.lastSeen": "Кому показывать, когда я был(а) в сети", "privacy.birthday": "Кому показывать день рождения",
+    "privacy.photo": "Кому показывать фото профиля", "privacy.forward": "Кто может пересылать мои сообщения",
+    "privacy.calls": "Кто может мне звонить", "privacy.gifts": "Кто может дарить мне подарки",
+    "privacy.hint": "«Друзья» — это список ниже. @username всегда виден всем, иначе поиск и переписка перестанут работать.",
+    "username.current": "Текущий юзернейм", "username.new": "Новый юзернейм", "username.passwordConfirm": "Пароль (для подтверждения)",
+    "username.changeBtn": "Изменить юзернейм", "username.fillBoth": "Заполни оба поля", "username.changeError": "Ошибка смены юзернейма",
+    "username.changed": "Юзернейм изменён на",
+    "google.loadFailed": "Не удалось загрузить", "google.linkedAs": "Привязан аккаунт", "google.unlink": "Отвязать Google-аккаунт",
+    "google.linkHint": "Привяжи Google-аккаунт, чтобы можно было входить в", "google.viaGoogle": "через Google.",
+    "google.notConfigured": "Google-вход пока не настроен на сервере", "google.linkFailed": "Не получилось привязать Google-аккаунт",
+    "google.linked": "Google-аккаунт привязан ✅", "google.confirmUnlink": "Отвязать Google-аккаунт? Вход по Google для этого профиля перестанет работать.",
+    "google.unlinked": "Google-аккаунт отвязан",
+    "deleteAcc.deleteBtn": "Удалить аккаунт навсегда", "deleteAcc.warning": "Это необратимо: удалятся твой профиль, все сообщения и участие в группах/каналах. Подтверди паролем.",
+    "deleteAcc.password": "Пароль", "deleteAcc.confirmBtn": "Подтвердить удаление", "deleteAcc.enterPassword": "Введи пароль",
+    "deleteAcc.confirmFinal": "Точно удалить аккаунт навсегда? Это нельзя отменить.", "deleteAcc.deleteError": "Ошибка удаления",
+    "twofa.enabled": "Двухэтапная аутентификация включена", "twofa.passwordToDisable": "Пароль (для отключения)",
+    "twofa.disableBtn": "Отключить 2FA", "twofa.hint": "Защити вход кодом из приложения-аутентификатора (Google Authenticator, Authy и т.п.)",
+    "twofa.enableBtn": "Включить 2FA", "twofa.scanHint": "Отсканируй QR в приложении-аутентификаторе или введи ключ вручную:",
+    "twofa.codeFromApp": "Код из приложения", "twofa.confirmBtn": "Подтвердить и включить", "twofa.badCode": "Неверный код",
+    "twofa.enabledToast": "2FA включена ✅", "twofa.disabledToast": "2FA отключена",
+    "settings.catProfile": "Профиль", "settings.catContacts": "Контакты", "settings.catAppearance": "Оформление",
+    "settings.catPrivacy": "Конфиденциальность", "settings.catSecurity": "Безопасность", "settings.catAccount": "Аккаунт",
+    "settings.username": "Юзернейм", "settings.google": "Google-аккаунт", "settings.savedContacts": "Сохранённые контакты",
+    "settings.profileHeader": "Шапка профиля", "settings.blacklist": "Чёрный список",
+    "settings.removeBtn": "Убрать", "settings.blockBtn": "Заблокировать", "settings.unblockBtn": "Разблокировать",
+    "settings.emptyFriends": "Список друзей пуст", "settings.emptyBlacklist": "Чёрный список пуст",
+    "settings.headerHint": "Цвет и узор шапки твоего профиля — их видят все, кто открывает твою страницу.",
+    "settings.headerTop": "Цвет сверху", "settings.headerBottom": "Цвет снизу", "settings.headerPattern": "Узор фона",
+    "settings.customEmoji": "Свой эмодзи", "settings.set": "Поставить",
+    "contactReq.hint": "Этот аккаунт официально подтверждён. Напиши сообщение — администрация проверит его и передаст. Ответ придёт в чат «Поддержка».",
+    "contactReq.placeholder": "Здравствуйте! Пишу по вопросу...", "contactReq.send": "Отправить через администрацию",
+    "bday.title": "С днём рождения!", "bday.text": "One Messenger поздравляет тебя! Пусть этот год будет самым счастливым 🎉",
+    "bday.thanks": "Спасибо! 🎈",
+    "call.someoneCalling": "Кто-то звонит…", "call.decline": "Отклонить", "call.accept": "Принять",
+    "call.mic": "Микрофон", "call.end": "Завершить", "call.speaker": "Звук",
+    "msgact.reply": "Ответить", "msgact.copy": "Копировать", "msgact.forward": "Переслать", "msgact.edit": "Изменить",
+    "msgact.readInfo": "Прочитано", "msgact.delete": "Удалить"
   },
   en: {
     "nav.chats": "Chats", "nav.profile": "Profile", "nav.settings": "Settings",
@@ -275,7 +355,86 @@ const LANG = {
     "story.publish": "Publish",
     "call.audioCall": "Audio call", "call.connecting": "Connecting...",
     "discover.title": "Popular groups and channels", "discover.searchPlaceholder": "Search by name...", "discover.join": "Join",
-    "common.messagePlaceholder": "Message...", "gift.codeLabel": "Secret code (not needed on Fridays)"
+    "common.messagePlaceholder": "Message...", "gift.codeLabel": "Secret code (not needed on Fridays)",
+
+    "passcode.enter": "Enter passcode", "passcode.unlock": "Unlock", "passcode.wrong": "Wrong code",
+    "common.back": "Back", "common.close": "Close", "common.send": "Send", "common.save": "Save",
+    "common.typing": "typing…", "common.cancel": "Cancel", "common.delete": "Delete", "common.edit": "Edit",
+    "common.loading": "Loading...", "common.error": "Error", "common.notFound": "Not found",
+    "profile.openProfile": "Open profile",
+    "wallpaper.chatTitle": "Wallpaper for this chat", "wallpaper.presets": "Presets", "wallpaper.ownPhoto": "Custom photo from gallery",
+    "wallpaper.forBoth": "Set this wallpaper for the other person too", "wallpaper.reset": "Reset chat wallpaper",
+    "attach.title": "Attach", "attach.photoVideo": "Photo/Video", "attach.location": "Location", "attach.gif": "GIF",
+    "attach.doc": "Document or file", "attach.list": "List (shopping, to-do)", "attach.emoji": "Emoji", "attach.voice": "Voice (hold)",
+    "reply.title": "Reply",
+    "round.title": "Video message (round)", "round.flip": "Flip camera", "round.record": "Record",
+    "round.stop": "Stop", "round.retake": "Retake",
+    "gift.pickerHint": "Gift an emoji to this profile:",
+    "readInfo.title": "Read by", "readInfo.empty": "No one has read it yet",
+    "forward.title": "Forward", "forward.self": "Saved Messages (to self)", "forward.sent": "Forwarded",
+    "contact.title": "Save contact", "contact.username": "Username", "contact.name": "Contact name",
+    "contact.namePlaceholder": "e.g. Mom", "contact.note": "Note (optional)",
+    "contact.notePlaceholder": "e.g. close friend", "contact.needName": "Enter a contact name",
+    "contact.saved": "saved", "contact.confirmDelete": "Delete this contact?", "contact.empty": "No saved contacts yet. Open someone's profile and tap «Contact» to save them.",
+    "contact.action": "Contact",
+    "legal.title": "Terms of use", "legal.tabTerms": "Terms of Use", "legal.tabPrivacy": "Privacy",
+    "legal.accepted": "Accepted", "legal.notAccepted": "You haven't accepted the terms policy yet", "legal.accept": "Accept",
+    "legal.acceptedToast": "Thank you! Terms accepted ✅",
+    "reply.toSelf": "yourself", "reply.editing": "Editing message",
+    "msgact.copied": "Copied", "msgact.copyFailed": "Couldn't copy",
+    "forward.failed": "Forward failed",
+    "passcode.enabledHint": "Chat lock passcode is enabled", "passcode.lockNow": "Lock now",
+    "passcode.removeBtn": "Disable passcode", "passcode.newCode": "New code (4-6 digits)",
+    "passcode.repeatCode": "Repeat the code", "passcode.setBtn": "Set passcode",
+    "passcode.badFormat": "Code must be 4-6 digits", "passcode.mismatch": "Codes don't match",
+    "passcode.setToast": "Chat lock passcode set ✅", "passcode.confirmRemove": "Disable the chat lock passcode?",
+    "passcode.setFirst": "Set a passcode in Settings first",
+    "settings.patternReset": "Pattern reset", "settings.emojiStatusHint": "A badge next to your name — visible to everyone in chats and on your profile.",
+    "settings.noStatus": "No status", "settings.statusSetPrefix": "Status", "settings.statusRemoved": "Status removed",
+    "profile.blocked": "Blocked", "profile.request": "Request", "profile.write": "Message",
+    "profile.gift": "Send gift", "profile.congratulate": "Congratulate", "profile.addFriend": "Add friend",
+    "sessions.empty": "No login history yet", "sessions.thisDevice": "this device", "sessions.ipUnknown": "IP unknown",
+    "sessions.endSession": "End session", "sessions.confirmEnd": "End this session? The device will be logged out.",
+    "sessions.ended": "Session ended", "sessions.unknownDevice": "unknown device",
+    "privacy.everyone": "Everyone", "privacy.friendsOnly": "Friends only", "privacy.nobody": "Nobody",
+    "privacy.stories": "Who can see my stories", "privacy.bio": "Who can see my bio",
+    "privacy.lastSeen": "Who can see when I was last online", "privacy.birthday": "Who can see my birthday",
+    "privacy.photo": "Who can see my profile photo", "privacy.forward": "Who can forward my messages",
+    "privacy.calls": "Who can call me", "privacy.gifts": "Who can send me gifts",
+    "privacy.hint": "\"Friends\" is the list below. Your @username is always visible to everyone, otherwise search and messaging would stop working.",
+    "username.current": "Current username", "username.new": "New username", "username.passwordConfirm": "Password (to confirm)",
+    "username.changeBtn": "Change username", "username.fillBoth": "Fill in both fields", "username.changeError": "Failed to change username",
+    "username.changed": "Username changed to",
+    "google.loadFailed": "Failed to load", "google.linkedAs": "Linked account", "google.unlink": "Unlink Google account",
+    "google.linkHint": "Link a Google account so you can sign in to", "google.viaGoogle": "with Google.",
+    "google.notConfigured": "Google sign-in isn't configured on the server yet", "google.linkFailed": "Couldn't link the Google account",
+    "google.linked": "Google account linked ✅", "google.confirmUnlink": "Unlink the Google account? Signing in with Google for this profile will stop working.",
+    "google.unlinked": "Google account unlinked",
+    "deleteAcc.deleteBtn": "Delete account permanently", "deleteAcc.warning": "This is irreversible: your profile, all messages, and group/channel membership will be deleted. Confirm with your password.",
+    "deleteAcc.password": "Password", "deleteAcc.confirmBtn": "Confirm deletion", "deleteAcc.enterPassword": "Enter your password",
+    "deleteAcc.confirmFinal": "Really delete the account permanently? This can't be undone.", "deleteAcc.deleteError": "Deletion failed",
+    "twofa.enabled": "Two-factor authentication is enabled", "twofa.passwordToDisable": "Password (to disable)",
+    "twofa.disableBtn": "Disable 2FA", "twofa.hint": "Protect your login with a code from an authenticator app (Google Authenticator, Authy, etc.)",
+    "twofa.enableBtn": "Enable 2FA", "twofa.scanHint": "Scan the QR code in your authenticator app, or enter the key manually:",
+    "twofa.codeFromApp": "Code from the app", "twofa.confirmBtn": "Confirm and enable", "twofa.badCode": "Incorrect code",
+    "twofa.enabledToast": "2FA enabled ✅", "twofa.disabledToast": "2FA disabled",
+    "settings.catProfile": "Profile", "settings.catContacts": "Contacts", "settings.catAppearance": "Appearance",
+    "settings.catPrivacy": "Privacy", "settings.catSecurity": "Security", "settings.catAccount": "Account",
+    "settings.username": "Username", "settings.google": "Google account", "settings.savedContacts": "Saved contacts",
+    "settings.profileHeader": "Profile header", "settings.blacklist": "Blocked list",
+    "settings.removeBtn": "Remove", "settings.blockBtn": "Block", "settings.unblockBtn": "Unblock",
+    "settings.emptyFriends": "Friends list is empty", "settings.emptyBlacklist": "Blocked list is empty",
+    "settings.headerHint": "Your profile header's color and pattern — visible to everyone who opens your page.",
+    "settings.headerTop": "Top color", "settings.headerBottom": "Bottom color", "settings.headerPattern": "Background pattern",
+    "settings.customEmoji": "Custom emoji", "settings.set": "Set",
+    "contactReq.hint": "This account is officially verified. Write a message — the administration will review and pass it on. The reply will arrive in the «Support» chat.",
+    "contactReq.placeholder": "Hello! I'm writing about...", "contactReq.send": "Send via administration",
+    "bday.title": "Happy Birthday!", "bday.text": "One Messenger wishes you all the best! May this be your happiest year yet 🎉",
+    "bday.thanks": "Thanks! 🎈",
+    "call.someoneCalling": "Someone is calling…", "call.decline": "Decline", "call.accept": "Accept",
+    "call.mic": "Microphone", "call.end": "End call", "call.speaker": "Speaker",
+    "msgact.reply": "Reply", "msgact.copy": "Copy", "msgact.forward": "Forward", "msgact.edit": "Edit",
+    "msgact.readInfo": "Read by", "msgact.delete": "Delete"
   },
   uz: {
     "nav.chats": "Suhbatlar", "nav.profile": "Profil", "nav.settings": "Sozlamalar",
@@ -303,7 +462,86 @@ const LANG = {
     "story.publish": "Chop etish",
     "call.audioCall": "Ovozli qo'ng'iroq", "call.connecting": "Ulanmoqda...",
     "discover.title": "Ommabop guruh va kanallar", "discover.searchPlaceholder": "Nomi bo'yicha qidirish...", "discover.join": "Qo'shilish",
-    "common.messagePlaceholder": "Xabar...", "gift.codeLabel": "Maxfiy kod (juma kunlari kerak emas)"
+    "common.messagePlaceholder": "Xabar...", "gift.codeLabel": "Maxfiy kod (juma kunlari kerak emas)",
+
+    "passcode.enter": "Kod-parolni kiriting", "passcode.unlock": "Ochish", "passcode.wrong": "Noto'g'ri kod",
+    "common.back": "Orqaga", "common.close": "Yopish", "common.send": "Yuborish", "common.save": "Saqlash",
+    "common.typing": "yozmoqda…", "common.cancel": "Bekor qilish", "common.delete": "O'chirish", "common.edit": "Tahrirlash",
+    "common.loading": "Yuklanmoqda...", "common.error": "Xato", "common.notFound": "Topilmadi",
+    "profile.openProfile": "Profilni ochish",
+    "wallpaper.chatTitle": "Ushbu chat uchun fon", "wallpaper.presets": "Tayyor variantlar", "wallpaper.ownPhoto": "Galereyadan o'z rasmi",
+    "wallpaper.forBoth": "Bu fonni suhbatdoshga ham qo'yish", "wallpaper.reset": "Chat fonini tiklash",
+    "attach.title": "Biriktirish", "attach.photoVideo": "Foto/Video", "attach.location": "Geolokatsiya", "attach.gif": "GIF",
+    "attach.doc": "Hujjat yoki fayl", "attach.list": "Ro'yxat (xarid, ishlar)", "attach.emoji": "Emoji", "attach.voice": "Ovozli xabar (bosib turing)",
+    "reply.title": "Javob",
+    "round.title": "Video xabar (doira)", "round.flip": "Kamerani almashtirish", "round.record": "Yozib olish",
+    "round.stop": "To'xtatish", "round.retake": "Qayta yozish",
+    "gift.pickerHint": "Profilga emoji-sovg'a berish:",
+    "readInfo.title": "O'qildi", "readInfo.empty": "Hali hech kim o'qimadi",
+    "forward.title": "Yuborish", "forward.self": "Saqlangan xabarlar (o'zimga)", "forward.sent": "Yuborildi",
+    "contact.title": "Kontaktni saqlash", "contact.username": "Foydalanuvchi nomi", "contact.name": "Kontakt ismi",
+    "contact.namePlaceholder": "Masalan, Oyi", "contact.note": "Izoh (ixtiyoriy)",
+    "contact.notePlaceholder": "Masalan, yaqin inson", "contact.needName": "Kontakt ismini kiriting",
+    "contact.saved": "saqlandi", "contact.confirmDelete": "Kontaktni o'chirasizmi?", "contact.empty": "Hali saqlangan kontaktlar yo'q. Kimningdir profilini oching va uni saqlash uchun «Kontakt» tugmasini bosing.",
+    "contact.action": "Kontakt",
+    "legal.title": "Foydalanish shartlari", "legal.tabTerms": "Foydalanish shartlari", "legal.tabPrivacy": "Maxfiylik",
+    "legal.accepted": "Qabul qilindi", "legal.notAccepted": "Siz hali shartlar siyosatini qabul qilmagansiz", "legal.accept": "Qabul qilish",
+    "legal.acceptedToast": "Rahmat! Shartlar qabul qilindi ✅",
+    "reply.toSelf": "o'zingizga", "reply.editing": "Xabarni tahrirlash",
+    "msgact.copied": "Nusxalandi", "msgact.copyFailed": "Nusxalab bo'lmadi",
+    "forward.failed": "Yuborishda xatolik",
+    "passcode.enabledHint": "Yozishmalar uchun parol yoqilgan", "passcode.lockNow": "Hozir bloklash",
+    "passcode.removeBtn": "Parolni o'chirish", "passcode.newCode": "Yangi kod (4-6 raqam)",
+    "passcode.repeatCode": "Kodni qayta kiriting", "passcode.setBtn": "Parolni o'rnatish",
+    "passcode.badFormat": "Kod 4-6 raqamdan iborat bo'lishi kerak", "passcode.mismatch": "Kodlar mos kelmadi",
+    "passcode.setToast": "Yozishmalar uchun parol o'rnatildi ✅", "passcode.confirmRemove": "Yozishmalar uchun parolni o'chirasizmi?",
+    "passcode.setFirst": "Avval Sozlamalarda parol o'rnating",
+    "settings.patternReset": "Uslub bekor qilindi", "settings.emojiStatusHint": "Ismingiz yonidagi belgi — uni chatlarda va profilda hamma ko'radi.",
+    "settings.noStatus": "Status yo'q", "settings.statusSetPrefix": "Status", "settings.statusRemoved": "Status olib tashlandi",
+    "profile.blocked": "Bloklangan", "profile.request": "So'rov", "profile.write": "Yozish",
+    "profile.gift": "Sovg'a berish", "profile.congratulate": "Tabriklash", "profile.addFriend": "Do'stga qo'shish",
+    "sessions.empty": "Hali kirish tarixi yo'q", "sessions.thisDevice": "shu qurilma", "sessions.ipUnknown": "IP noma'lum",
+    "sessions.endSession": "Seansni tugatish", "sessions.confirmEnd": "Ushbu seansni tugatasizmi? Qurilma tizimdan chiqadi.",
+    "sessions.ended": "Seans tugatildi", "sessions.unknownDevice": "qurilma noma'lum",
+    "privacy.everyone": "Hammaga", "privacy.friendsOnly": "Faqat do'stlar", "privacy.nobody": "Hech kimga",
+    "privacy.stories": "Hikoyalarimni kim ko'rishi mumkin", "privacy.bio": "Bio ma'lumotimni kim ko'rishi mumkin",
+    "privacy.lastSeen": "Oxirgi onlayn vaqtimni kim ko'rishi mumkin", "privacy.birthday": "Tug'ilgan kunimni kim ko'rishi mumkin",
+    "privacy.photo": "Profil rasmimni kim ko'rishi mumkin", "privacy.forward": "Xabarlarimni kim ulashishi mumkin",
+    "privacy.calls": "Menga kim qo'ng'iroq qila oladi", "privacy.gifts": "Menga kim sovg'a bera oladi",
+    "privacy.hint": "«Do'stlar» — bu pastdagi ro'yxat. @username har doim hammaga ko'rinadi, aks holda qidiruv va yozishma ishlamay qoladi.",
+    "username.current": "Joriy foydalanuvchi nomi", "username.new": "Yangi foydalanuvchi nomi", "username.passwordConfirm": "Parol (tasdiqlash uchun)",
+    "username.changeBtn": "Foydalanuvchi nomini o'zgartirish", "username.fillBoth": "Ikkala maydonni ham to'ldiring", "username.changeError": "Foydalanuvchi nomini o'zgartirishda xatolik",
+    "username.changed": "Foydalanuvchi nomi o'zgartirildi:",
+    "google.loadFailed": "Yuklab bo'lmadi", "google.linkedAs": "Ulangan hisob", "google.unlink": "Google hisobini uzish",
+    "google.linkHint": "Google hisobini ulang, shunda quyidagiga Google orqali kirishingiz mumkin:", "google.viaGoogle": "",
+    "google.notConfigured": "Google orqali kirish hali serverda sozlanmagan", "google.linkFailed": "Google hisobini ulab bo'lmadi",
+    "google.linked": "Google hisobi ulandi ✅", "google.confirmUnlink": "Google hisobini uzasizmi? Bu profil uchun Google orqali kirish ishlamay qoladi.",
+    "google.unlinked": "Google hisobi uzildi",
+    "deleteAcc.deleteBtn": "Hisobni butunlay o'chirish", "deleteAcc.warning": "Bu qaytarib bo'lmaydi: profilingiz, barcha xabarlaringiz va guruh/kanallardagi a'zoligingiz o'chiriladi. Parol bilan tasdiqlang.",
+    "deleteAcc.password": "Parol", "deleteAcc.confirmBtn": "O'chirishni tasdiqlash", "deleteAcc.enterPassword": "Parolni kiriting",
+    "deleteAcc.confirmFinal": "Hisobni butunlay o'chirishga aminmisiz? Buni bekor qilib bo'lmaydi.", "deleteAcc.deleteError": "O'chirishda xatolik",
+    "twofa.enabled": "Ikki bosqichli autentifikatsiya yoqilgan", "twofa.passwordToDisable": "Parol (o'chirish uchun)",
+    "twofa.disableBtn": "2FA ni o'chirish", "twofa.hint": "Kirishni autentifikator ilovasidagi kod bilan himoyalang (Google Authenticator, Authy va h.k.)",
+    "twofa.enableBtn": "2FA ni yoqish", "twofa.scanHint": "Autentifikator ilovasida QR kodni skanerlang yoki kalitni qo'lda kiriting:",
+    "twofa.codeFromApp": "Ilovadagi kod", "twofa.confirmBtn": "Tasdiqlash va yoqish", "twofa.badCode": "Noto'g'ri kod",
+    "twofa.enabledToast": "2FA yoqildi ✅", "twofa.disabledToast": "2FA o'chirildi",
+    "settings.catProfile": "Profil", "settings.catContacts": "Kontaktlar", "settings.catAppearance": "Ko'rinish",
+    "settings.catPrivacy": "Maxfiylik", "settings.catSecurity": "Xavfsizlik", "settings.catAccount": "Hisob",
+    "settings.username": "Foydalanuvchi nomi", "settings.google": "Google hisobi", "settings.savedContacts": "Saqlangan kontaktlar",
+    "settings.profileHeader": "Profil sarlavhasi", "settings.blacklist": "Qora ro'yxat",
+    "settings.removeBtn": "Olib tashlash", "settings.blockBtn": "Bloklash", "settings.unblockBtn": "Blokdan chiqarish",
+    "settings.emptyFriends": "Do'stlar ro'yxati bo'sh", "settings.emptyBlacklist": "Qora ro'yxat bo'sh",
+    "settings.headerHint": "Profilingiz sarlavhasining rangi va uslubi — sizning sahifangizni ochgan har bir kishi buni ko'radi.",
+    "settings.headerTop": "Yuqori rang", "settings.headerBottom": "Pastki rang", "settings.headerPattern": "Fon uslubi",
+    "settings.customEmoji": "O'z emojingiz", "settings.set": "O'rnatish",
+    "contactReq.hint": "Bu hisob rasmiy tasdiqlangan. Xabar yozing — administratsiya ko'rib chiqib yetkazadi. Javob «Yordam» chatiga keladi.",
+    "contactReq.placeholder": "Assalomu alaykum! Savolim shu bo'yicha...", "contactReq.send": "Administratsiya orqali yuborish",
+    "bday.title": "Tug'ilgan kuningiz bilan!", "bday.text": "One Messenger sizni tabriklaydi! Bu yil eng baxtli yilingiz bo'lsin 🎉",
+    "bday.thanks": "Rahmat! 🎈",
+    "call.someoneCalling": "Kimdir qo'ng'iroq qilyapti…", "call.decline": "Rad etish", "call.accept": "Qabul qilish",
+    "call.mic": "Mikrofon", "call.end": "Tugatish", "call.speaker": "Ovoz",
+    "msgact.reply": "Javob berish", "msgact.copy": "Nusxalash", "msgact.forward": "Yuborish", "msgact.edit": "Tahrirlash",
+    "msgact.readInfo": "O'qildi", "msgact.delete": "O'chirish"
   }
 };
 
@@ -332,10 +570,37 @@ function applyLanguage(lang) {
 
 async function setLanguage(lang) {
   applyLanguage(lang);
+  reRenderDynamicSections();
   if (me) {
     await saveSettingsPatch({ language: lang });
     renderLanguageSection();
   }
+}
+
+// Re-render dynamically-built (JS-generated) UI sections so they pick up
+// the newly selected language immediately, without needing to reopen them.
+function reRenderDynamicSections() {
+  const fns = [
+    "renderLanguageSection", "renderContactsSection", "renderFriendsSection",
+    "renderBlacklistSection", "renderLegalSection", "renderProfileHeaderSection",
+    "renderEmojiStatusSection", "renderPasscodeSection", "renderUsernameSection",
+    "renderGoogleSection", "render2FASection", "renderVerificationSection",
+    "renderSessionsSection", "renderDeleteAccountSection", "renderPrivacySection"
+  ];
+  for (const fnName of fns) {
+    try {
+      if (typeof window[fnName] === "function") window[fnName]();
+    } catch {}
+  }
+  // If the legal modal is currently open, keep it in sync with the UI language too.
+  try {
+    const legalModal = document.getElementById("legalModal");
+    if (legalModal && !legalModal.classList.contains("hidden")) {
+      legalLang = currentLang;
+      localStorage.setItem("legalLang", legalLang);
+      renderLegalBody();
+    }
+  } catch {}
 }
 
 function renderLanguageSection() {
@@ -1178,7 +1443,7 @@ function startReply(id) {
   if (!m) return;
   editingMsgId = null;
   replyToId = id;
-  document.getElementById("replyBarTitle").textContent = "Ответ " + (m.sender === me.username ? "себе" : "@" + m.sender);
+  document.getElementById("replyBarTitle").textContent = t("reply.title") + " " + (m.sender === me.username ? t("reply.toSelf") : "@" + m.sender);
   document.getElementById("replyBarText").textContent = m.mediaType === "text" ? (m.text || "") : msgPreview(m);
   document.getElementById("replyBar").classList.remove("hidden");
   document.getElementById("textInput").focus();
@@ -1189,7 +1454,7 @@ function startEdit(id) {
   if (!m || m.mediaType !== "text") return;
   replyToId = null;
   editingMsgId = id;
-  document.getElementById("replyBarTitle").textContent = "Редактирование";
+  document.getElementById("replyBarTitle").textContent = t("reply.editing");
   document.getElementById("replyBarText").textContent = m.text || "";
   document.getElementById("replyBar").classList.remove("hidden");
   const input = document.getElementById("textInput");
@@ -1274,19 +1539,19 @@ function openMsgActions(id) {
   const mine = m.sender === me.username;
 
   const items = [];
-  items.push({ icon: "fa-reply", label: "Ответить", fn: `startReply(${id}); closeMsgActions();` });
+  items.push({ icon: "fa-reply", label: t("msgact.reply"), fn: `startReply(${id}); closeMsgActions();` });
   if (m.mediaType === "text" && m.text) {
-    items.push({ icon: "fa-copy", label: "Копировать текст", fn: `copyMsgText(${id}); closeMsgActions();` });
+    items.push({ icon: "fa-copy", label: t("msgact.copy"), fn: `copyMsgText(${id}); closeMsgActions();` });
   }
-  items.push({ icon: "fa-share", label: "Переслать", fn: `openForwardPicker(${id}); closeMsgActions();` });
+  items.push({ icon: "fa-share", label: t("msgact.forward"), fn: `openForwardPicker(${id}); closeMsgActions();` });
   if (mine && m.mediaType === "text") {
-    items.push({ icon: "fa-pen", label: "Изменить", fn: `startEdit(${id}); closeMsgActions();` });
+    items.push({ icon: "fa-pen", label: t("msgact.edit"), fn: `startEdit(${id}); closeMsgActions();` });
   }
   if (mine && m.chatType !== "support") {
-    items.push({ icon: "fa-eye", label: "Прочитано", fn: `openReadInfo(${id}); closeMsgActions();` });
+    items.push({ icon: "fa-eye", label: t("msgact.readInfo"), fn: `openReadInfo(${id}); closeMsgActions();` });
   }
   if (mine) {
-    items.push({ icon: "fa-trash", label: "Удалить", fn: `closeMsgActions(); deleteMsg(${id});`, danger: true });
+    items.push({ icon: "fa-trash", label: t("msgact.delete"), fn: `closeMsgActions(); deleteMsg(${id});`, danger: true });
   }
 
   document.getElementById("msgActionsList").innerHTML = items.map(it => `
@@ -1305,21 +1570,21 @@ function copyMsgText(id) {
   const m = messageCache.get(id);
   if (!m) return;
   navigator.clipboard?.writeText(m.text || "").then(
-    () => toast("Скопировано"),
-    () => alert("Не удалось скопировать")
+    () => toast(t("msgact.copied")),
+    () => alert(t("msgact.copyFailed"))
   );
 }
 
 // ---------------- ПРОЧИТАНО: КТО И КОГДА ----------------
 async function openReadInfo(id) {
   const box = document.getElementById("readInfoBody");
-  box.innerHTML = `<div class="hint">Загрузка...</div>`;
+  box.innerHTML = `<div class="hint">${t("common.loading")}</div>`;
   document.getElementById("readInfoModal").classList.remove("hidden");
 
   const r = await fetch(`/api/messages/${id}/reads`, { headers: authHeaders() });
   const d = await r.json();
   if (!d.ok || d.reads.length === 0) {
-    box.innerHTML = `<div class="hint">Пока никто не прочитал</div>`;
+    box.innerHTML = `<div class="hint">${t("readInfo.empty")}</div>`;
     return;
   }
   box.innerHTML = d.reads.map(r => `
@@ -1354,7 +1619,7 @@ function openForwardPicker(id) {
       return { chat: c, label };
     });
 
-  const chats = [{ chat: "global", label: "Общий чат" }, { chat: "self", label: "⭐ Избранное" }].concat(extra);
+  const chats = [{ chat: "global", label: t("chats.globalChat") }, { chat: "self", label: "⭐ " + t("forward.self") }].concat(extra);
 
   box.innerHTML = chats.map(c => `
     <button class="btn ghost full" style="text-align:left;margin-bottom:6px" onclick="doForward('${esc(c.chat)}')">${esc(c.label)}</button>
@@ -1377,8 +1642,8 @@ async function doForward(to) {
     body: JSON.stringify({ to: target })
   });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Не получилось переслать");
-  toast("Переслано ✅");
+  if (!d.ok) return alert(d.error || t("forward.failed"));
+  toast(t("forward.sent") + " ✅");
   closeForwardPicker();
 }
 
@@ -2218,7 +2483,7 @@ async function openProfile(username, isMe) {
   document.getElementById("giftPickerBox").classList.add("hidden");
 
   const p = await getUserInfo(username, true);
-  if (!p.fetched) { alert("Не найден"); return closeProfile(); }
+  if (!p.fetched) { alert(t("common.notFound")); return closeProfile(); }
 
   document.getElementById("profileAvatar").innerHTML = avatarHtml(p);
   document.getElementById("profileName").innerHTML = nameHtml(p, { noBday: true });
@@ -2228,21 +2493,21 @@ async function openProfile(username, isMe) {
   // круглые кнопки действий — как в Телеграме
   const acts = [];
   if (p.blocked) {
-    acts.push(actionBtn("fa-ban", "Заблокирован", `void 0`, "act-blue"));
+    acts.push(actionBtn("fa-ban", t("profile.blocked"), `void 0`, "act-blue"));
   } else if (p.dmGated && !p.canMessage) {
-    acts.push(actionBtn("fa-envelope", "Заявка", `closeProfile(); openContactRequest('${esc(p.username)}', '')`, "act-blue"));
+    acts.push(actionBtn("fa-envelope", t("profile.request"), `closeProfile(); openContactRequest('${esc(p.username)}', '')`, "act-blue"));
   } else {
-    acts.push(actionBtn("fa-comment", "Написать", `closeProfile(); openChat('${esc(p.username)}')`, "act-blue"));
-    acts.push(actionBtn("fa-phone", "Звонок", `closeProfile(); callFromProfile('${esc(p.username)}')`, "act-green"));
-    acts.push(actionBtn("fa-gift", "Подарить", `openGiftPicker('${esc(p.username)}')`, "act-pink"));
+    acts.push(actionBtn("fa-comment", t("profile.write"), `closeProfile(); openChat('${esc(p.username)}')`, "act-blue"));
+    acts.push(actionBtn("fa-phone", t("call.audioCall"), `closeProfile(); callFromProfile('${esc(p.username)}')`, "act-green"));
+    acts.push(actionBtn("fa-gift", t("profile.gift"), `openGiftPicker('${esc(p.username)}')`, "act-pink"));
   }
-  if (p.birthdayToday) acts.push(actionBtn("fa-cake-candles", "Поздравить", `closeProfile(); congratulate('${esc(p.username)}')`, "act-orange"));
-  if (!p.blocked) acts.push(actionBtn("fa-user-plus", "В друзья", `addFriendByName('${esc(p.username)}')`, "act-violet"));
-  if (!p.blocked) acts.push(actionBtn("fa-address-book", "Контакт", `openSaveContactModal('${esc(p.username)}')`, "act-blue"));
+  if (p.birthdayToday) acts.push(actionBtn("fa-cake-candles", t("profile.congratulate"), `closeProfile(); congratulate('${esc(p.username)}')`, "act-orange"));
+  if (!p.blocked) acts.push(actionBtn("fa-user-plus", t("profile.addFriend"), `addFriendByName('${esc(p.username)}')`, "act-violet"));
+  if (!p.blocked) acts.push(actionBtn("fa-address-book", t("contact.action"), `openSaveContactModal('${esc(p.username)}')`, "act-blue"));
   if (p.iBlockedThem) {
-    acts.push(actionBtn("fa-user-check", "Разблокировать", `unblockFromProfile('${esc(p.username)}')`, "act-orange"));
+    acts.push(actionBtn("fa-user-check", t("settings.unblockBtn"), `unblockFromProfile('${esc(p.username)}')`, "act-orange"));
   } else {
-    acts.push(actionBtn("fa-user-slash", "Заблокировать", `blockFromProfile('${esc(p.username)}')`, "act-orange"));
+    acts.push(actionBtn("fa-user-slash", t("settings.blockBtn"), `blockFromProfile('${esc(p.username)}')`, "act-orange"));
   }
   document.getElementById("profileActions").innerHTML = acts.join("");
 
@@ -2359,32 +2624,33 @@ function openSettings() {
 // ---------------- SESSIONS ----------------
 async function renderSessionsSection() {
   const box = document.getElementById("sessionsSection");
-  box.innerHTML = `<div class="hint">Загрузка...</div>`;
+  box.innerHTML = `<div class="hint">${t("common.loading")}</div>`;
 
   const r = await fetch("/api/me/sessions", { headers: authHeaders() });
   const d = await r.json();
-  if (!d.ok || d.sessions.length === 0) { box.innerHTML = `<div class="hint">Пока нет истории входов</div>`; return; }
+  if (!d.ok || d.sessions.length === 0) { box.innerHTML = `<div class="hint">${t("sessions.empty")}</div>`; return; }
 
+  const localeMap = { ru: "ru-RU", uz: "uz-UZ", en: "en-US" };
   box.innerHTML = d.sessions.map(s => `
     <div class="memberrow">
       <div class="meta">
-        <div class="name">${new Date(s.createdAt).toLocaleString("ru-RU")} ${s.current ? '<span class="hint">(это устройство)</span>' : ""}</div>
-        <div class="preview">${esc(s.ip || "IP неизвестен")} · ${esc(shortenUA(s.userAgent))}</div>
+        <div class="name">${new Date(s.createdAt).toLocaleString(localeMap[currentLang] || "ru-RU")} ${s.current ? `<span class="hint">(${t("sessions.thisDevice")})</span>` : ""}</div>
+        <div class="preview">${esc(s.ip || t("sessions.ipUnknown"))} · ${esc(shortenUA(s.userAgent))}</div>
       </div>
-      ${!s.current ? `<button class="iconbtn danger" onclick="endSession(${s.id})" title="Завершить сессию"><i class="fa-solid fa-power-off"></i></button>` : ""}
+      ${!s.current ? `<button class="iconbtn danger" onclick="endSession(${s.id})" title="${t("sessions.endSession")}"><i class="fa-solid fa-power-off"></i></button>` : ""}
     </div>
   `).join("");
 }
 async function endSession(id) {
-  if (!confirm("Завершить эту сессию? Устройство будет разлогинено.")) return;
+  if (!confirm(t("sessions.confirmEnd"))) return;
   const r = await fetch(`/api/me/sessions/${id}`, { method: "DELETE", headers: authHeaders() });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка");
-  toast("Сессия завершена");
+  if (!d.ok) return alert(d.error || t("common.error"));
+  toast(t("sessions.ended"));
   renderSessionsSection();
 }
 function shortenUA(ua) {
-  if (!ua) return "устройство неизвестно";
+  if (!ua) return t("sessions.unknownDevice");
   if (ua.includes("iPhone")) return "iPhone";
   if (ua.includes("Android")) return "Android";
   if (ua.includes("Macintosh")) return "Mac";
@@ -2406,7 +2672,7 @@ function renderPrivacySection() {
   const giftsPrivacy = s.giftsPrivacy || "everyone";
 
   const opt = (value, current) => `<option value="${value}" ${value === current ? "selected" : ""}>${
-    value === "everyone" ? "Все" : value === "friends" ? "Только друзья" : "Никто"
+    value === "everyone" ? t("privacy.everyone") : value === "friends" ? t("privacy.friendsOnly") : t("privacy.nobody")
   }</option>`;
   const row = (id, label, current) => `
     <label>${label}</label>
@@ -2416,15 +2682,15 @@ function renderPrivacySection() {
   `;
 
   box.innerHTML = `
-    ${row("privStoryPrivacy", "Кому показывать мои истории", storyPrivacy)}
-    ${row("privBioPrivacy", "Кому показывать мою анкету (bio)", bioPrivacy)}
-    ${row("privLastSeenPrivacy", "Кому показывать, когда я был(а) в сети", lastSeenPrivacy)}
-    ${row("privBirthdayPrivacy", "Кому показывать день рождения", birthdayPrivacy)}
-    ${row("privPhotoPrivacy", "Кому показывать фото профиля", photoPrivacy)}
-    ${row("privForwardPrivacy", "Кто может пересылать мои сообщения", forwardPrivacy)}
-    ${row("privCallsPrivacy", "Кто может мне звонить", callsPrivacy)}
-    ${row("privGiftsPrivacy", "Кто может дарить мне подарки", giftsPrivacy)}
-    <div class="hint">«Друзья» — это список ниже. @username всегда виден всем, иначе поиск и переписка перестанут работать.</div>
+    ${row("privStoryPrivacy", t("privacy.stories"), storyPrivacy)}
+    ${row("privBioPrivacy", t("privacy.bio"), bioPrivacy)}
+    ${row("privLastSeenPrivacy", t("privacy.lastSeen"), lastSeenPrivacy)}
+    ${row("privBirthdayPrivacy", t("privacy.birthday"), birthdayPrivacy)}
+    ${row("privPhotoPrivacy", t("privacy.photo"), photoPrivacy)}
+    ${row("privForwardPrivacy", t("privacy.forward"), forwardPrivacy)}
+    ${row("privCallsPrivacy", t("privacy.calls"), callsPrivacy)}
+    ${row("privGiftsPrivacy", t("privacy.gifts"), giftsPrivacy)}
+    <div class="hint">${t("privacy.hint")}</div>
   `;
 }
 
@@ -2450,15 +2716,15 @@ async function renderFriendsSection() {
   box.innerHTML = `
     <div class="row">
       <input id="addFriendInput" placeholder="@username">
-      <button class="btn ghost" onclick="addFriend()">Добавить</button>
+      <button class="btn ghost" onclick="addFriend()">${t("settings.add")}</button>
     </div>
-    <div id="friendsList" class="hint">Загрузка...</div>
+    <div id="friendsList" class="hint">${t("common.loading")}</div>
   `;
 
   const r = await fetch("/api/friends", { headers: authHeaders() });
   const d = await r.json();
   const list = document.getElementById("friendsList");
-  if (!d.ok || d.friends.length === 0) { list.innerHTML = `<div class="hint">Список друзей пуст</div>`; return; }
+  if (!d.ok || d.friends.length === 0) { list.innerHTML = `<div class="hint">${t("settings.emptyFriends")}</div>`; return; }
 
   list.innerHTML = d.friends.map(f => `
     <div class="memberrow">
@@ -2467,7 +2733,7 @@ async function renderFriendsSection() {
         <div class="name">${nameHtml(f)}</div>
         <div class="preview">@${esc(f.username)}</div>
       </div>
-      <button class="iconbtn" onclick="removeFriend('${esc(f.username)}')" title="Убрать"><i class="fa-solid fa-user-minus"></i></button>
+      <button class="iconbtn" onclick="removeFriend('${esc(f.username)}')" title="${t("settings.removeBtn")}"><i class="fa-solid fa-user-minus"></i></button>
     </div>
   `).join("");
 }
@@ -2481,7 +2747,7 @@ async function addFriend() {
     body: JSON.stringify({ username })
   });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка");
+  if (!d.ok) return alert(d.error || t("common.error"));
   renderFriendsSection();
 }
 
@@ -2494,12 +2760,12 @@ async function removeFriend(username) {
 async function renderContactsSection() {
   const box = document.getElementById("contactsSection");
   if (!box) return;
-  box.innerHTML = `<div class="hint">Загрузка...</div>`;
+  box.innerHTML = `<div class="hint">${t("common.loading")}</div>`;
 
   const r = await fetch("/api/contacts", { headers: authHeaders() });
   const d = await r.json();
   if (!d.ok || d.contacts.length === 0) {
-    box.innerHTML = `<div class="hint">Пока нет сохранённых контактов. Открой чей-нибудь профиль и нажми «Контакт», чтобы сохранить.</div>`;
+    box.innerHTML = `<div class="hint">${t("contact.empty")}</div>`;
     return;
   }
 
@@ -2510,8 +2776,8 @@ async function renderContactsSection() {
         <div class="name">${esc(c.contactName)}</div>
         <div class="preview">@${esc(c.username)}${c.note ? " · " + esc(c.note) : ""}</div>
       </div>
-      <button class="iconbtn" onclick="openSaveContactModal('${esc(c.username)}','${esc(c.contactName).replace(/'/g, "&#39;")}','${esc(c.note).replace(/'/g, "&#39;")}')" title="Изменить"><i class="fa-solid fa-pen"></i></button>
-      <button class="iconbtn" onclick="deleteContact('${esc(c.username)}')" title="Удалить"><i class="fa-solid fa-trash"></i></button>
+      <button class="iconbtn" onclick="openSaveContactModal('${esc(c.username)}','${esc(c.contactName).replace(/'/g, "&#39;")}','${esc(c.note).replace(/'/g, "&#39;")}')" title="${t("common.edit")}"><i class="fa-solid fa-pen"></i></button>
+      <button class="iconbtn" onclick="deleteContact('${esc(c.username)}')" title="${t("common.delete")}"><i class="fa-solid fa-trash"></i></button>
     </div>
   `).join("");
 }
@@ -2530,7 +2796,7 @@ async function submitSaveContact() {
   const username = document.getElementById("saveContactUsername").value;
   const name = document.getElementById("saveContactName").value.trim();
   const note = document.getElementById("saveContactNote").value.trim();
-  if (!name) return alert("Введи имя контакта");
+  if (!name) return alert(t("contact.needName"));
 
   const r = await fetch("/api/contacts", {
     method: "POST",
@@ -2538,20 +2804,22 @@ async function submitSaveContact() {
     body: JSON.stringify({ username, name, note })
   });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка");
+  if (!d.ok) return alert(d.error || t("common.error"));
 
   closeSaveContactModal();
-  toast(`Контакт «${name}» сохранён ✅`);
+  toast(`${t("contact.name")} «${name}» ${t("contact.saved")} ✅`);
   renderContactsSection();
 }
 async function deleteContact(username) {
-  if (!confirm("Удалить контакт?")) return;
+  if (!confirm(t("contact.confirmDelete"))) return;
   await fetch(`/api/contacts/${encodeURIComponent(username)}`, { method: "DELETE", headers: authHeaders() });
   renderContactsSection();
 }
 
 // ---------------- ПОЛИТИКА ИСПОЛЬЗОВАНИЯ / КОНФИДЕНЦИАЛЬНОСТИ ----------------
-const LEGAL_TERMS_TEXT = `Условия использования One Messenger
+const LEGAL_TEXT = {
+  ru: {
+    terms: `Условия использования One Messenger
 
 1. Общие положения
 One Messenger — мессенджер для обмена сообщениями, звонков и медиа. Регистрируясь, ты подтверждаешь, что тебе не менее 13 лет и ты принимаешь эти условия.
@@ -2575,9 +2843,8 @@ One Messenger — мессенджер для обмена сообщениям�
 Мы можем обновлять эти условия. О существенных изменениях сообщим через уведомление в приложении.
 
 8. Контакты
-По любым вопросам — через раздел «Поддержка» внутри приложения.`;
-
-const LEGAL_PRIVACY_TEXT = `Политика конфиденциальности One Messenger
+По любым вопросам — через раздел «Поддержка» внутри приложения.`,
+    privacy: `Политика конфиденциальности One Messenger
 
 1. Какие данные мы собираем
 Юзернейм, отображаемое имя, био, дата рождения (опционально), аватар; текст и медиа (фото, видео, голосовые, файлы, геометки) отправляемых сообщений; служебные данные — время отправки/прочтения, IP-адрес и user-agent сессий входа (для защиты аккаунта).
@@ -2607,46 +2874,186 @@ const LEGAL_PRIVACY_TEXT = `Политика конфиденциальност�
 Мы можем обновлять эту политику. О существенных изменениях сообщим через уведомление в приложении.
 
 10. Контакты
-По вопросам, связанным с персональными данными — через раздел «Поддержка» внутри приложения.`;
+По вопросам, связанным с персональными данными — через раздел «Поддержка» внутри приложения.`
+  },
+  uz: {
+    terms: `One Messenger foydalanish shartlari
+
+1. Umumiy qoidalar
+One Messenger — xabar almashish, qo'ng'iroqlar va media uchun messenjer. Ro'yxatdan o'tish orqali siz kamida 13 yoshda ekaningizni va ushbu shartlarni qabul qilishingizni tasdiqlaysiz.
+
+2. Hisob
+Foydalanuvchi nomi va parolni o'zingiz tanlaysiz. Parolning xavfsizligi va hisobingiz orqali sodir bo'ladigan barcha harakatlar uchun javobgarlik sizda. Sozlamalarda ikki bosqichli autentifikatsiyani yoqishni tavsiya qilamiz.
+
+3. Xatti-harakat qoidalari
+Taqiqlangan: spam va keraksiz xabarlar yuborish, tahdid va bezorilik, noqonuniy kontent joylashtirish, boshqa shaxs sifatida ko'rinish, xizmatni buzishga urinish. Qoidabuzarlik uchun administratsiya ogohlantirishsiz kontentni o'chirish, hisobni cheklash (mute) yoki bloklash (ban) huquqiga ega.
+
+4. Qurilma ruxsatlari
+Ilova kamera va mikrofonga kirishni so'rashi mumkin — foto/video xabarlar, doira shaklidagi video xabarlar hamda audio/video qo'ng'iroqlar uchun; bildirishnomalarga — yangi xabarlar va kiruvchi qo'ng'iroqlar haqida push-bildirishnoma yuborish uchun (FaceTime kabi kiruvchi qo'ng'iroq ekraniga o'xshash); geolokatsiyaga — faqat siz xaritada nuqta yuborishga qaror qilganingizda. Bularning hech biri sizning bevosita amalingizsiz yoqilmaydi va istalgan vaqtda brauzer/qurilma sozlamalarida ruxsatlarni bekor qilishingiz mumkin.
+
+5. Kontent
+Siz joylashtirgan kontentga bo'lgan huquqlaringiz sizda qoladi, ammo unga to'liq javobgarlik ham sizda. Administratsiya qoidabuzarlik yuz berganda alohida xabarni yoki butun hisobni o'chirishi mumkin.
+
+6. Javobgarlikni cheklash
+Xizmat "bor holicha" taqdim etiladi. Biz barqaror ishlashga harakat qilamiz, biroq nosozliklar yoki ma'lumot yo'qolishining oldini to'liq kafolatlay olmaymiz.
+
+7. Shartlardagi o'zgarishlar
+Biz ushbu shartlarni yangilashimiz mumkin. Muhim o'zgarishlar haqida ilova ichida bildirishnoma orqali xabar beramiz.
+
+8. Aloqa
+Har qanday savol bo'yicha — ilovadagi «Qo'llab-quvvatlash» bo'limi orqali.`,
+    privacy: `One Messenger maxfiylik siyosati
+
+1. Biz qanday ma'lumotlarni to'playmiz
+Foydalanuvchi nomi, ko'rsatiladigan ism, bio, tug'ilgan sana (ixtiyoriy), avatar; yuborilgan xabarlarning matni va mediasi (foto, video, ovozli xabarlar, fayllar, geometkalar); xizmat ma'lumotlari — yuborilgan/o'qilgan vaqti, kirish seanslarining IP-manzili va user-agent (hisobni himoya qilish uchun).
+
+2. Ma'lumotlardan qanday foydalanamiz
+Messenjer funksiyalarining ishlashi (xabarlarni yetkazish, qo'ng'iroqlar, bildirishnomalar, hikoyalar) uchun, hisobni ruxsatsiz kirishdan himoya qilish va qo'llab-quvvatlash xizmatiga javob berish uchun.
+
+3. Media saqlash
+Foto, video va ovozli xabarlar serverda saqlanadi va faqat yozishma ishtirokchilariga ochiq.
+
+4. Administratsiya kirishi
+Moderatorlar alohida, qo'shimcha tasdiqlash kodisiz foydalanuvchi profili yoki yozishmasini ocha olmaydi — administrator panelga oddiy kirish buning uchun yetarli emas.
+
+5. Uchinchi shaxslarga uzatish
+Biz sizning ma'lumotlaringizni sotmaymiz va qonun tomonidan aniq belgilangan holatlar bundan mustasno, uchinchi shaxslarga uzatmaymiz.
+
+6. Sizning huquqlaringiz
+Istalgan vaqtda qo'llab-quvvatlash orqali o'z ma'lumotlaringiz ro'yxatini so'rashingiz yoki hisobingizni barcha ma'lumotlar bilan butunlay o'chirishingiz mumkin — Sozlamalar → Hisob → Hisobni o'chirish. O'chirish qaytarib bo'lmaydi.
+
+7. Xavfsizlik
+Parollar xeshlangan holda saqlanadi (bcrypt), ikki bosqichli autentifikatsiya (TOTP) mavjud.
+
+8. Yosh cheklovi
+Xizmatdan kamida 13 yoshli yoki yashash mamlakati qonunchiligida belgilangan yoshdan katta shaxslar foydalanishi mumkin.
+
+9. Siyosatdagi o'zgarishlar
+Biz ushbu siyosatni yangilashimiz mumkin. Muhim o'zgarishlar haqida ilova ichida bildirishnoma orqali xabar beramiz.
+
+10. Aloqa
+Shaxsiy ma'lumotlar bilan bog'liq savollar bo'yicha — ilovadagi «Qo'llab-quvvatlash» bo'limi orqali.`
+  },
+  en: {
+    terms: `One Messenger Terms of Use
+
+1. General
+One Messenger is a messenger app for chatting, calls and media sharing. By registering, you confirm you are at least 13 years old and accept these terms.
+
+2. Account
+You choose your own username and password. You are responsible for keeping your password safe and for everything that happens through your account. We recommend enabling two-factor authentication in Settings.
+
+3. Rules of conduct
+Prohibited: spam and mass unwanted messaging, threats and harassment, posting illegal content, impersonating another person, attempting to hack the service. For violations, the administration may remove content, restrict (mute) or block (ban) an account without prior notice.
+
+4. Device permissions
+The app may request access to the camera and microphone — for photo/video messages, round video messages and audio/video calls; to notifications — to send push notifications about new messages and incoming calls (similar to an incoming-call screen, like FaceTime); to location — only when you choose to send a location pin. None of this is enabled without an action initiated by you, and you can revoke permissions at any time in your browser/device settings.
+
+5. Content
+You retain rights to the content you post, but you are fully responsible for it. The administration may remove an individual message or an entire account for rule violations.
+
+6. Limitation of liability
+The service is provided "as is". We strive for stable operation but do not guarantee against outages or data loss.
+
+7. Changes to these terms
+We may update these terms. We'll notify you of significant changes via an in-app notification.
+
+8. Contact
+For any questions — via the "Support" section inside the app.`,
+    privacy: `One Messenger Privacy Policy
+
+1. What data we collect
+Username, display name, bio, birth date (optional), avatar; the text and media (photos, videos, voice messages, files, location pins) of messages you send; service data — send/read timestamps, IP address and user-agent of login sessions (for account security).
+
+2. How we use your data
+To operate the messenger's features (delivering messages, calls, notifications, stories), to protect your account from unauthorized access, and to respond to support requests.
+
+3. Media storage
+Photos, videos and voice messages are stored on the server and are only accessible to the participants of that conversation.
+
+4. Administration access
+Moderators cannot open a user's profile or conversation without a separate, additional confirmation code — a regular login to the admin panel is not enough.
+
+5. Sharing with third parties
+We do not sell or share your data with third parties, except where explicitly required by law.
+
+6. Your rights
+At any time you can request a list of your data via Support, or permanently delete your account along with all data — Settings → Account → Delete account. Deletion is irreversible.
+
+7. Security
+Passwords are stored hashed (bcrypt); two-factor authentication (TOTP) is available.
+
+8. Age restriction
+The service may be used by individuals at least 13 years old, or older where required by the laws of their country of residence.
+
+9. Changes to this policy
+We may update this policy. We'll notify you of significant changes via an in-app notification.
+
+10. Contact
+For questions related to personal data — via the "Support" section inside the app.`
+  }
+};
+
+let legalLang = localStorage.getItem("legalLang") || currentLang || "ru";
+let legalTab = "terms";
 
 function renderLegalSection() {
   const box = document.getElementById("legalSection");
   if (!box) return;
   const accepted = !!(me && me.tosAcceptedAt);
+  const localeMap = { ru: "ru-RU", uz: "uz-UZ", en: "en-US" };
   box.innerHTML = `
     <div class="row">
-      <button class="btn ghost full" onclick="openLegalModal('terms')">Условия использования</button>
+      <button class="btn ghost full" onclick="openLegalModal('terms')">${t("legal.tabTerms")}</button>
     </div>
     <div class="row">
-      <button class="btn ghost full" onclick="openLegalModal('privacy')">Политика конфиденциальности</button>
+      <button class="btn ghost full" onclick="openLegalModal('privacy')">${t("legal.tabPrivacy")}</button>
     </div>
     ${accepted
-      ? `<div class="hint">✅ Принято ${new Date(me.tosAcceptedAt).toLocaleDateString("ru-RU")}</div>`
-      : `<div class="hint" style="color:#ff8a3d">⚠️ Ты ещё не принял(а) политику условий</div>
-         <button class="btn primary full" onclick="acceptTerms()">Принять</button>`}
+      ? `<div class="hint">✅ ${t("legal.accepted")} ${new Date(me.tosAcceptedAt).toLocaleDateString(localeMap[currentLang] || "ru-RU")}</div>`
+      : `<div class="hint" style="color:#ff8a3d">⚠️ ${t("legal.notAccepted")}</div>
+         <button class="btn primary full" onclick="acceptTerms()">${t("legal.accept")}</button>`}
   `;
 }
 function openLegalModal(tab) {
-  document.getElementById("legalTermsBody").textContent = LEGAL_TERMS_TEXT;
-  document.getElementById("legalPrivacyBody").textContent = LEGAL_PRIVACY_TEXT;
-  switchLegalTab(tab || "terms");
+  legalTab = tab || "terms";
+  legalLang = currentLang || legalLang || "ru";
+  renderLegalBody();
   document.getElementById("legalModal").classList.remove("hidden");
 }
 function closeLegalModal() {
   document.getElementById("legalModal").classList.add("hidden");
 }
 function switchLegalTab(tab) {
-  document.getElementById("legalTabTerms").classList.toggle("active", tab === "terms");
-  document.getElementById("legalTabPrivacy").classList.toggle("active", tab === "privacy");
-  document.getElementById("legalTermsBody").classList.toggle("hidden", tab !== "terms");
-  document.getElementById("legalPrivacyBody").classList.toggle("hidden", tab !== "privacy");
+  legalTab = tab;
+  renderLegalBody();
+}
+function switchLegalLang(lang) {
+  legalLang = lang;
+  localStorage.setItem("legalLang", lang);
+  renderLegalBody();
+}
+function renderLegalBody() {
+  const lt = LEGAL_TEXT[legalLang] || LEGAL_TEXT.ru;
+  document.getElementById("legalTermsBody").textContent = lt.terms;
+  document.getElementById("legalPrivacyBody").textContent = lt.privacy;
+  document.getElementById("legalTabTerms").classList.toggle("active", legalTab === "terms");
+  document.getElementById("legalTabPrivacy").classList.toggle("active", legalTab === "privacy");
+  document.getElementById("legalTermsBody").classList.toggle("hidden", legalTab !== "terms");
+  document.getElementById("legalPrivacyBody").classList.toggle("hidden", legalTab !== "privacy");
+  const ruBtn = document.getElementById("legalLangRu");
+  const uzBtn = document.getElementById("legalLangUz");
+  const enBtn = document.getElementById("legalLangEn");
+  if (ruBtn) ruBtn.classList.toggle("active", legalLang === "ru");
+  if (uzBtn) uzBtn.classList.toggle("active", legalLang === "uz");
+  if (enBtn) enBtn.classList.toggle("active", legalLang === "en");
 }
 async function acceptTerms() {
   const r = await fetch("/api/me/accept-terms", { method: "POST", headers: authHeaders() });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка");
+  if (!d.ok) return alert(d.error || t("common.error"));
   me.tosAcceptedAt = d.tosAcceptedAt;
-  toast("Спасибо! Политика принята ✅");
+  toast(t("legal.acceptedToast"));
   renderLegalSection();
 }
 
@@ -2657,15 +3064,15 @@ async function renderBlacklistSection() {
   box.innerHTML = `
     <div class="row">
       <input id="addBlockedInput" placeholder="@username">
-      <button class="btn ghost" onclick="addToBlacklist()">Заблокировать</button>
+      <button class="btn ghost" onclick="addToBlacklist()">${t("settings.blockBtn")}</button>
     </div>
-    <div id="blockedList" class="hint">Загрузка...</div>
+    <div id="blockedList" class="hint">${t("common.loading")}</div>
   `;
 
   const r = await fetch("/api/me/blocked", { headers: authHeaders() });
   const d = await r.json();
   const list = document.getElementById("blockedList");
-  if (!d.ok || d.blocked.length === 0) { list.innerHTML = `<div class="hint">Чёрный список пуст</div>`; return; }
+  if (!d.ok || d.blocked.length === 0) { list.innerHTML = `<div class="hint">${t("settings.emptyBlacklist")}</div>`; return; }
 
   list.innerHTML = d.blocked.map(f => `
     <div class="memberrow">
@@ -2674,7 +3081,7 @@ async function renderBlacklistSection() {
         <div class="name">${nameHtml(f)}</div>
         <div class="preview">@${esc(f.username)}</div>
       </div>
-      <button class="iconbtn" onclick="removeFromBlacklist('${esc(f.username)}')" title="Разблокировать"><i class="fa-solid fa-user-check"></i></button>
+      <button class="iconbtn" onclick="removeFromBlacklist('${esc(f.username)}')" title="${t("settings.unblockBtn")}"><i class="fa-solid fa-user-check"></i></button>
     </div>
   `).join("");
 }
@@ -2688,7 +3095,7 @@ async function addToBlacklist() {
     body: JSON.stringify({ username })
   });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка");
+  if (!d.ok) return alert(d.error || t("common.error"));
   renderBlacklistSection();
   renderFriendsSection();
 }
@@ -2703,19 +3110,19 @@ function renderUsernameSection() {
   const box = document.getElementById("usernameSection");
   if (!box) return;
   box.innerHTML = `
-    <div class="hint">Текущий юзернейм: @${esc(me.username)}</div>
-    <label>Новый юзернейм</label>
+    <div class="hint">${t("username.current")}: @${esc(me.username)}</div>
+    <label>${t("username.new")}</label>
     <input id="newUsernameInput" placeholder="new_username">
-    <label>Пароль (для подтверждения)</label>
+    <label>${t("username.passwordConfirm")}</label>
     <input id="usernameChangePassword" type="password">
-    <button class="btn ghost full" onclick="changeUsername()">Изменить юзернейм</button>
+    <button class="btn ghost full" onclick="changeUsername()">${t("username.changeBtn")}</button>
   `;
 }
 
 async function changeUsername() {
   const username = document.getElementById("newUsernameInput").value.trim().replace(/^@+/, "").toLowerCase();
   const password = document.getElementById("usernameChangePassword").value;
-  if (!username || !password) return alert("Заполни оба поля");
+  if (!username || !password) return alert(t("username.fillBoth"));
 
   const r = await fetch("/api/me/username", {
     method: "POST",
@@ -2723,11 +3130,11 @@ async function changeUsername() {
     body: JSON.stringify({ username, password })
   });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка смены юзернейма");
+  if (!d.ok) return alert(d.error || t("username.changeError"));
 
   if (d.token) localStorage.setItem("token", d.token);
   me = { ...me, ...d.profile };
-  toast("Юзернейм изменён на @" + me.username + " ✅");
+  toast(t("username.changed") + " @" + me.username + " ✅");
   renderUsernameSection();
   updateHeader();
   location.reload();
@@ -2740,18 +3147,18 @@ async function renderGoogleSection() {
 
   const r = await fetch("/api/me/google", { headers: authHeaders() });
   const d = await r.json();
-  if (!d.ok) { box.innerHTML = `<div class="hint">Не удалось загрузить</div>`; return; }
+  if (!d.ok) { box.innerHTML = `<div class="hint">${t("google.loadFailed")}</div>`; return; }
 
   if (d.linked) {
     box.innerHTML = `
-      <div class="hint">Привязан аккаунт: ${esc(d.email)}</div>
-      <button class="btn ghost full" onclick="unlinkGoogle()"><i class="fa-brands fa-google"></i> Отвязать Google-аккаунт</button>
+      <div class="hint">${t("google.linkedAs")}: ${esc(d.email)}</div>
+      <button class="btn ghost full" onclick="unlinkGoogle()"><i class="fa-brands fa-google"></i> ${t("google.unlink")}</button>
     `;
     return;
   }
 
   box.innerHTML = `
-    <div class="hint">Привяжи Google-аккаунт, чтобы можно было входить в @${esc(me.username)} через Google.</div>
+    <div class="hint">${t("google.linkHint")} @${esc(me.username)} ${t("google.viaGoogle")}</div>
     <div id="googleLinkBtn"></div>
   `;
 
@@ -2767,7 +3174,7 @@ async function initGoogleLinkButton() {
   const d = await r.json();
   const container = document.getElementById("googleLinkBtn");
   if (!container) return;
-  if (!d.ok || !d.clientId) { container.innerHTML = `<div class="hint">Google-вход пока не настроен на сервере</div>`; return; }
+  if (!d.ok || !d.clientId) { container.innerHTML = `<div class="hint">${t("google.notConfigured")}</div>`; return; }
 
   google.accounts.id.initialize({ client_id: d.clientId, callback: onGoogleLinkCredential });
   google.accounts.id.renderButton(container, { theme: "outline", size: "large", shape: "pill", text: "continue_with", width: 260 });
@@ -2780,39 +3187,39 @@ async function onGoogleLinkCredential(response) {
     body: JSON.stringify({ credential: response.credential })
   });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Не получилось привязать Google-аккаунт");
-  toast("Google-аккаунт привязан ✅");
+  if (!d.ok) return alert(d.error || t("google.linkFailed"));
+  toast(t("google.linked"));
   renderGoogleSection();
 }
 
 async function unlinkGoogle() {
-  if (!confirm("Отвязать Google-аккаунт? Вход по Google для этого профиля перестанет работать.")) return;
+  if (!confirm(t("google.confirmUnlink"))) return;
   await fetch("/api/me/google", { method: "DELETE", headers: authHeaders() });
-  toast("Google-аккаунт отвязан");
+  toast(t("google.unlinked"));
   renderGoogleSection();
 }
 
 // ---------------- DELETE ACCOUNT ----------------
 function renderDeleteAccountSection() {
   const box = document.getElementById("deleteAccountSection");
-  box.innerHTML = `<button class="btn small-link" onclick="revealDeleteAccountForm()">Удалить аккаунт навсегда</button>`;
+  box.innerHTML = `<button class="btn small-link" onclick="revealDeleteAccountForm()">${t("deleteAcc.deleteBtn")}</button>`;
 }
 
 function revealDeleteAccountForm() {
   const box = document.getElementById("deleteAccountSection");
   box.innerHTML = `
-    <div class="hint">Это необратимо: удалятся твой профиль, все сообщения и участие в группах/каналах. Подтверди паролем.</div>
-    <label>Пароль</label>
+    <div class="hint">${t("deleteAcc.warning")}</div>
+    <label>${t("deleteAcc.password")}</label>
     <input id="deleteAccountPassword" type="password">
-    <button class="btn danger full" onclick="confirmDeleteAccount()">Подтвердить удаление</button>
-    <button class="btn ghost full" onclick="renderDeleteAccountSection()">Отмена</button>
+    <button class="btn danger full" onclick="confirmDeleteAccount()">${t("deleteAcc.confirmBtn")}</button>
+    <button class="btn ghost full" onclick="renderDeleteAccountSection()">${t("common.cancel")}</button>
   `;
 }
 
 async function confirmDeleteAccount() {
   const password = document.getElementById("deleteAccountPassword").value;
-  if (!password) return alert("Введи пароль");
-  if (!confirm("Точно удалить аккаунт навсегда? Это нельзя отменить.")) return;
+  if (!password) return alert(t("deleteAcc.enterPassword"));
+  if (!confirm(t("deleteAcc.confirmFinal"))) return;
 
   const r = await fetch("/api/me", {
     method: "DELETE",
@@ -2820,7 +3227,7 @@ async function confirmDeleteAccount() {
     body: JSON.stringify({ password })
   });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка удаления");
+  if (!d.ok) return alert(d.error || t("deleteAcc.deleteError"));
 
   localStorage.removeItem("token");
   location.href = "index.html";
@@ -3003,32 +3410,32 @@ function renderProfileHeaderSection() {
   const pattern = s.headerPattern || "";
 
   box.innerHTML = `
-    <div class="hint">Цвет и узор шапки твоего профиля — их видят все, кто открывает твою страницу.</div>
+    <div class="hint">${t("settings.headerHint")}</div>
     <div class="hdpreview" id="hdPreviewBox"></div>
 
-    <label>Цвет сверху</label>
+    <label>${t("settings.headerTop")}</label>
     <div class="swatchrow">
       ${HEADER_COLOR_PRESETS.map(c => `
         <button class="colorswatch ${top === c ? "active" : ""}" style="background:${c}" onclick="pickHeaderColor('top','${c}')"></button>
       `).join("")}
     </div>
 
-    <label>Цвет снизу</label>
+    <label>${t("settings.headerBottom")}</label>
     <div class="swatchrow">
       ${HEADER_COLOR_PRESETS.map(c => `
         <button class="colorswatch ${bottom === c ? "active" : ""}" style="background:${c}" onclick="pickHeaderColor('bottom','${c}')"></button>
       `).join("")}
     </div>
 
-    <label>Узор фона</label>
+    <label>${t("settings.headerPattern")}</label>
     <div class="statusgrid">
       ${HEADER_PATTERN_PRESETS.map(p => `
         <button class="statusbtn ${pattern === p.e ? "active" : ""}" title="${esc(p.label)}" onclick="pickHeaderPattern('${esc(p.e)}')">${p.e || '<i class="fa-solid fa-ellipsis"></i>'}</button>
       `).join("")}
     </div>
     <div class="row">
-      <input id="customHeaderPatternInput" maxlength="4" placeholder="Свой эмодзи">
-      <button class="btn ghost" onclick="pickHeaderPattern(document.getElementById('customHeaderPatternInput').value)">Поставить</button>
+      <input id="customHeaderPatternInput" maxlength="4" placeholder="${t("settings.customEmoji")}">
+      <button class="btn ghost" onclick="pickHeaderPattern(document.getElementById('customHeaderPatternInput').value)">${t("settings.set")}</button>
     </div>
   `;
   applyProfileHeader(document.getElementById("hdPreviewBox"), { headerTop: top, headerBottom: bottom, headerPattern: pattern });
@@ -3039,7 +3446,7 @@ async function pickHeaderColor(which, color) {
 }
 async function pickHeaderPattern(e) {
   const d = await saveSettingsPatch({ headerPattern: e || "" });
-  if (d && d.ok) toast(e ? `Узор ${e} установлен` : "Узор сброшен");
+  if (d && d.ok) toast(e ? `${t("settings.headerPattern")}: ${e}` : t("settings.patternReset"));
   renderProfileHeaderSection();
 }
 
@@ -3049,20 +3456,20 @@ function renderEmojiStatusSection() {
   if (!box) return;
   const cur = (me.settings || {}).emojiStatus || "";
   box.innerHTML = `
-    <div class="hint">Значок рядом с твоим именем — его видят все в чатах и в профиле.</div>
+    <div class="hint">${t("settings.emojiStatusHint")}</div>
     <div class="statusgrid">
-      <button class="statusbtn ${!cur ? "active" : ""}" onclick="pickEmojiStatus('')" title="Без статуса"><i class="fa-solid fa-ban"></i></button>
+      <button class="statusbtn ${!cur ? "active" : ""}" onclick="pickEmojiStatus('')" title="${t("settings.noStatus")}"><i class="fa-solid fa-ban"></i></button>
       ${STATUS_EMOJIS.map(e => `<button class="statusbtn ${cur === e ? "active" : ""}" onclick="pickEmojiStatus('${e}')">${e}</button>`).join("")}
     </div>
     <div class="row">
-      <input id="customStatusInput" maxlength="8" placeholder="Свой эмодзи" value="${esc(cur)}">
-      <button class="btn ghost" onclick="pickEmojiStatus(document.getElementById('customStatusInput').value)">Поставить</button>
+      <input id="customStatusInput" maxlength="8" placeholder="${t("settings.customEmoji")}" value="${esc(cur)}">
+      <button class="btn ghost" onclick="pickEmojiStatus(document.getElementById('customStatusInput').value)">${t("settings.set")}</button>
     </div>
   `;
 }
 async function pickEmojiStatus(e) {
   const d = await saveSettingsPatch({ emojiStatus: e });
-  if (d && d.ok) toast(e ? `Статус ${e} установлен` : "Статус убран");
+  if (d && d.ok) toast(e ? `${t("settings.statusSetPrefix")} ${e}` : t("settings.statusRemoved"));
   renderEmojiStatusSection();
   refreshChats();
 }
@@ -3128,15 +3535,15 @@ function render2FASection() {
   const box = document.getElementById("twoFASection");
   if (me.totpEnabled) {
     box.innerHTML = `
-      <div class="hint">Двухэтапная аутентификация включена ✅</div>
-      <label>Пароль (для отключения)</label>
+      <div class="hint">${t("twofa.enabled")} ✅</div>
+      <label>${t("twofa.passwordToDisable")}</label>
       <input id="disable2FAPassword" type="password">
-      <button class="btn danger full" onclick="disable2FA()">Отключить 2FA</button>
+      <button class="btn danger full" onclick="disable2FA()">${t("twofa.disableBtn")}</button>
     `;
   } else {
     box.innerHTML = `
-      <div class="hint">Защити вход кодом из приложения-аутентификатора (Google Authenticator, Authy и т.п.)</div>
-      <button class="btn primary full" onclick="start2FASetup()">Включить 2FA</button>
+      <div class="hint">${t("twofa.hint")}</div>
+      <button class="btn primary full" onclick="start2FASetup()">${t("twofa.enableBtn")}</button>
       <div id="twoFASetupBox"></div>
     `;
   }
@@ -3145,16 +3552,16 @@ function render2FASection() {
 async function start2FASetup() {
   const r = await fetch("/api/2fa/setup", { method: "POST", headers: authHeaders() });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка");
+  if (!d.ok) return alert(d.error || t("common.error"));
 
   const box = document.getElementById("twoFASetupBox");
   box.innerHTML = `
-    <div class="hint">Отсканируй QR в приложении-аутентификаторе или введи ключ вручную:</div>
+    <div class="hint">${t("twofa.scanHint")}</div>
     <div id="totpQr" class="totpqr"></div>
     <div class="totpsecret">${esc(d.secret)}</div>
-    <label>Код из приложения</label>
+    <label>${t("twofa.codeFromApp")}</label>
     <input id="confirm2FACode" inputmode="numeric" maxlength="6" placeholder="000000">
-    <button class="btn primary full" onclick="confirm2FASetup()">Подтвердить и включить</button>
+    <button class="btn primary full" onclick="confirm2FASetup()">${t("twofa.confirmBtn")}</button>
   `;
 
   if (window.QRCode) {
@@ -3170,10 +3577,10 @@ async function confirm2FASetup() {
     body: JSON.stringify({ code })
   });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Неверный код");
+  if (!d.ok) return alert(d.error || t("twofa.badCode"));
 
   me.totpEnabled = true;
-  toast("2FA включена ✅");
+  toast(t("twofa.enabledToast"));
   render2FASection();
 }
 
@@ -3185,10 +3592,10 @@ async function disable2FA() {
     body: JSON.stringify({ password })
   });
   const d = await r.json();
-  if (!d.ok) return alert(d.error || "Ошибка");
+  if (!d.ok) return alert(d.error || t("common.error"));
 
   me.totpEnabled = false;
-  toast("2FA отключена");
+  toast(t("twofa.disabledToast"));
   render2FASection();
 }
 
