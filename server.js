@@ -2633,7 +2633,10 @@ app.get("/api/admin/users", verifySuperAdmin, (req, res) => {
   );
 });
 
-app.get("/api/admin/user/:username", verifySuperAdmin, requireMsgUnlock, (req, res) => {
+// Базовая карточка профиля (для бана/мута) — открывается сразу, без пин-кода.
+// Личные данные (переписки/сессии/контакты/удаление аккаунта) — через отдельные,
+// закрытые кодом эндпоинты ниже.
+app.get("/api/admin/user/:username", verifySuperAdmin, (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   db.get(
     `SELECT username, displayName, bio, avatarUrl, birthDate, banned, muted, verified, createdAt, lastSeen FROM users WHERE username=?`,
@@ -2907,7 +2910,10 @@ app.post("/api/admin/unban/:username", verifySuperAdmin, adminSetFlag("banned", 
 app.post("/api/admin/mute/:username", verifySuperAdmin, adminSetFlag("muted", 1));
 app.post("/api/admin/unmute/:username", verifySuperAdmin, adminSetFlag("muted", 0));
 
-app.delete("/api/admin/delete/:username", verifySuperAdmin, async (req, res) => {
+// Удаление аккаунта — необратимо и затрагивает все личные данные, поэтому
+// тоже закрыто кодом разблокировки (в отличие от бана/мута — это не
+// повседневный инструмент модерации).
+app.delete("/api/admin/delete/:username", verifySuperAdmin, requireMsgUnlock, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [u]);
   if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
