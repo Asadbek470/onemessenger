@@ -30,6 +30,7 @@ module.exports = function setupCalls(ctx) {
   function dropPending(c) {
     if (!c) return;
     clearTimeout(c.timer);
+    clearInterval(c.pushTimer);
     pending.delete(c.callId);
   }
 
@@ -94,15 +95,23 @@ module.exports = function setupCalls(ctx) {
       if (online) wsSendToUser(to, { type: "call-offer", from, offer: data.offer, video, callId });
       wsSend(ws, { type: "call-ringing", to, callId, online });
 
-      // push шлём всегда: если приложение открыто, service worker его просто не покажет
+      // push шлём всегда: если приложение открыто, service worker его просто не покажет.
+      // Пока звонок звонит (до 45с), повторяем push каждые 4с — на Android это
+      // каждый раз заново включает звук/вибрацию уведомления, как настоящий рингтон,
+      // а не один короткий "дзынь".
       const card = await getUserCard(from);
       const name = card.displayName || ("@" + from);
-      pushTo(to, {
+      const ringPayload = {
         type: "call", callId, from, video,
         title: video ? "📹 Видеозвонок" : "📞 Звонок",
         body: `${name} звонит тебе`,
         url: `/chat.html?acceptCall=${callId}`
-      }).catch(() => {});
+      };
+      pushTo(to, ringPayload).catch(() => {});
+      call.pushTimer = setInterval(() => {
+        if (!pending.has(callId) || call.answered) { clearInterval(call.pushTimer); return; }
+        pushTo(to, ringPayload).catch(() => {});
+      }, 4000);
       return;
     }
 
