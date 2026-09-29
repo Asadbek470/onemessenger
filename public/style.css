@@ -1679,3 +1679,93 @@ body::before, body::after{display:none}
 
 .roundpreview-actions{display:flex;gap:10px;width:100%}
 .roundpreview-actions .btn{flex:1}
+/* ================================================================
+   One Messenger — видеосообщения-кружочки (как в Telegram)
+   + кнопки "скачать"/"переслать" на медиа-сообщениях.
+   Вставить в САМЫЙ КОНЕЦ style.css. Только CSS.
+   ================================================================ */
+
+/* ---------- Кружочек в ленте чата ---------- */
+.roundmsg{
+  position:relative;
+  width:200px;height:200px;
+  border-radius:50%;
+  overflow:hidden;
+  cursor:pointer;
+  background:#000;
+  box-shadow:0 10px 26px -14px rgba(0,0,0,.7);
+}
+.roundvid{
+  width:100%;height:100%;
+  object-fit:cover;
+  display:block;
+  pointer-events:none;
+}
+.roundplay{
+  position:absolute;inset:0;
+  display:grid;place-items:center;
+  background:rgba(0,0,0,.28);
+  color:#fff;font-size:34px;
+  transition:opacity .15s ease;
+}
+.roundmsg.playing .roundplay{opacity:0;pointer-events:none}
+
+@media (max-width:480px){
+  .roundmsg{width:160px;height:160px}
+}
+
+/* ---------- Модалка записи кружочка ---------- */
+.roundcard{
+  width:min(360px, 92vw);
+  padding:20px;
+  display:flex;flex-direction:column;align-items:center;gap:18px;
+  position:relative;
+}
+.roundclose{position:absolute;top:10px;right:10px}
+
+.roundstage{
+  position:relative;
+  width:260px;height:260px;
+  border-radius:50%;
+  overflow:hidden;
+  background:#000;
+  box-shadow:0 0 0 4px rgba(255,255,255,.06), 0 16px 40px -18px rgba(0,0,0,.85);
+}
+/* исходное видео с камеры — не показываем напрямую, оно только источник кадров для canvas */
+.roundstage video.roundsrc{
+  position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;
+}
+/* после остановки записи — предпросмотр уже готового (круглого) файла */
+.roundstage video.roundpreviewvid{
+  width:100%;height:100%;object-fit:cover;display:block;
+}
+.roundstage canvas{
+  width:100%;height:100%;display:block;
+}
+.roundtimer{
+  position:absolute;top:14px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,.55);color:#fff;
+  padding:4px 12px;border-radius:999px;
+  font-size:13px;font-weight:700;letter-spacing:.5px;
+}
+.roundflipbtn{
+  position:absolute;bottom:12px;right:12px;
+  width:38px;height:38px;border-radius:50%;
+  background:rgba(0,0,0,.5);color:#fff;border:1px solid rgba(255,255,255,.25);
+  display:grid;place-items:center;font-size:15px;
+}
+.roundflipbtn:active{transform:scale(.92)}
+
+.roundcontrols{display:flex;flex-direction:column;align-items:center;gap:14px;width:100%}
+
+.roundrecbtn{
+  width:66px;height:66px;border-radius:50%;
+  background:#ff4d4d;border:4px solid rgba(255,255,255,.85);
+  box-shadow:0 8px 20px -6px rgba(255,77,77,.6);
+  transition:transform .12s ease;
+}
+.roundrecbtn:active{transform:scale(.92)}
+.roundrecbtn.stop{border-radius:16px;width:30px;height:30px;margin:18px}
+
+.roundpreview-actions{display:flex;gap:10px;width:100%}
+.roundpreview-actions .btn{flex:1}
