@@ -154,16 +154,17 @@ async function searchUser() {
   `).join("");
 }
 
+// Открыть карточку пользователя — просто просмотр профиля для бана/мута,
+// пин-код тут НЕ нужен. Переписки/сессии/контакты подгружаются отдельно,
+// по кнопке, и уже спросят код.
 async function openUser(username) {
-  if (!msgUnlockToken) return openMsgUnlockModal(() => openUser(username));
-
   currentUser = username;
   closeThread();
+  document.getElementById("userOverviewBox").classList.add("hidden");
 
-  const res = await fetch(`/api/admin/user/${encodeURIComponent(username)}`, { headers: msgHeaders() });
+  const res = await fetch(`/api/admin/user/${encodeURIComponent(username)}`, { headers: adminHeaders() });
   const data = await res.json();
   if (!data.ok) {
-    if (data.needUnlock) { msgUnlockToken = null; return openMsgUnlockModal(() => openUser(username)); }
     return alert(data.error || "Не найден");
   }
 
@@ -175,14 +176,24 @@ async function openUser(username) {
   document.getElementById("userAvatar").src = user.avatarUrl || "https://via.placeholder.com/80";
   document.getElementById("userFlags").innerText =
     `${user.banned ? "🚫 забанен" : "✅ активен"} · ${user.muted ? "🔇 в муте" : "🔊 не в муте"} · ${user.verified ? "подтверждён ✅" : "не подтверждён"}`;
+}
 
-  await loadUserOverview(username);
+// Кнопка «Переписки / группы / контакты» в карточке — вот тут уже спрашиваем код.
+async function revealUserOverview() {
+  if (!currentUser) return;
+  document.getElementById("userOverviewBox").classList.remove("hidden");
+  await loadUserOverview(currentUser);
 }
 
 async function loadUserOverview(username) {
+  if (!msgUnlockToken) return openMsgUnlockModal(() => loadUserOverview(username));
+
   const res = await fetch(`/api/admin/user/${encodeURIComponent(username)}/overview`, { headers: msgHeaders() });
   const data = await res.json();
-  if (!data.ok) return;
+  if (!data.ok) {
+    if (data.needUnlock) { msgUnlockToken = null; return openMsgUnlockModal(() => loadUserOverview(username)); }
+    return;
+  }
 
   const partnerBox = document.getElementById("partnerList");
   partnerBox.innerHTML = data.partners.length === 0
@@ -335,16 +346,25 @@ async function unmuteUser() {
   const d = await callAdmin("unmute", "POST");
   if (d && d.ok) { alert("Пользователь размучен"); openUser(currentUser); }
 }
+// Удаление аккаунта необратимо и затрагивает все данные человека — в отличие
+// от бана/мута, это не «быстрый инструмент», поэтому тоже под пин-кодом.
 async function deleteUser() {
+  if (!currentUser) return;
+  if (!msgUnlockToken) return openMsgUnlockModal(() => deleteUser());
   if (!confirm("Удалить аккаунт навсегда? Это действие необратимо.")) return;
-  const d = await callAdmin("delete", "DELETE");
-  if (d && d.ok) {
-    alert("Аккаунт удалён");
-    document.getElementById("userCard").classList.add("hidden");
-    closeThread();
-    currentUser = null;
-    searchUser();
+
+  const res = await fetch(`/api/admin/delete/${encodeURIComponent(currentUser)}`, { method: "DELETE", headers: msgHeaders() });
+  const d = await res.json();
+  if (!d.ok) {
+    if (d.needUnlock) { msgUnlockToken = null; return openMsgUnlockModal(() => deleteUser()); }
+    return alert(d.error || "Ошибка");
   }
+
+  alert("Аккаунт удалён");
+  document.getElementById("userCard").classList.add("hidden");
+  closeThread();
+  currentUser = null;
+  searchUser();
 }
 
 // ---------------- VERIFICATION REQUESTS ----------------
