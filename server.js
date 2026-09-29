@@ -434,6 +434,8 @@ async function initSchema() {
   await addColumn("users", "lastSeen", "INTEGER NOT NULL DEFAULT 0");
   await addColumn("users", "googleSub", "TEXT NOT NULL DEFAULT ''");
   await addColumn("users", "googleEmail", "TEXT NOT NULL DEFAULT ''");
+  await addColumn("users", "tosAcceptedAt", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("users", "lastTosReminderAt", "INTEGER NOT NULL DEFAULT 0");
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS messages (
@@ -619,6 +621,19 @@ async function initSchema() {
     )
   `);
 
+  // Личные контакты — как в телефонной книге: свой ярлык (имя) на чужой
+  // юзернейм, видимый только владельцу.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      owner TEXT NOT NULL,
+      username TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (owner, username)
+    )
+  `);
+
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_msg ON messages(chatType, sender, receiver, createdAt)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_st_exp ON stories(expiresAt)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_gm_user ON group_members(username)`);
@@ -672,6 +687,7 @@ function safeUser(u) {
     birthDate: u.birthDate || "",
     verified: !!u.verified,
     totpEnabled: !!u.totpEnabled,
+    tosAcceptedAt: u.tosAcceptedAt || 0,
     settings: parseSettings(u)
   };
 }
@@ -912,12 +928,16 @@ app.post("/api/auth/register", rateLimit(10, 60 * 1000), async (req, res) => {
     return res.status(400).json({ ok: false, error: "Этот юзернейм зарезервирован системой" });
   }
   if (password.length < 6) return res.status(400).json({ ok: false, error: "Пароль минимум 6 символов" });
+  if (req.body.acceptedTerms !== true) {
+    return res.status(400).json({ ok: false, error: "Нужно принять Условия использования и Политику конфиденциальности" });
+  }
 
   const hash = await bcrypt.hash(password, 10);
+  const acceptedAt = now();
 
   db.run(
-    `INSERT INTO users (username, passwordHash, displayName, createdAt) VALUES (?,?,?,?)`,
-    [usernameRaw, hash, usernameRaw, now()],
+    `INSERT INTO users (username, passwordHash, displayName, createdAt, tosAcceptedAt) VALUES (?,?,?,?,?)`,
+    [usernameRaw, hash, usernameRaw, now(), acceptedAt],
     function (err) {
       if (err) return res.status(400).json({ ok: false, error: "Юзернейм занят" });
 
@@ -1023,6 +1043,7 @@ async function wipeUserData(u) {
   await dbRun(`DELETE FROM chat_wallpapers WHERE owner=? OR chat=?`, [u, u]);
   await dbRun(`DELETE FROM message_reads WHERE reader=?`, [u]);
   await dbRun(`DELETE FROM blocked_users WHERE owner=? OR blocked=?`, [u, u]);
+  await dbRun(`DELETE FROM contacts WHERE owner=? OR username=?`, [u, u]);
   await dbRun(`DELETE FROM users WHERE username=?`, [u]);
 }
 
@@ -1107,6 +1128,8 @@ app.post("/api/me/username", verifyAuth, rateLimit(3, 60 * 60 * 1000), async (re
     await dbRun(`UPDATE chat_wallpapers SET chat=? WHERE chat=?`, [newUsername, old]);
     await dbRun(`UPDATE birthday_log SET username=? WHERE username=?`, [newUsername, old]);
     await dbRun(`UPDATE message_reads SET reader=? WHERE reader=?`, [newUsername, old]);
+    await dbRun(`UPDATE contacts SET owner=? WHERE owner=?`, [newUsername, old]);
+    await dbRun(`UPDATE contacts SET username=? WHERE username=?`, [newUsername, old]);
   } catch (e) {
     console.error("[USERNAME CHANGE]", e.message);
     return res.status(500).json({ ok: false, error: "Ошибка смены юзернейма" });
@@ -1148,6 +1171,12 @@ async function verifyGoogleCredential(credential) {
 
   return { sub, email, name: String(payload.name || ""), picture: String(payload.picture || "") };
 }
+
+// ---------------- УСЛОВИЯ ИСПОЛЬЗОВАНИЯ / ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ ----------------
+app.post("/api/me/accept-terms", verifyAuth, async (req, res) => {
+  await dbRun(`UPDATE users SET tosAcceptedAt=?, lastTosReminderAt=0 WHERE username=?`, [now(), req.user.username]);
+  res.json({ ok: true, tosAcceptedAt: now() });
+});
 
 // ---------------- ПРИВЯЗКА / ОТВЯЗКА GOOGLE К УЖЕ СУЩЕСТВУЮЩЕМУ АККАУНТУ ----------------
 app.get("/api/me/google", verifyAuth, (req, res) => {
@@ -1192,6 +1221,10 @@ app.post("/api/auth/google", rateLimit(15, 60 * 1000), async (req, res) => {
   }
 
   if (!user) {
+    if (req.body.acceptedTerms !== true) {
+      return res.status(400).json({ ok: false, error: "Нужно принять Условия использования и Политику конфиденциальности" });
+    }
+
     let base = email.split("@")[0].toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 16) || "user";
     if (base.length < 4) base = (base + "user").slice(0, 16);
     let candidate = base, i = 0;
@@ -1206,8 +1239,8 @@ app.post("/api/auth/google", rateLimit(15, 60 * 1000), async (req, res) => {
     const displayName = String(payload.name || candidate).trim().slice(0, 40);
     const avatarUrl = String(payload.picture || "").slice(0, 300);
     await dbRun(
-      `INSERT INTO users (username, passwordHash, displayName, avatarUrl, googleSub, googleEmail, createdAt) VALUES (?,?,?,?,?,?,?)`,
-      [candidate, hash, displayName, avatarUrl, sub, email, now()]
+      `INSERT INTO users (username, passwordHash, displayName, avatarUrl, googleSub, googleEmail, createdAt, tosAcceptedAt) VALUES (?,?,?,?,?,?,?,?)`,
+      [candidate, hash, displayName, avatarUrl, sub, email, now(), now()]
     );
     user = await dbGet(`SELECT * FROM users WHERE username=?`, [candidate]);
   }
@@ -1291,6 +1324,48 @@ app.post("/api/friends", verifyAuth, async (req, res) => {
 app.delete("/api/friends/:username", verifyAuth, async (req, res) => {
   const friend = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   await dbRun(`DELETE FROM friends WHERE owner=? AND friend=?`, [req.user.username, friend]);
+  res.json({ ok: true });
+});
+
+// ---------------- ЛИЧНЫЕ КОНТАКТЫ (свой ярлык на чужой юзернейм) ----------------
+app.get("/api/contacts", verifyAuth, async (req, res) => {
+  const rows = await dbAll(
+    `SELECT c.username, c.name, c.note, c.createdAt, u.displayName, u.avatarUrl, u.verified, u.settings, u.birthDate
+     FROM contacts c JOIN users u ON u.username=c.username
+     WHERE c.owner=? ORDER BY c.name COLLATE NOCASE ASC, u.username ASC`,
+    [req.user.username]
+  );
+  res.json({
+    ok: true,
+    contacts: rows.map(r => ({
+      ...userCardFromRow(r),
+      contactName: r.name || r.displayName || r.username,
+      note: r.note || "",
+      savedAt: r.createdAt
+    }))
+  });
+});
+
+app.post("/api/contacts", verifyAuth, async (req, res) => {
+  const u = String(req.body.username || "").replace(/^@+/, "").toLowerCase();
+  const name = String(req.body.name || "").trim().slice(0, 40);
+  const note = String(req.body.note || "").trim().slice(0, 120);
+  if (!u || u === req.user.username) return res.status(400).json({ ok: false, error: "Неверный юзернейм" });
+
+  const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [u]);
+  if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+
+  await dbRun(
+    `INSERT INTO contacts (owner, username, name, note, createdAt) VALUES (?,?,?,?,?)
+     ON CONFLICT(owner, username) DO UPDATE SET name=excluded.name, note=excluded.note`,
+    [req.user.username, u, name, note, now()]
+  );
+  res.json({ ok: true });
+});
+
+app.delete("/api/contacts/:username", verifyAuth, async (req, res) => {
+  const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  await dbRun(`DELETE FROM contacts WHERE owner=? AND username=?`, [req.user.username, u]);
   res.json({ ok: true });
 });
 
@@ -2360,6 +2435,29 @@ async function runBirthdayJob() {
   }
 }
 
+const TOS_REMINDER_INTERVAL_MS = 2 * 24 * 60 * 60 * 1000; // раз в 2 дня
+const TOS_REMINDER_TEXT =
+  "📋 Пожалуйста, согласитесь с нашей Политикой условий (Условия использования и Политика конфиденциальности), " +
+  "чтобы продолжать пользоваться One Messenger без ограничений. Это можно сделать в Настройки → Аккаунт → " +
+  "Политика использования → «Принять».";
+
+async function runTosReminderJob() {
+  try {
+    const cutoff = now() - TOS_REMINDER_INTERVAL_MS;
+    const rows = await dbAll(
+      `SELECT username FROM users WHERE banned=0 AND (tosAcceptedAt IS NULL OR tosAcceptedAt=0)
+       AND (lastTosReminderAt IS NULL OR lastTosReminderAt=0 OR lastTosReminderAt<?)`,
+      [cutoff]
+    );
+    for (const u of rows) {
+      await sendSupportMessage(u.username, TOS_REMINDER_TEXT);
+      await dbRun(`UPDATE users SET lastTosReminderAt=? WHERE username=?`, [now(), u.username]);
+    }
+  } catch (e) {
+    console.error("[TOS REMINDER] job failed:", e.message);
+  }
+}
+
 // ================================================================
 // ADMIN
 // ================================================================
@@ -2401,7 +2499,7 @@ app.get("/api/admin/users", verifySuperAdmin, (req, res) => {
   );
 });
 
-app.get("/api/admin/user/:username", verifySuperAdmin, (req, res) => {
+app.get("/api/admin/user/:username", verifySuperAdmin, requireMsgUnlock, (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   db.get(
     `SELECT username, displayName, bio, avatarUrl, birthDate, banned, muted, verified, createdAt, lastSeen FROM users WHERE username=?`,
@@ -2413,7 +2511,7 @@ app.get("/api/admin/user/:username", verifySuperAdmin, (req, res) => {
   );
 });
 
-app.get("/api/admin/user/:username/overview", verifySuperAdmin, async (req, res) => {
+app.get("/api/admin/user/:username/overview", verifySuperAdmin, requireMsgUnlock, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
 
   const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [u]);
@@ -3028,4 +3126,6 @@ secretsReady.finally(() => {
   server.listen(PORT, () => console.log("Server running on", PORT));
   setTimeout(runBirthdayJob, 10 * 1000);
   setInterval(runBirthdayJob, 15 * 60 * 1000);
+  setTimeout(runTosReminderJob, 20 * 1000);
+  setInterval(runTosReminderJob, 60 * 60 * 1000);
 });
