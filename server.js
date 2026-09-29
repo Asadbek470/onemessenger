@@ -2430,7 +2430,7 @@ app.post("/api/stories", verifyAuth, singleUpload("story"), async (req, res) => 
   const text = String(req.body.text || "").trim().slice(0, 120);
 
   const createdAt = now();
-  const expiresAt = createdAt + 2 * 60 * 60 * 1000;
+  const expiresAt = createdAt + 100 * 365 * 24 * 60 * 60 * 1000; // сторис больше не удаляется сама — «вечная» (100 лет)
 
   let mediaType = "text";
   let mediaUrl = "";
