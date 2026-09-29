@@ -20,10 +20,10 @@
   <div id="passcodeOverlay" class="passcode-overlay hidden">
     <div class="passcode-box">
       <div class="logo">OM</div>
-      <h2>Введи код-пароль</h2>
+      <h2 data-i18n="passcode.enter">Введи код-пароль</h2>
       <input id="passcodeInput" type="password" inputmode="numeric" maxlength="8" autofocus onkeydown="passcodeKeydown(event)">
       <div id="passcodeError" class="passcode-error"></div>
-      <button class="btn primary full" onclick="unlockAttempt()">Разблокировать</button>
+      <button class="btn primary full" onclick="unlockAttempt()" data-i18n="passcode.unlock">Разблокировать</button>
     </div>
   </div>
 
@@ -38,7 +38,7 @@
         </div>
 
         <div class="stories">
-          <button class="story-add" onclick="openStoryComposer()" title="Добавить сторис">
+          <button class="story-add" onclick="openStoryComposer()" data-i18n-title="story.newStory" title="Добавить сторис">
             <i class="fa-solid fa-plus"></i>
           </button>
           <div id="storiesList" class="stories-list"></div>
@@ -69,7 +69,7 @@
           <div class="avatar circle"><img src="/icon-192.png" alt="OM" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:50%"></div>
           <div class="meta">
             <div class="name" data-i18n="chats.support">Поддержка</div>
-            <div class="preview">One Messenger Support</div>
+            <div class="preview" data-i18n="chats.supportSub">One Messenger Support</div>
           </div>
         </button>
 
@@ -84,7 +84,7 @@
         <div class="tghead">
           <div class="tgheadbar">
             <div class="tgheadtitle" data-i18n="profile.title">Профиль</div>
-            <button class="tgheadbtn" onclick="switchTab('settings')" title="Редактировать"><i class="fa-solid fa-pen"></i></button>
+            <button class="tgheadbtn" onclick="switchTab('settings')" data-i18n-title="profile.editProfile" title="Редактировать"><i class="fa-solid fa-pen"></i></button>
           </div>
           <div class="avatar big" id="myProfileAvatar"></div>
           <div class="tgname" id="myProfileName"></div>
@@ -111,7 +111,7 @@
         <div class="settingscategory open" data-cat="profile">
           <button type="button" class="categoryhead" onclick="toggleSettingsCategory(this)">
             <span class="cathead-icon">👤</span>
-            <span class="cathead-label">Профиль</span>
+            <span class="cathead-label" data-i18n="settings.catProfile">Профиль</span>
             <i class="fa-solid fa-chevron-down cathead-chevron"></i>
           </button>
           <div class="categorybody">
@@ -122,7 +122,7 @@
                 <input id="setDisplayName" data-i18n-placeholder="settings.displayName" placeholder="Имя" />
 
                 <label data-i18n="settings.bio">Bio</label>
-                <input id="setBio" placeholder="О себе" />
+                <input id="setBio" data-i18n-placeholder="settings.bio" placeholder="О себе" />
 
                 <label data-i18n="settings.birthDate">Дата рождения (YYYY-MM-DD)</label>
                 <input id="setBirthDate" type="date" />
@@ -130,21 +130,21 @@
                 <label data-i18n="settings.avatar">Аватар</label>
                 <div class="row">
                   <input id="setAvatarUrl" placeholder="https://..." />
-                  <button class="btn ghost" onclick="document.getElementById('avatarFileInput').click()"><i class="fa-solid fa-image"></i> Из галереи</button>
+                  <button class="btn ghost" onclick="document.getElementById('avatarFileInput').click()"><i class="fa-solid fa-image"></i> <span data-i18n="settings.fromGallery">Из галереи</span></button>
                 </div>
                 <input id="avatarFileInput" type="file" hidden accept="image/*" onchange="uploadAvatarFile(this)" />
 
-                <button class="btn primary full" onclick="saveProfile()">Сохранить профиль</button>
+                <button class="btn primary full" onclick="saveProfile()" data-i18n="settings.saveProfile">Сохранить профиль</button>
               </div>
             </div>
 
             <div class="settingsblock">
-              <div class="blocktitle">Юзернейм</div>
+              <div class="blocktitle" data-i18n="settings.username">Юзернейм</div>
               <div id="usernameSection" class="formgrid"></div>
             </div>
 
             <div class="settingsblock">
-              <div class="blocktitle">Google-аккаунт</div>
+              <div class="blocktitle" data-i18n="settings.google">Google-аккаунт</div>
               <div id="googleSection" class="formgrid"></div>
             </div>
           </div>
@@ -154,12 +154,12 @@
         <div class="settingscategory" data-cat="contacts">
           <button type="button" class="categoryhead" onclick="toggleSettingsCategory(this)">
             <span class="cathead-icon">📇</span>
-            <span class="cathead-label">Контакты</span>
+            <span class="cathead-label" data-i18n="settings.catContacts">Контакты</span>
             <i class="fa-solid fa-chevron-down cathead-chevron"></i>
           </button>
           <div class="categorybody">
             <div class="settingsblock">
-              <div class="blocktitle">Сохранённые контакты</div>
+              <div class="blocktitle" data-i18n="settings.savedContacts">Сохранённые контакты</div>
               <div id="contactsSection" class="formgrid"></div>
             </div>
           </div>
@@ -169,7 +169,7 @@
         <div class="settingscategory" data-cat="appearance">
           <button type="button" class="categoryhead" onclick="toggleSettingsCategory(this)">
             <span class="cathead-icon">🎨</span>
-            <span class="cathead-label">Оформление</span>
+            <span class="cathead-label" data-i18n="settings.catAppearance">Оформление</span>
             <i class="fa-solid fa-chevron-down cathead-chevron"></i>
           </button>
           <div class="categorybody">
@@ -179,7 +179,7 @@
             </div>
 
             <div class="settingsblock">
-              <div class="blocktitle">Шапка профиля</div>
+              <div class="blocktitle" data-i18n="settings.profileHeader">Шапка профиля</div>
               <div id="profileHeaderSection" class="formgrid"></div>
             </div>
 
@@ -199,7 +199,7 @@
         <div class="settingscategory" data-cat="privacy">
           <button type="button" class="categoryhead" onclick="toggleSettingsCategory(this)">
             <span class="cathead-icon">🔒</span>
-            <span class="cathead-label">Конфиденциальность</span>
+            <span class="cathead-label" data-i18n="settings.catPrivacy">Конфиденциальность</span>
             <i class="fa-solid fa-chevron-down cathead-chevron"></i>
           </button>
           <div class="categorybody">
@@ -214,7 +214,7 @@
             </div>
 
             <div class="settingsblock">
-              <div class="blocktitle">Чёрный список</div>
+              <div class="blocktitle" data-i18n="settings.blacklist">Чёрный список</div>
               <div id="blacklistSection" class="formgrid"></div>
             </div>
           </div>
@@ -224,7 +224,7 @@
         <div class="settingscategory" data-cat="security">
           <button type="button" class="categoryhead" onclick="toggleSettingsCategory(this)">
             <span class="cathead-icon">🛡️</span>
-            <span class="cathead-label">Безопасность</span>
+            <span class="cathead-label" data-i18n="settings.catSecurity">Безопасность</span>
             <i class="fa-solid fa-chevron-down cathead-chevron"></i>
           </button>
           <div class="categorybody">
@@ -254,12 +254,12 @@
         <div class="settingscategory" data-cat="account">
           <button type="button" class="categoryhead" onclick="toggleSettingsCategory(this)">
             <span class="cathead-icon">⚙️</span>
-            <span class="cathead-label">Аккаунт</span>
+            <span class="cathead-label" data-i18n="settings.catAccount">Аккаунт</span>
             <i class="fa-solid fa-chevron-down cathead-chevron"></i>
           </button>
           <div class="categorybody">
             <div class="settingsblock">
-              <div class="blocktitle">Политика использования</div>
+              <div class="blocktitle" data-i18n="legal.title">Политика использования</div>
               <div id="legalSection" class="formgrid"></div>
             </div>
 
@@ -279,23 +279,23 @@
     <!-- ================= CHAT CONVERSATION (opens over the tabs) ================= -->
     <section id="screenChat" class="screen chatscreen hidden">
       <header class="topbar">
-        <button class="iconbtn" onclick="backToChats()" title="Назад"><i class="fa-solid fa-arrow-left"></i></button>
+        <button class="iconbtn" onclick="backToChats()" data-i18n-title="common.back" title="Назад"><i class="fa-solid fa-arrow-left"></i></button>
 
         <div class="chatava" id="chatHeadAvatar" onclick="openCurrentProfile()"></div>
 
-        <div class="title" onclick="openCurrentProfile()" title="Открыть профиль" style="cursor:pointer;">
-          <div id="chatTitle" class="h">Общий чат</div>
+        <div class="title" onclick="openCurrentProfile()" data-i18n-title="profile.openProfile" title="Открыть профиль" style="cursor:pointer;">
+          <div id="chatTitle" class="h" data-i18n="chats.globalChat">Общий чат</div>
           <div class="sline">
-            <div id="chatSub" class="s">общение со всеми</div>
-            <div id="typingLine" class="typing hidden">печатает…</div>
+            <div id="chatSub" class="s" data-i18n="chats.globalChatSub">общение со всеми</div>
+            <div id="typingLine" class="typing hidden" data-i18n="common.typing">печатает…</div>
           </div>
         </div>
 
         <div class="actions">
-          <button class="iconbtn" onclick="openChatWallpaperModal()" title="Обои чата">
+          <button class="iconbtn" onclick="openChatWallpaperModal()" data-i18n-title="wallpaper.chatTitle" title="Обои чата">
             <i class="fa-solid fa-palette"></i>
           </button>
-          <button id="callBtn" class="iconbtn" onclick="startAudioCall()" title="Аудиозвонок">
+          <button id="callBtn" class="iconbtn" onclick="startAudioCall()" data-i18n-title="call.audioCall" title="Аудиозвонок">
             <i class="fa-solid fa-phone"></i>
           </button>
         </div>
@@ -311,7 +311,7 @@
       <div id="replyBar" class="replybar hidden">
         <div class="replybar-line"></div>
         <div class="replybar-body">
-          <div id="replyBarTitle" class="replybar-title">Ответ</div>
+          <div id="replyBarTitle" class="replybar-title" data-i18n="reply.title">Ответ</div>
           <div id="replyBarText" class="replybar-text"></div>
         </div>
         <button class="iconbtn" onclick="cancelReplyOrEdit()"><i class="fa-solid fa-xmark"></i></button>
@@ -319,36 +319,36 @@
 
       <footer class="composer">
         <div class="attachwrap">
-          <button class="iconbtn" onclick="toggleAttachMenu()" title="Прикрепить">
+          <button class="iconbtn" onclick="toggleAttachMenu()" data-i18n-title="attach.title" title="Прикрепить">
             <i class="fa-solid fa-paperclip"></i>
           </button>
           <div id="attachMenu" class="attachmenu hidden">
-            <button onclick="attachPickMedia()"><i class="fa-solid fa-image"></i> Фото/Видео</button>
-            <button onclick="attachPickLocation()"><i class="fa-solid fa-location-dot"></i> Геолокация</button>
-            <button onclick="attachPickGif()"><i class="fa-solid fa-film"></i> GIF</button>
-            <button onclick="attachPickDoc()"><i class="fa-solid fa-file-lines"></i> Документ или файл</button>
-            <button onclick="attachPickList()"><i class="fa-solid fa-list-check"></i> Список (покупки, дела)</button>
+            <button onclick="attachPickMedia()"><i class="fa-solid fa-image"></i> <span data-i18n="attach.photoVideo">Фото/Видео</span></button>
+            <button onclick="attachPickLocation()"><i class="fa-solid fa-location-dot"></i> <span data-i18n="attach.location">Геолокация</span></button>
+            <button onclick="attachPickGif()"><i class="fa-solid fa-film"></i> <span data-i18n="attach.gif">GIF</span></button>
+            <button onclick="attachPickDoc()"><i class="fa-solid fa-file-lines"></i> <span data-i18n="attach.doc">Документ или файл</span></button>
+            <button onclick="attachPickList()"><i class="fa-solid fa-list-check"></i> <span data-i18n="attach.list">Список (покупки, дела)</span></button>
           </div>
         </div>
         <input id="fileInput" type="file" hidden accept="image/*,video/*" onchange="sendMedia(this)" />
         <input id="gifInput" type="file" hidden accept="image/gif" onchange="sendMedia(this)" />
         <input id="docInput" type="file" hidden onchange="sendMedia(this)" />
 
-        <button class="iconbtn" onclick="toggleEmojiPanel()" title="Эмодзи">
+        <button class="iconbtn" onclick="toggleEmojiPanel()" data-i18n-title="attach.emoji" title="Эмодзи">
           <i class="fa-regular fa-face-smile"></i>
         </button>
 
         <input id="textInput" class="text" data-i18n-placeholder="common.messagePlaceholder" placeholder="Сообщение..." onkeydown="onEnter(event)" oninput="typing(true)" />
 
-        <button id="roundBtn" class="iconbtn" onclick="openRoundRecorder()" title="Видеосообщение (кружочек)">
+        <button id="roundBtn" class="iconbtn" onclick="openRoundRecorder()" data-i18n-title="round.title" title="Видеосообщение (кружочек)">
           <i class="fa-solid fa-video"></i>
         </button>
 
-        <button id="voiceBtn" class="iconbtn" onmousedown="startHoldVoice()" onmouseup="stopHoldVoice()" ontouchstart="startHoldVoice()" ontouchend="stopHoldVoice()" title="Голосовое (удерживай)">
+        <button id="voiceBtn" class="iconbtn" onmousedown="startHoldVoice()" onmouseup="stopHoldVoice()" ontouchstart="startHoldVoice()" ontouchend="stopHoldVoice()" data-i18n-title="attach.voice" title="Голосовое (удерживай)">
           <i class="fa-solid fa-microphone"></i>
         </button>
 
-        <button class="iconbtn send" onclick="sendText()" title="Отправить">
+        <button class="iconbtn send" onclick="sendText()" data-i18n-title="common.send" title="Отправить">
           <i class="fa-solid fa-arrow-up"></i>
         </button>
       </footer>
@@ -374,8 +374,8 @@
     <div class="card tgcard-modal">
       <div class="tghead">
         <div class="tgheadbar">
-          <div class="tgheadtitle" id="profileTitle2">Профиль</div>
-          <button class="tgheadbtn" onclick="closeProfile()" title="Закрыть"><i class="fa-solid fa-xmark"></i></button>
+          <div class="tgheadtitle" id="profileTitle2" data-i18n="profile.title">Профиль</div>
+          <button class="tgheadbtn" onclick="closeProfile()" data-i18n-title="common.close" title="Закрыть"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="avatar big" id="profileAvatar"></div>
         <div class="tgname" id="profileName"></div>
@@ -388,7 +388,7 @@
       <div id="profileStoriesGrid"></div>
 
       <div id="giftPickerBox" class="giftpicker hidden">
-        <div class="hint">Подарить эмодзи-подарок на профиль:</div>
+        <div class="hint" data-i18n="gift.pickerHint">Подарить эмодзи-подарок на профиль:</div>
         <div id="giftEmojiRow" class="gift-emoji-row"></div>
         <label data-i18n="gift.codeLabel">Секретный код (не нужен по пятницам)</label>
         <input id="giftCodeInput" placeholder="•••" maxlength="10">
@@ -405,18 +405,18 @@
         <video id="roundLiveVideo" autoplay playsinline muted class="roundsrc"></video>
         <canvas id="roundCanvas" width="480" height="480"></canvas>
         <div id="roundTimer" class="roundtimer hidden">00:00</div>
-        <button id="roundFlipBtn" class="roundflipbtn" onclick="flipRoundCamera()" title="Перевернуть камеру">
+        <button id="roundFlipBtn" class="roundflipbtn" onclick="flipRoundCamera()" data-i18n-title="round.flip" title="Перевернуть камеру">
           <i class="fa-solid fa-camera-rotate"></i>
         </button>
       </div>
 
       <div class="roundcontrols">
-        <button id="roundRecordBtn" class="roundrecbtn" onclick="startRoundRecording()" title="Записать"></button>
-        <button id="roundStopBtn" class="roundrecbtn stop hidden" onclick="stopRoundRecording()" title="Стоп"></button>
+        <button id="roundRecordBtn" class="roundrecbtn" onclick="startRoundRecording()" data-i18n-title="round.record" title="Записать"></button>
+        <button id="roundStopBtn" class="roundrecbtn stop hidden" onclick="stopRoundRecording()" data-i18n-title="round.stop" title="Стоп"></button>
 
         <div id="roundPreviewActions" class="roundpreview-actions hidden">
-          <button class="btn ghost" onclick="retakeRound()"><i class="fa-solid fa-rotate-left"></i> Ещё раз</button>
-          <button class="btn primary" onclick="sendRoundVideo()"><i class="fa-solid fa-paper-plane"></i> Отправить</button>
+          <button class="btn ghost" onclick="retakeRound()"><i class="fa-solid fa-rotate-left"></i> <span data-i18n="round.retake">Ещё раз</span></button>
+          <button class="btn primary" onclick="sendRoundVideo()"><i class="fa-solid fa-paper-plane"></i> <span data-i18n="common.send">Отправить</span></button>
         </div>
       </div>
     </div>
@@ -433,7 +433,7 @@
   <div id="readInfoModal" class="modal hidden" onclick="if(event.target===this) closeReadInfo()">
     <div class="card">
       <div class="cardtop">
-        <div class="cardtitle">Прочитано</div>
+        <div class="cardtitle" data-i18n="readInfo.title">Прочитано</div>
         <button class="iconbtn" onclick="closeReadInfo()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="readInfoBody" class="formgrid"></div>
@@ -444,7 +444,7 @@
   <div id="forwardModal" class="modal hidden" onclick="if(event.target===this) closeForwardPicker()">
     <div class="card">
       <div class="cardtop">
-        <div class="cardtitle">Переслать</div>
+        <div class="cardtitle" data-i18n="forward.title">Переслать</div>
         <button class="iconbtn" onclick="closeForwardPicker()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="forwardList" class="formgrid"></div>
@@ -455,21 +455,21 @@
   <div id="saveContactModal" class="modal hidden" onclick="if(event.target===this) closeSaveContactModal()">
     <div class="card">
       <div class="cardtop">
-        <div class="cardtitle">Сохранить контакт</div>
+        <div class="cardtitle" data-i18n="contact.title">Сохранить контакт</div>
         <button class="iconbtn" onclick="closeSaveContactModal()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="formgrid">
         <input id="saveContactUsername" type="hidden" value="">
-        <label>Юзернейм</label>
+        <label data-i18n="contact.username">Юзернейм</label>
         <div id="saveContactUsernameLabel" class="hint"></div>
 
-        <label>Имя контакта</label>
-        <input id="saveContactName" maxlength="40" placeholder="Например, Мама">
+        <label data-i18n="contact.name">Имя контакта</label>
+        <input id="saveContactName" maxlength="40" data-i18n-placeholder="contact.namePlaceholder" placeholder="Например, Мама">
 
-        <label>Заметка (необязательно)</label>
-        <input id="saveContactNote" maxlength="120" placeholder="Например, близкий человек">
+        <label data-i18n="contact.note">Заметка (необязательно)</label>
+        <input id="saveContactNote" maxlength="120" data-i18n-placeholder="contact.notePlaceholder" placeholder="Например, близкий человек">
 
-        <button class="btn primary full" onclick="submitSaveContact()">Сохранить</button>
+        <button class="btn primary full" onclick="submitSaveContact()" data-i18n="common.save">Сохранить</button>
       </div>
     </div>
   </div>
@@ -478,12 +478,17 @@
   <div id="legalModal" class="modal hidden" onclick="if(event.target===this) closeLegalModal()">
     <div class="card" style="max-height:82vh;overflow-y:auto">
       <div class="cardtop">
-        <div class="cardtitle">Политика использования</div>
+        <div class="cardtitle" data-i18n="legal.title">Политика использования</div>
         <button class="iconbtn" onclick="closeLegalModal()"><i class="fa-solid fa-xmark"></i></button>
       </div>
+      <div class="tabs" id="legalLangTabs" style="margin-bottom:8px">
+        <button class="tab" id="legalLangRu" onclick="switchLegalLang('ru')">Русский</button>
+        <button class="tab" id="legalLangUz" onclick="switchLegalLang('uz')">O'zbekcha</button>
+        <button class="tab" id="legalLangEn" onclick="switchLegalLang('en')">English</button>
+      </div>
       <div class="tabs" id="legalTabs">
-        <button class="tab active" id="legalTabTerms" onclick="switchLegalTab('terms')">Условия использования</button>
-        <button class="tab" id="legalTabPrivacy" onclick="switchLegalTab('privacy')">Конфиденциальность</button>
+        <button class="tab active" id="legalTabTerms" onclick="switchLegalTab('terms')" data-i18n="legal.tabTerms">Условия использования</button>
+        <button class="tab" id="legalTabPrivacy" onclick="switchLegalTab('privacy')" data-i18n="legal.tabPrivacy">Конфиденциальность</button>
       </div>
       <div id="legalTermsBody" class="hint" style="white-space:pre-wrap;line-height:1.55;margin-top:12px"></div>
       <div id="legalPrivacyBody" class="hint hidden" style="white-space:pre-wrap;line-height:1.55;margin-top:12px"></div>
@@ -541,7 +546,7 @@
 
         <div id="groupAddMemberRow" class="row hidden">
           <input id="groupAddMemberInput" data-i18n-placeholder="group.addMemberPlaceholder" placeholder="@username">
-          <button class="btn ghost" onclick="addGroupMember()">Добавить</button>
+          <button class="btn ghost" onclick="addGroupMember()" data-i18n="settings.add">Добавить</button>
         </div>
 
         <div id="groupMembersList"></div>
@@ -549,7 +554,7 @@
         <div id="groupBansList" class="hidden"></div>
 
         <button id="groupLeaveBtn" class="btn danger full" data-i18n="group.leave">Покинуть группу</button>
-        <button id="groupDeleteBtn" class="btn danger full hidden">Удалить группу</button>
+        <button id="groupDeleteBtn" class="btn danger full hidden" data-i18n="group.deleteGroup">Удалить группу</button>
       </div>
     </div>
   </div>
@@ -558,7 +563,7 @@
   <div id="listModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
-        <div class="cardtitle">Новый список</div>
+        <div class="cardtitle" data-i18n="list.newList">Новый список</div>
         <button class="iconbtn" onclick="closeListComposer()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="formgrid">
@@ -614,19 +619,19 @@
   <div id="wallpaperModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
-        <div class="cardtitle">Обои для этого чата</div>
+        <div class="cardtitle" data-i18n="wallpaper.chatTitle">Обои для этого чата</div>
         <button class="iconbtn" onclick="closeChatWallpaperModal()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="formgrid">
-        <label>Готовые</label>
+        <label data-i18n="wallpaper.presets">Готовые</label>
         <div id="wpPresetRow" class="swatchrow"></div>
 
-        <button class="btn ghost full" onclick="document.getElementById('chatWpInput').click()"><i class="fa-solid fa-image"></i> Своё фото из галереи</button>
+        <button class="btn ghost full" onclick="document.getElementById('chatWpInput').click()"><i class="fa-solid fa-image"></i> <span data-i18n="wallpaper.ownPhoto">Своё фото из галереи</span></button>
         <input id="chatWpInput" type="file" hidden accept="image/*" onchange="uploadChatWallpaper(this)" />
 
-        <label id="wpForBothRow" class="checkrow"><input type="checkbox" id="wpForBoth"> Поставить эти обои и собеседнику</label>
+        <label id="wpForBothRow" class="checkrow"><input type="checkbox" id="wpForBoth"> <span data-i18n="wallpaper.forBoth">Поставить эти обои и собеседнику</span></label>
 
-        <button class="btn ghost full" onclick="saveChatWallpaper('')">Сбросить обои чата</button>
+        <button class="btn ghost full" onclick="saveChatWallpaper('')" data-i18n="wallpaper.reset">Сбросить обои чата</button>
       </div>
     </div>
   </div>
@@ -639,9 +644,9 @@
         <button class="iconbtn" onclick="closeContactRequest()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="formgrid">
-        <div class="hint">Этот аккаунт официально подтверждён. Напиши сообщение — администрация проверит его и передаст. Ответ придёт в чат «Поддержка».</div>
-        <textarea id="contactRequestText" class="requestarea" maxlength="1000" rows="5" placeholder="Здравствуйте! Пишу по вопросу..."></textarea>
-        <button class="btn primary full" onclick="submitContactRequest()"><i class="fa-solid fa-paper-plane"></i> Отправить через администрацию</button>
+        <div class="hint" data-i18n="contactReq.hint">Этот аккаунт официально подтверждён. Напиши сообщение — администрация проверит его и передаст. Ответ придёт в чат «Поддержка».</div>
+        <textarea id="contactRequestText" class="requestarea" maxlength="1000" rows="5" data-i18n-placeholder="contactReq.placeholder" placeholder="Здравствуйте! Пишу по вопросу..."></textarea>
+        <button class="btn primary full" onclick="submitContactRequest()"><i class="fa-solid fa-paper-plane"></i> <span data-i18n="contactReq.send">Отправить через администрацию</span></button>
       </div>
     </div>
   </div>
@@ -652,9 +657,9 @@
       <div id="confetti" class="confetti"></div>
       <div class="bdaybody">
         <div class="bdaycake">🎂</div>
-        <h2 id="bdayTitle">С днём рождения!</h2>
-        <p>One Messenger поздравляет тебя! Пусть этот год будет самым счастливым 🎉</p>
-        <button class="btn primary full" onclick="closeBdayModal()">Спасибо! 🎈</button>
+        <h2 id="bdayTitle" data-i18n="bday.title">С днём рождения!</h2>
+        <p data-i18n="bday.text">One Messenger поздравляет тебя! Пусть этот год будет самым счастливым 🎉</p>
+        <button class="btn primary full" onclick="closeBdayModal()" data-i18n="bday.thanks">Спасибо! 🎈</button>
       </div>
     </div>
   </div>
@@ -669,11 +674,11 @@
         <div class="call-avatar-ring">
           <div class="call-avatar" id="incomingCallAvatar"></div>
         </div>
-        <div id="incomingCallText" class="callstatus">Кто-то звонит…</div>
-        <div class="call-sub">Аудиозвонок</div>
+        <div id="incomingCallText" class="callstatus" data-i18n="call.someoneCalling">Кто-то звонит…</div>
+        <div class="call-sub" data-i18n="call.audioCall">Аудиозвонок</div>
         <div class="row call-actions-row">
-          <button class="callbtn callbtn-reject" onclick="declineIncomingCall()" title="Отклонить"><i class="fa-solid fa-phone-slash"></i></button>
-          <button class="callbtn callbtn-accept" onclick="acceptIncomingCall()" title="Принять"><i class="fa-solid fa-phone"></i></button>
+          <button class="callbtn callbtn-reject" onclick="declineIncomingCall()" data-i18n-title="call.decline" title="Отклонить"><i class="fa-solid fa-phone-slash"></i></button>
+          <button class="callbtn callbtn-accept" onclick="acceptIncomingCall()" data-i18n-title="call.accept" title="Принять"><i class="fa-solid fa-phone"></i></button>
         </div>
       </div>
     </div>
@@ -690,9 +695,9 @@
         <div id="callStatus" class="callstatus" data-i18n="call.connecting">Соединение...</div>
         <div id="callTimer" class="call-timer hidden">00:00</div>
         <div class="row call-actions-row">
-          <button id="muteBtn" class="callbtn callbtn-ghost" onclick="toggleMute()" title="Микрофон"><i class="fa-solid fa-microphone"></i></button>
-          <button class="callbtn callbtn-reject" onclick="endCall()" title="Завершить"><i class="fa-solid fa-phone-slash"></i></button>
-          <button id="speakerBtn" class="callbtn callbtn-ghost" onclick="toggleSpeaker()" title="Звук"><i class="fa-solid fa-volume-high"></i></button>
+          <button id="muteBtn" class="callbtn callbtn-ghost" onclick="toggleMute()" data-i18n-title="call.mic" title="Микрофон"><i class="fa-solid fa-microphone"></i></button>
+          <button class="callbtn callbtn-reject" onclick="endCall()" data-i18n-title="call.end" title="Завершить"><i class="fa-solid fa-phone-slash"></i></button>
+          <button id="speakerBtn" class="callbtn callbtn-ghost" onclick="toggleSpeaker()" data-i18n-title="call.speaker" title="Звук"><i class="fa-solid fa-volume-high"></i></button>
         </div>
       </div>
     </div>
