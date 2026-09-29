@@ -14,6 +14,29 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    /* ---- Реакции и просмотры историй ---- */
+    .storyviewer-footer { padding: 10px 14px 16px; display: flex; justify-content: center; }
+    .storyviewer-reactbar {
+      display: flex; gap: 8px; background: rgba(0,0,0,.35); backdrop-filter: blur(6px);
+      padding: 8px 10px; border-radius: 999px;
+    }
+    .storyviewer-reactbtn {
+      background: transparent; border: none; font-size: 22px; line-height: 1; cursor: pointer;
+      padding: 4px 6px; border-radius: 999px; transition: transform .12s ease, background .12s ease;
+    }
+    .storyviewer-reactbtn:hover { transform: scale(1.15); }
+    .storyviewer-reactbtn.active { background: rgba(106,92,255,.35); transform: scale(1.1); }
+    .storyviewer-viewsbtn {
+      display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.35); backdrop-filter: blur(6px);
+      border: none; color: #fff; padding: 8px 16px; border-radius: 999px; cursor: pointer; font-size: 14px;
+    }
+    .storyviewer-viewsbtn i { color: #9aa7c7; }
+    .storyviewer-reactcount { color: #ffb3c6; font-size: 13px; }
+    .storyviewer-viewslabel { color: #9aa7c7; font-size: 13px; margin-left: 2px; }
+    .storyviewer-viewer-reaction { font-size: 18px; margin-left: auto; }
+    #storyViewersModal .card { max-height: 70vh; overflow-y: auto; }
+  </style>
 </head>
 <body>
   <!-- DEVICE PASSCODE LOCK -->
@@ -592,6 +615,18 @@
       </div>
       <div id="storyViewerMedia" class="storyviewer-media"></div>
       <div id="storyViewerCaption" class="storyviewer-caption"></div>
+      <div id="storyViewerFooter" class="storyviewer-footer"></div>
+    </div>
+  </div>
+
+  <!-- ПРОСМОТРЫ И РЕАКЦИИ НА ИСТОРИЮ (видит автор истории) -->
+  <div id="storyViewersModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle" data-i18n="story.viewersTitle">Просмотры</div>
+        <button class="iconbtn" onclick="closeStoryViewersModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="storyViewersList"></div>
     </div>
   </div>
 
@@ -703,7 +738,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
   <script src="calls-client.js?v=1"></script>
 </body>
 </html>
