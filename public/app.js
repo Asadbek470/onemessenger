@@ -246,6 +246,8 @@ const LANG = {
     "list.addItem": "Добавить пункт", "list.send": "Отправить список",
     "story.newStory": "Новая сторис", "story.file": "Файл (не обязательно)", "story.text": "Текст (не обязательно)",
     "story.publish": "Опубликовать",
+    "story.viewersTitle": "Просмотры", "story.noViewers": "Пока никто не посмотрел эту историю",
+    "story.reactedToast": "отреагировал(а) на твою историю",
     "call.audioCall": "Аудиозвонок", "call.connecting": "Соединение...",
     "discover.title": "Популярные группы и каналы", "discover.searchPlaceholder": "Поиск по названию...", "discover.join": "Вступить",
     "common.messagePlaceholder": "Сообщение...", "gift.codeLabel": "Секретный код (не нужен по пятницам)",
@@ -353,6 +355,8 @@ const LANG = {
     "list.addItem": "Add item", "list.send": "Send list",
     "story.newStory": "New story", "story.file": "File (optional)", "story.text": "Text (optional)",
     "story.publish": "Publish",
+    "story.viewersTitle": "Views", "story.noViewers": "No one has viewed this story yet",
+    "story.reactedToast": "reacted to your story",
     "call.audioCall": "Audio call", "call.connecting": "Connecting...",
     "discover.title": "Popular groups and channels", "discover.searchPlaceholder": "Search by name...", "discover.join": "Join",
     "common.messagePlaceholder": "Message...", "gift.codeLabel": "Secret code (not needed on Fridays)",
@@ -460,6 +464,8 @@ const LANG = {
     "list.addItem": "Band qo'shish", "list.send": "Ro'yxatni yuborish",
     "story.newStory": "Yangi hikoya", "story.file": "Fayl (ixtiyoriy)", "story.text": "Matn (ixtiyoriy)",
     "story.publish": "Chop etish",
+    "story.viewersTitle": "Ko'rishlar", "story.noViewers": "Bu hikoyani hali hech kim ko'rmagan",
+    "story.reactedToast": "hikoyangizga reaksiya bildirdi",
     "call.audioCall": "Ovozli qo'ng'iroq", "call.connecting": "Ulanmoqda...",
     "discover.title": "Ommabop guruh va kanallar", "discover.searchPlaceholder": "Nomi bo'yicha qidirish...", "discover.join": "Qo'shilish",
     "common.messagePlaceholder": "Xabar...", "gift.codeLabel": "Maxfiy kod (juma kunlari kerak emas)",
@@ -931,6 +937,16 @@ function connectWS() {
     if (data.type === "birthday") {
       toast(`🎂 Сегодня день рождения у ${data.displayName || "@" + data.username}!`);
       showBirthdays();
+      return;
+    }
+
+    if (data.type === "storyReaction") {
+      toast(`${data.reaction} @${data.from} ${t("story.reactedToast")}`);
+      // если список просмотров этой истории сейчас открыт — обновим его
+      const viewersModal = document.getElementById("storyViewersModal");
+      if (viewersModal && !viewersModal.classList.contains("hidden")) {
+        openStoryViewersModal(data.storyId);
+      }
       return;
     }
 
@@ -3911,23 +3927,34 @@ async function publishStory() {
 
 let storyTimer = null;
 const STORY_DURATION_MS = 6000;
+let currentStory = null;
+const STORY_QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👏", "🔥"];
 
 function closeStoryViewer() {
   const modal = document.getElementById("storyViewerModal");
   modal.classList.add("hidden");
   document.getElementById("storyViewerMedia").innerHTML = "";
+  document.getElementById("storyViewerFooter").innerHTML = "";
   clearTimeout(storyTimer);
   storyTimer = null;
+  currentStory = null;
 }
 
 function viewStory(s) {
   const modal = document.getElementById("storyViewerModal");
   modal.classList.remove("hidden");
+  currentStory = s;
 
   const avatarBox = document.getElementById("storyViewerAvatar");
   avatarBox.innerHTML = avatarHtml({ username: s.owner, displayName: s.displayName, avatarUrl: s.avatarUrl });
   document.getElementById("storyViewerName").innerHTML = esc(s.displayName || s.owner) + verifiedBadge(s.verified);
   document.getElementById("storyViewerCaption").textContent = s.text || "";
+  renderStoryFooter(s);
+
+  const isOwner = me && s.owner === me.username;
+  if (!isOwner) {
+    fetch(`/api/stories/${s.id}/view`, { method: "POST", headers: authHeaders() }).catch(() => {});
+  }
 
   const mediaBox = document.getElementById("storyViewerMedia");
   mediaBox.innerHTML = "";
@@ -3972,6 +3999,85 @@ function animateStoryProgress(bar, durMs) {
     bar.style.transition = `width ${durMs}ms linear`;
     bar.style.width = "100%";
   });
+}
+
+// ---------------- РЕАКЦИИ И ПРОСМОТРЫ ИСТОРИЙ ----------------
+function renderStoryFooter(s) {
+  const box = document.getElementById("storyViewerFooter");
+  if (!box) return;
+  const isOwner = me && s.owner === me.username;
+
+  if (isOwner) {
+    const views = s.viewCount || 0;
+    const reactions = s.reactionCount || 0;
+    box.innerHTML = `
+      <button class="storyviewer-viewsbtn" onclick="openStoryViewersModal(${s.id})">
+        <i class="fa-solid fa-eye"></i> ${views}
+        ${reactions ? `<span class="storyviewer-reactcount">· ${reactions} ❤️</span>` : ""}
+        <span class="storyviewer-viewslabel">${t("story.viewersTitle")}</span>
+      </button>
+    `;
+    return;
+  }
+
+  const mine = s.myReaction || "";
+  box.innerHTML = `
+    <div class="storyviewer-reactbar">
+      ${STORY_QUICK_REACTIONS.map(e => `
+        <button class="storyviewer-reactbtn ${mine === e ? "active" : ""}" onclick="reactToStory(${s.id}, '${e}')">${e}</button>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function reactToStory(id, emoji) {
+  if (!currentStory || currentStory.id !== id) return;
+  const removing = currentStory.myReaction === emoji;
+  try {
+    if (removing) {
+      await fetch(`/api/stories/${id}/react`, { method: "DELETE", headers: authHeaders() });
+      currentStory.myReaction = "";
+    } else {
+      const r = await fetch(`/api/stories/${id}/react`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reaction: emoji })
+      });
+      const d = await r.json();
+      if (!d.ok) return alert(d.error || t("common.error"));
+      currentStory.myReaction = emoji;
+    }
+  } catch {
+    return;
+  }
+  renderStoryFooter(currentStory);
+}
+
+async function openStoryViewersModal(storyId) {
+  clearTimeout(storyTimer); // пауза автопролистывания, пока читаем список
+  const modal = document.getElementById("storyViewersModal");
+  const list = document.getElementById("storyViewersList");
+  list.innerHTML = `<div class="hint">${t("common.loading")}</div>`;
+  modal.classList.remove("hidden");
+
+  const r = await fetch(`/api/stories/${storyId}/viewers`, { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) { list.innerHTML = `<div class="hint">${t("common.error")}</div>`; return; }
+  if (!d.viewers.length) { list.innerHTML = `<div class="hint">${t("story.noViewers")}</div>`; return; }
+
+  list.innerHTML = d.viewers.map(v => `
+    <div class="memberrow">
+      <div class="avatar">${avatarHtml(v)}</div>
+      <div class="meta">
+        <div class="name">${nameHtml(v)}</div>
+        <div class="preview">@${esc(v.username)}</div>
+      </div>
+      ${v.reaction ? `<span class="storyviewer-viewer-reaction">${esc(v.reaction)}</span>` : ""}
+    </div>
+  `).join("");
+}
+function closeStoryViewersModal() {
+  document.getElementById("storyViewersModal").classList.add("hidden");
 }
 
 // ================== BIRTHDAYS ==================
