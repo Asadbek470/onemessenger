@@ -263,6 +263,10 @@
 
         <input id="textInput" class="text" data-i18n-placeholder="common.messagePlaceholder" placeholder="Сообщение..." onkeydown="onEnter(event)" oninput="typing(true)" />
 
+        <button id="roundBtn" class="iconbtn" onclick="openRoundRecorder()" title="Видеосообщение (кружочек)">
+          <i class="fa-solid fa-video"></i>
+        </button>
+
         <button id="voiceBtn" class="iconbtn" onmousedown="startHoldVoice()" onmouseup="stopHoldVoice()" ontouchstart="startHoldVoice()" ontouchend="stopHoldVoice()" title="Голосовое (удерживай)">
           <i class="fa-solid fa-microphone"></i>
         </button>
@@ -311,6 +315,28 @@
         <div id="giftEmojiRow" class="gift-emoji-row"></div>
         <label data-i18n="gift.codeLabel">Секретный код (не нужен по пятницам)</label>
         <input id="giftCodeInput" placeholder="•••" maxlength="10">
+      </div>
+    </div>
+  </div>
+
+  <!-- ЗАПИСЬ ВИДЕОСООБЩЕНИЯ (кружочек, как в Telegram) -->
+  <div id="roundRecorderModal" class="modal hidden">
+    <div class="card roundcard">
+      <button class="iconbtn roundclose" onclick="closeRoundRecorder()"><i class="fa-solid fa-xmark"></i></button>
+
+      <div class="roundstage">
+        <video id="roundLiveVideo" autoplay playsinline muted></video>
+        <div id="roundTimer" class="roundtimer hidden">00:00</div>
+      </div>
+
+      <div class="roundcontrols">
+        <button id="roundRecordBtn" class="roundrecbtn" onclick="startRoundRecording()" title="Записать"></button>
+        <button id="roundStopBtn" class="roundrecbtn stop hidden" onclick="stopRoundRecording()" title="Стоп"></button>
+
+        <div id="roundPreviewActions" class="roundpreview-actions hidden">
+          <button class="btn ghost" onclick="retakeRound()"><i class="fa-solid fa-rotate-left"></i> Ещё раз</button>
+          <button class="btn primary" onclick="sendRoundVideo()"><i class="fa-solid fa-paper-plane"></i> Отправить</button>
+        </div>
       </div>
     </div>
   </div>
