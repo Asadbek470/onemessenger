@@ -1376,9 +1376,17 @@ async function sendMedia(input) {
 }
 
 // ---------------- ВИДЕОСООБЩЕНИЯ-КРУЖОЧКИ (как в Telegram) ----------------
+// Пишем не сырое видео с камеры, а холст (canvas), на который каждый кадр
+// рисуется уже обрезанным в круг — поэтому итоговый файл САМ по себе кружочек
+// (с чёрными "уголками" вместо прозрачных — надёжно работает во всех браузерах),
+// а не просто квадратное видео, обрезанное в круг одним CSS.
 const ROUND_MAX_MS = 60000;
+const ROUND_SIZE = 480;
 let roundStream = null, roundRecorder = null, roundChunks = [], roundBlob = null;
 let roundTimerInterval = null, roundStartedAt = 0;
+let roundFacing = "user";
+let roundDrawing = false, roundDrawRAF = null;
+let roundMixedStream = null;
 
 function pickRoundMime() {
   const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
@@ -1388,18 +1396,21 @@ function pickRoundMime() {
   return "";
 }
 
+async function openCameraStream(facing) {
+  const opts = { video: { facingMode: { ideal: facing }, width: { ideal: ROUND_SIZE }, height: { ideal: ROUND_SIZE }, aspectRatio: 1 }, audio: true };
+  return navigator.mediaDevices.getUserMedia(opts);
+}
+
 async function openRoundRecorder() {
   if (currentChat === "support") return alert("В поддержку видеосообщения отправлять нельзя");
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return alert("Этот браузер не поддерживает запись видео");
 
   resetRoundUI();
   document.getElementById("roundRecorderModal").classList.remove("hidden");
+  roundFacing = "user";
 
   try {
-    roundStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user", width: { ideal: 480 }, height: { ideal: 480 }, aspectRatio: 1 },
-      audio: true
-    });
+    roundStream = await openCameraStream(roundFacing);
   } catch {
     alert("Нет доступа к камере или микрофону — разреши его в настройках браузера");
     closeRoundRecorder();
@@ -1409,16 +1420,81 @@ async function openRoundRecorder() {
   const v = document.getElementById("roundLiveVideo");
   v.srcObject = roundStream;
   v.muted = true;
-  v.loop = false;
   try { await v.play(); } catch {}
+
+  roundDrawing = true;
+  roundDrawFrame();
+}
+
+// рисуем текущий кадр камеры в круге на холсте — именно это и попадает в запись
+function roundDrawFrame() {
+  if (!roundDrawing) return;
+  const v = document.getElementById("roundLiveVideo");
+  const c = document.getElementById("roundCanvas");
+  if (v && c) {
+    const ctx = c.getContext("2d");
+    const size = c.width;
+
+    ctx.save();
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, size, size);
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.clip();
+
+    const vw = v.videoWidth, vh = v.videoHeight;
+    if (vw && vh) {
+      const scale = Math.max(size / vw, size / vh);
+      const dw = vw * scale, dh = vh * scale;
+      const dx = (size - dw) / 2, dy = (size - dh) / 2;
+
+      if (roundFacing === "user") {
+        ctx.translate(size, 0);
+        ctx.scale(-1, 1); // зеркалим фронталку, как в любой камере
+      }
+      ctx.drawImage(v, dx, dy, dw, dh);
+    }
+    ctx.restore();
+  }
+  roundDrawRAF = requestAnimationFrame(roundDrawFrame);
+}
+
+async function flipRoundCamera() {
+  if (!roundStream) return;
+  const newFacing = roundFacing === "user" ? "environment" : "user";
+  let newStream;
+  try {
+    newStream = await openCameraStream(newFacing);
+  } catch {
+    toast("Не удалось переключить камеру");
+    return;
+  }
+
+  const oldVideoTrack = roundStream.getVideoTracks()[0];
+  const newVideoTrack = newStream.getVideoTracks()[0];
+  if (oldVideoTrack) { roundStream.removeTrack(oldVideoTrack); oldVideoTrack.stop(); }
+  roundStream.addTrack(newVideoTrack);
+  newStream.getAudioTracks().forEach((t) => t.stop()); // звук уже есть в roundStream, второй микрофон не нужен
+
+  roundFacing = newFacing;
+  const v = document.getElementById("roundLiveVideo");
+  v.srcObject = null;
+  v.srcObject = roundStream;
+  try { await v.play(); } catch {}
+  // запись не прерывается — canvas продолжает рисовать уже новую камеру
 }
 
 function startRoundRecording() {
-  if (!roundStream) return;
+  const canvas = document.getElementById("roundCanvas");
+  if (!canvas || !roundStream) return;
+
   roundChunks = [];
+  const canvasStream = canvas.captureStream(30);
+  roundMixedStream = new MediaStream([...canvasStream.getVideoTracks(), ...roundStream.getAudioTracks()]);
+
   const mime = pickRoundMime();
   try {
-    roundRecorder = mime ? new MediaRecorder(roundStream, { mimeType: mime }) : new MediaRecorder(roundStream);
+    roundRecorder = mime ? new MediaRecorder(roundMixedStream, { mimeType: mime }) : new MediaRecorder(roundMixedStream);
   } catch {
     alert("Запись видео не поддерживается этим браузером");
     return;
@@ -1450,6 +1526,9 @@ function stopRoundRecording() {
 }
 
 function onRoundStop() {
+  roundDrawing = false;
+  cancelAnimationFrame(roundDrawRAF);
+
   const mime = (roundRecorder && roundRecorder.mimeType) || "video/webm";
   roundBlob = new Blob(roundChunks, { type: mime });
   const url = URL.createObjectURL(roundBlob);
@@ -1459,9 +1538,13 @@ function onRoundStop() {
   v.src = url;
   v.muted = false;
   v.loop = true;
+  document.getElementById("roundCanvas").classList.add("hidden");
+  v.classList.remove("roundsrc");
+  v.classList.add("roundpreviewvid");
   v.play().catch(() => {});
 
   document.getElementById("roundStopBtn").classList.add("hidden");
+  document.getElementById("roundFlipBtn").classList.add("hidden");
   document.getElementById("roundTimer").classList.add("hidden");
   document.getElementById("roundPreviewActions").classList.remove("hidden");
 }
@@ -1471,12 +1554,20 @@ function retakeRound() {
   roundChunks = [];
   const v = document.getElementById("roundLiveVideo");
   v.src = "";
+  v.classList.remove("roundpreviewvid");
+  v.classList.add("roundsrc");
   v.srcObject = roundStream;
   v.muted = true;
   v.loop = false;
   v.play().catch(() => {});
+
+  document.getElementById("roundCanvas").classList.remove("hidden");
+  document.getElementById("roundFlipBtn").classList.remove("hidden");
   document.getElementById("roundPreviewActions").classList.add("hidden");
   document.getElementById("roundRecordBtn").classList.remove("hidden");
+
+  roundDrawing = true;
+  roundDrawFrame();
 }
 
 async function sendRoundVideo() {
@@ -1502,25 +1593,33 @@ async function sendRoundVideo() {
 function resetRoundUI() {
   document.getElementById("roundRecordBtn").classList.remove("hidden");
   document.getElementById("roundStopBtn").classList.add("hidden");
+  document.getElementById("roundFlipBtn").classList.remove("hidden");
   document.getElementById("roundTimer").classList.add("hidden");
   document.getElementById("roundTimer").textContent = "00:00";
   document.getElementById("roundPreviewActions").classList.add("hidden");
+  document.getElementById("roundCanvas").classList.remove("hidden");
+  const v = document.getElementById("roundLiveVideo");
+  v.classList.remove("roundpreviewvid");
+  v.classList.add("roundsrc");
 }
 
 function closeRoundRecorder() {
   document.getElementById("roundRecorderModal").classList.add("hidden");
   clearInterval(roundTimerInterval);
   roundTimerInterval = null;
+  roundDrawing = false;
+  cancelAnimationFrame(roundDrawRAF);
+
   if (roundRecorder && roundRecorder.state !== "inactive") {
     try { roundRecorder.stop(); } catch {}
   }
   roundRecorder = null;
   roundChunks = [];
   roundBlob = null;
-  if (roundStream) {
-    roundStream.getTracks().forEach((t) => t.stop());
-    roundStream = null;
-  }
+
+  if (roundMixedStream) { roundMixedStream.getTracks().forEach((t) => t.stop()); roundMixedStream = null; }
+  if (roundStream) { roundStream.getTracks().forEach((t) => t.stop()); roundStream = null; }
+
   const v = document.getElementById("roundLiveVideo");
   if (v) { v.pause(); v.srcObject = null; v.removeAttribute("src"); v.load(); }
 }
