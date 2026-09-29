@@ -231,6 +231,15 @@
 
       <div id="emojiPanel" class="emojipanel hidden"></div>
 
+      <div id="replyBar" class="replybar hidden">
+        <div class="replybar-line"></div>
+        <div class="replybar-body">
+          <div id="replyBarTitle" class="replybar-title">Ответ</div>
+          <div id="replyBarText" class="replybar-text"></div>
+        </div>
+        <button class="iconbtn" onclick="cancelReplyOrEdit()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
       <footer class="composer">
         <div class="attachwrap">
           <button class="iconbtn" onclick="toggleAttachMenu()" title="Прикрепить">
@@ -303,6 +312,35 @@
         <label data-i18n="gift.codeLabel">Секретный код (не нужен по пятницам)</label>
         <input id="giftCodeInput" placeholder="•••" maxlength="10">
       </div>
+    </div>
+  </div>
+
+  <!-- MESSAGE ACTIONS (долгое нажатие на сообщение) -->
+  <div id="msgActionsSheet" class="modal hidden" onclick="if(event.target===this) closeMsgActions()">
+    <div class="card sheet">
+      <div id="msgActionsList" class="msgactions"></div>
+    </div>
+  </div>
+
+  <!-- READ INFO (кто и когда прочитал) -->
+  <div id="readInfoModal" class="modal hidden" onclick="if(event.target===this) closeReadInfo()">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">Прочитано</div>
+        <button class="iconbtn" onclick="closeReadInfo()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="readInfoBody" class="formgrid"></div>
+    </div>
+  </div>
+
+  <!-- FORWARD PICKER -->
+  <div id="forwardModal" class="modal hidden" onclick="if(event.target===this) closeForwardPicker()">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">Переслать</div>
+        <button class="iconbtn" onclick="closeForwardPicker()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="forwardList" class="formgrid"></div>
     </div>
   </div>
 
