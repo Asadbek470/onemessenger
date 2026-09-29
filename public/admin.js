@@ -3,6 +3,13 @@
 let adminToken = localStorage.getItem("adminToken");
 let currentUser = null;
 
+// Отдельный «запретный» токен для чтения переписок. Обычный вход в админку
+// (adminToken) его НЕ даёт — его выдаёт только правильный код через
+// /api/admin/unlock-messages, и живёт он 30 минут. Не сохраняем его в
+// localStorage специально — при перезагрузке страницы код нужно вводить заново.
+let msgUnlockToken = null;
+let pendingUnlockAction = null;
+
 function esc(s = "") {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -14,6 +21,46 @@ function esc(s = "") {
 
 function adminHeaders() {
   return { Authorization: `Bearer ${adminToken}` };
+}
+
+// Заголовки для запросов, читающих текст переписки — используют
+// разблокированный токен, если он уже есть, иначе обычный (сервер всё
+// равно отклонит его с needUnlock, и мы откроем модалку с кодом).
+function msgHeaders() {
+  return { Authorization: `Bearer ${msgUnlockToken || adminToken}` };
+}
+
+// ---------------- MESSAGE UNLOCK (код на чтение переписок) ----------------
+function openMsgUnlockModal(onSuccess) {
+  pendingUnlockAction = onSuccess || null;
+  document.getElementById("msgUnlockError").textContent = "";
+  document.getElementById("msgUnlockInput").value = "";
+  document.getElementById("msgUnlockModal").classList.remove("hidden");
+  setTimeout(() => document.getElementById("msgUnlockInput").focus(), 50);
+}
+function closeMsgUnlockModal() {
+  document.getElementById("msgUnlockModal").classList.add("hidden");
+  pendingUnlockAction = null;
+}
+async function submitMsgUnlockCode() {
+  const code = document.getElementById("msgUnlockInput").value.trim();
+  const errBox = document.getElementById("msgUnlockError");
+  errBox.textContent = "";
+  if (!code) return;
+
+  const r = await fetch("/api/admin/unlock-messages", {
+    method: "POST",
+    headers: { ...adminHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ code })
+  });
+  const d = await r.json();
+  if (!d.ok) { errBox.textContent = d.error || "Неверный код"; return; }
+
+  msgUnlockToken = d.token;
+  document.getElementById("msgUnlockModal").classList.add("hidden");
+  const action = pendingUnlockAction;
+  pendingUnlockAction = null;
+  if (action) action();
 }
 
 // ---------------- LOGIN / SESSION ----------------
@@ -67,6 +114,7 @@ async function adminLogin() {
 function adminLogout() {
   localStorage.removeItem("adminToken");
   adminToken = null;
+  msgUnlockToken = null;
   showLogin();
 }
 
@@ -165,17 +213,27 @@ function pluralRu(n) {
 
 // ---------------- THREAD VIEWER ----------------
 async function openPrivateThread(userA, userB) {
-  const res = await fetch(`/api/admin/messages/private/${encodeURIComponent(userA)}/${encodeURIComponent(userB)}`, { headers: adminHeaders() });
+  if (!msgUnlockToken) return openMsgUnlockModal(() => openPrivateThread(userA, userB));
+
+  const res = await fetch(`/api/admin/messages/private/${encodeURIComponent(userA)}/${encodeURIComponent(userB)}`, { headers: msgHeaders() });
   const data = await res.json();
-  if (!data.ok) return alert("Ошибка загрузки переписки");
+  if (!data.ok) {
+    if (data.needUnlock) { msgUnlockToken = null; return openMsgUnlockModal(() => openPrivateThread(userA, userB)); }
+    return alert(data.error || "Ошибка загрузки переписки");
+  }
 
   showThread(`@${userA} ↔ @${userB}`, data.messages);
 }
 
 async function openGroupThread(groupId, name) {
-  const res = await fetch(`/api/admin/messages/group/${groupId}`, { headers: adminHeaders() });
+  if (!msgUnlockToken) return openMsgUnlockModal(() => openGroupThread(groupId, name));
+
+  const res = await fetch(`/api/admin/messages/group/${groupId}`, { headers: msgHeaders() });
   const data = await res.json();
-  if (!data.ok) return alert("Ошибка загрузки сообщений");
+  if (!data.ok) {
+    if (data.needUnlock) { msgUnlockToken = null; return openMsgUnlockModal(() => openGroupThread(groupId, name)); }
+    return alert(data.error || "Ошибка загрузки сообщений");
+  }
 
   showThread(`Группа: ${name}`, data.messages);
 }
