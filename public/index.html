@@ -33,6 +33,11 @@
       <label>Пароль</label>
       <input id="password" type="password" placeholder="••••" autocomplete="current-password" />
 
+      <label class="checkrow" style="align-items:flex-start;margin-top:2px">
+        <input type="checkbox" id="acceptTermsBox">
+        <span>Я согласен(на) с <a href="#" onclick="openLegalModal('terms');return false;">Условиями использования</a> и <a href="#" onclick="openLegalModal('privacy');return false;">Политикой конфиденциальности</a></span>
+      </label>
+
       <button class="btn primary full" onclick="submitAuth()">Продолжить</button>
       <div class="hint">Юзернейм: 4–20 символов (a-z, 0-9, _). Пароль: минимум 6 символов.</div>
 
@@ -58,7 +63,94 @@
     </div>
   </div>
 
+  <!-- Условия использования / Политика конфиденциальности -->
+  <div id="legalModal" class="modal hidden" style="position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);">
+    <div class="auth-card" style="max-height:82vh;overflow-y:auto;width:min(520px,92vw)">
+      <div class="tabs" id="legalTabs">
+        <button class="tab active" id="legalTabTerms" onclick="switchLegalTab('terms')">Условия использования</button>
+        <button class="tab" id="legalTabPrivacy" onclick="switchLegalTab('privacy')">Конфиденциальность</button>
+      </div>
+      <div id="legalTermsBody" class="hint" style="white-space:pre-wrap;line-height:1.55;margin-top:12px"></div>
+      <div id="legalPrivacyBody" class="hint hidden" style="white-space:pre-wrap;line-height:1.55;margin-top:12px"></div>
+      <button class="btn primary full" style="margin-top:16px" onclick="closeLegalModal()">Закрыть</button>
+    </div>
+  </div>
+
   <script>
+    const LEGAL_TERMS_TEXT = `Условия использования One Messenger
+
+1. Общие положения
+One Messenger — мессенджер для обмена сообщениями, звонков и медиа. Регистрируясь, ты подтверждаешь, что тебе не менее 13 лет и ты принимаешь эти условия.
+
+2. Аккаунт
+Юзернейм и пароль придумываешь сам(а). Ты несёшь ответственность за сохранность пароля и за всё, что происходит через твой аккаунт. Рекомендуем включить двухфакторную аутентификацию в Настройках.
+
+3. Правила поведения
+Запрещены: спам и массовая рассылка нежелательных сообщений, угрозы и травля, публикация незаконного контента, выдача себя за другого человека, попытки взлома сервиса. За нарушение администрация вправе удалить контент, ограничить (мут) или заблокировать (бан) аккаунт без предупреждения.
+
+4. Разрешения устройства
+Приложение может запрашивать доступ к камере и микрофону — для фото/видео-сообщений, круглых видеосообщений и аудио/видеозвонков; к уведомлениям — чтобы присылать пуш-уведомления о новых сообщениях и входящих звонках (по аналогии с экраном входящего вызова, как в FaceTime); к геолокации — только когда ты сам(а) решаешь отправить точку на карте. Ничего из этого не включается без действия, инициированного тобой, и ты в любой момент можешь отозвать разрешения в настройках браузера/устройства.
+
+5. Контент
+Ты сохраняешь права на публикуемый контент, но несёшь за него полную ответственность. Администрация может удалить отдельное сообщение или весь аккаунт при нарушении правил.
+
+6. Ограничение ответственности
+Сервис предоставляется «как есть». Мы стараемся обеспечивать стабильную работу, но не гарантируем отсутствие сбоев или потери данных.
+
+7. Изменения условий
+Мы можем обновлять эти условия. О существенных изменениях сообщим через уведомление в приложении.
+
+8. Контакты
+По любым вопросам — через раздел «Поддержка» внутри приложения.`;
+
+    const LEGAL_PRIVACY_TEXT = `Политика конфиденциальности One Messenger
+
+1. Какие данные мы собираем
+Юзернейм, отображаемое имя, био, дата рождения (опционально), аватар; текст и медиа (фото, видео, голосовые, файлы, геометки) отправляемых сообщений; служебные данные — время отправки/прочтения, IP-адрес и user-agent сессий входа (для защиты аккаунта).
+
+2. Как мы используем данные
+Для работы функций мессенджера (доставка сообщений, звонки, уведомления, сторис), для защиты аккаунта от несанкционированного доступа и для ответа на обращения в поддержку.
+
+3. Хранение медиа
+Фото, видео и голосовые сообщения хранятся на сервере и доступны только участникам переписки.
+
+4. Доступ администрации
+Модераторы не могут открыть профиль или переписку пользователя без отдельного, дополнительного кода подтверждения — обычного входа в панель администратора для этого недостаточно.
+
+5. Передача третьим лицам
+Мы не продаём и не передаём твои данные третьим лицам, за исключением случаев, прямо предусмотренных законом.
+
+6. Твои права
+В любой момент можно скачать список своих данных через поддержку или полностью удалить аккаунт со всеми данными — Настройки → Аккаунт → Удалить аккаунт. Удаление необратимо.
+
+7. Безопасность
+Пароли хранятся в хэшированном виде (bcrypt), доступна двухфакторная аутентификация (TOTP).
+
+8. Возрастные ограничения
+Сервисом могут пользоваться лица не младше 13 лет либо старше возраста, установленного законодательством страны проживания.
+
+9. Изменения политики
+Мы можем обновлять эту политику. О существенных изменениях сообщим через уведомление в приложении.
+
+10. Контакты
+По вопросам, связанным с персональными данными — через раздел «Поддержка» внутри приложения.`;
+
+    function openLegalModal(tab) {
+      document.getElementById("legalTermsBody").textContent = LEGAL_TERMS_TEXT;
+      document.getElementById("legalPrivacyBody").textContent = LEGAL_PRIVACY_TEXT;
+      switchLegalTab(tab || "terms");
+      document.getElementById("legalModal").classList.remove("hidden");
+    }
+    function closeLegalModal() {
+      document.getElementById("legalModal").classList.add("hidden");
+    }
+    function switchLegalTab(tab) {
+      document.getElementById("legalTabTerms").classList.toggle("active", tab === "terms");
+      document.getElementById("legalTabPrivacy").classList.toggle("active", tab === "privacy");
+      document.getElementById("legalTermsBody").classList.toggle("hidden", tab !== "terms");
+      document.getElementById("legalPrivacyBody").classList.toggle("hidden", tab !== "privacy");
+    }
+
     let mode = "login";
     let pendingToken = null;
 
@@ -88,10 +180,15 @@
       const password = document.getElementById("password").value.trim();
       if(!identifier || !password) return alert("Заполни поля");
 
+      const accepted = document.getElementById("acceptTermsBox").checked;
+      if (mode === "reg" && !accepted) {
+        return alert("Нужно согласиться с Условиями использования и Политикой конфиденциальности");
+      }
+
       const url = mode === "login" ? "/api/auth/login" : "/api/auth/register";
       const body = mode === "login"
         ? { identifier, password }
-        : { username: identifier, password };
+        : { username: identifier, password, acceptedTerms: accepted };
 
       const r = await fetch(url, {
         method:"POST",
@@ -160,10 +257,11 @@
 
     async function onGoogleCredential(response) {
       try {
+        const accepted = document.getElementById("acceptTermsBox").checked;
         const r = await fetch("/api/auth/google", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ credential: response.credential })
+          body: JSON.stringify({ credential: response.credential, acceptedTerms: accepted })
         });
         const d = await r.json();
         if (!d.ok) { alert(d.error || "Не получилось войти через Google"); return; }
