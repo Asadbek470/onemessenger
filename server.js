@@ -70,6 +70,18 @@ if (!process.env.ADMIN_LOGIN || !process.env.ADMIN_PASSWORD) {
   );
 }
 
+// Отдельный, очень длинный код для разблокировки чтения чужих переписок
+// в админке. Даже вошедший в панель админ не может открыть чей-то чат,
+// пока не введёт этот код — он не то же самое, что пароль от админки.
+const ADMIN_MSG_UNLOCK_CODE = process.env.ADMIN_MSG_UNLOCK_CODE || "67411555361557";
+if (!process.env.ADMIN_MSG_UNLOCK_CODE) {
+  console.warn(
+    "[SECURITY WARNING] ADMIN_MSG_UNLOCK_CODE is not set — using the " +
+    "built-in default code for unlocking private message reading in the " +
+    "admin panel. Set it in your environment before deploying anywhere public."
+  );
+}
+
 function timingSafeStrEqual(a, b) {
   const bufA = Buffer.from(String(a));
   const bufB = Buffer.from(String(b));
@@ -762,10 +774,25 @@ function verifySuperAdmin(req, res, next) {
   try {
     const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET);
     if (decoded.role !== "superadmin") return res.status(403).json({ ok: false, error: "Доступ только для админов" });
+    req.admin = decoded;
     next();
   } catch {
     return res.status(401).json({ ok: false, error: "Сессия админа истекла, войди заново" });
   }
+}
+
+// Доп. защита: чтение реального текста переписок (личка/группа/общий чат)
+// требует, чтобы токен админа был ещё и «разблокирован» отдельным длинным
+// кодом через /api/admin/unlock-messages. Обычного входа в админку мало.
+function requireMsgUnlock(req, res, next) {
+  if (!req.admin || req.admin.msgUnlock !== true) {
+    return res.status(403).json({
+      ok: false,
+      error: "Нужен код разблокировки переписок",
+      needUnlock: true
+    });
+  }
+  next();
 }
 
 function resolveChatType(receiver) {
@@ -2351,6 +2378,17 @@ app.post("/api/admin/login", rateLimit(10, 5 * 60 * 1000), (req, res) => {
   res.json({ ok: true, token });
 });
 
+// Запретная зона: отдельный длинный код, который открывает чтение
+// чужих переписок. Пока он не введён верно, /api/admin/messages/* отдают 403.
+app.post("/api/admin/unlock-messages", verifySuperAdmin, rateLimit(8, 15 * 60 * 1000), (req, res) => {
+  const code = String((req.body && req.body.code) || "");
+  if (!timingSafeStrEqual(code, ADMIN_MSG_UNLOCK_CODE)) {
+    return res.status(401).json({ ok: false, error: "Неверный код разблокировки" });
+  }
+  const token = jwt.sign({ role: "superadmin", msgUnlock: true }, EFFECTIVE_JWT_SECRET, { expiresIn: "30m" });
+  res.json({ ok: true, token });
+});
+
 app.get("/api/admin/users", verifySuperAdmin, (req, res) => {
   const q = String(req.query.q || "").trim().toLowerCase();
   const where = q ? `WHERE username LIKE ?` : "";
@@ -2572,7 +2610,7 @@ app.post("/api/me/contact-requests/:id/reject", verifyAuth, async (req, res) => 
   res.json({ ok: true });
 });
 
-app.get("/api/admin/messages/private/:userA/:userB", verifySuperAdmin, async (req, res) => {
+app.get("/api/admin/messages/private/:userA/:userB", verifySuperAdmin, requireMsgUnlock, async (req, res) => {
   const a = String(req.params.userA || "").replace(/^@+/, "").toLowerCase();
   const b = String(req.params.userB || "").replace(/^@+/, "").toLowerCase();
 
@@ -2583,7 +2621,7 @@ app.get("/api/admin/messages/private/:userA/:userB", verifySuperAdmin, async (re
   res.json({ ok: true, messages: rows });
 });
 
-app.get("/api/admin/messages/group/:id", verifySuperAdmin, async (req, res) => {
+app.get("/api/admin/messages/group/:id", verifySuperAdmin, requireMsgUnlock, async (req, res) => {
   const groupId = Number(req.params.id);
   const rows = await dbAll(
     `SELECT * FROM messages WHERE chatType='group' AND receiver=? ORDER BY createdAt ASC LIMIT 2000`,
@@ -2592,7 +2630,7 @@ app.get("/api/admin/messages/group/:id", verifySuperAdmin, async (req, res) => {
   res.json({ ok: true, messages: rows });
 });
 
-app.get("/api/admin/messages/global", verifySuperAdmin, async (req, res) => {
+app.get("/api/admin/messages/global", verifySuperAdmin, requireMsgUnlock, async (req, res) => {
   const rows = await dbAll(`SELECT * FROM messages WHERE chatType='global' ORDER BY createdAt DESC LIMIT 500`);
   res.json({ ok: true, messages: rows });
 });
