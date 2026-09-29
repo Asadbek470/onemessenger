@@ -1769,3 +1769,94 @@ body::before, body::after{display:none}
 
 .roundpreview-actions{display:flex;gap:10px;width:100%}
 .roundpreview-actions .btn{flex:1}
+/* ================================================================
+   One Messenger — категории в Настройках (аккордеон) +
+   кастомная шапка профиля (градиент + узор).
+   Вставить в САМЫЙ КОНЕЦ style.css, ПОСЛЕ settings-telegram.css
+   и profile-telegram.css. Только CSS.
+   ================================================================ */
+
+/* ---------- Категории настроек ---------- */
+.settingscategory{
+  margin:14px 14px 0;
+}
+.settingscategory:first-child{margin-top:6px}
+
+.categoryhead{
+  width:100%;
+  display:flex;align-items:center;gap:10px;
+  padding:14px 16px;
+  background:var(--tg-card);
+  border:1px solid var(--tg-sep);
+  border-radius:18px;
+  font:inherit;color:#fff;font-weight:800;font-size:15px;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:border-radius .15s ease, background .15s ease;
+}
+.categoryhead:active{background:rgba(255,255,255,.04)}
+.cathead-icon{font-size:17px;line-height:1}
+.cathead-label{flex:1;text-align:left}
+.cathead-chevron{
+  font-size:13px;color:var(--tg-label);
+  transition:transform .22s ease;
+}
+.settingscategory.open .categoryhead{
+  border-radius:18px 18px 0 0;
+}
+.settingscategory.open .cathead-chevron{transform:rotate(180deg)}
+
+.categorybody{
+  max-height:0;
+  overflow:hidden;
+  background:rgba(255,255,255,.015);
+  border:1px solid var(--tg-sep);
+  border-top:0;
+  border-radius:0 0 18px 18px;
+  transition:max-height .32s ease;
+}
+.settingscategory.open .categorybody{max-height:4000px}
+
+/* когда категория закрыта — прячем нижнюю скруглённую рамку-«пустышку» */
+.settingscategory:not(.open) .categorybody{border-color:transparent}
+
+/* блоки внутри категории — без внешнего margin, категория уже задаёт отступы */
+.categorybody .settingsblock{margin:10px 10px 10px}
+.categorybody .settingsblock:first-child{margin-top:12px}
+.categorybody .settingsblock:last-child{margin-bottom:12px}
+
+@media (max-width:640px){
+  .settingscategory{margin:12px 10px 0}
+  .categoryhead{padding:12px 14px;font-size:14.5px}
+}
+
+/* ================================================================
+   Кастомная шапка профиля: градиент верх→низ + узор вместо точек.
+   Управляется CSS-переменными --hd-top/--hd-bottom/--hd-pattern-*,
+   которые ставит JS (applyProfileHeader). Если переменные не заданы —
+   остаётся исходный сине-фиолетовый градиент и точки.
+   ================================================================ */
+.tghead{
+  background:linear-gradient(160deg, var(--hd-top, #6a5cff) 0%, var(--hd-bottom, #2a9df4) 100%);
+}
+.tghead::before{
+  background-image:var(--hd-pattern-img,
+    radial-gradient(circle,rgba(255,255,255,.28) 2.5px,transparent 3px),
+    radial-gradient(circle,rgba(255,255,255,.18) 2px,transparent 2.5px));
+  background-size:var(--hd-pattern-size, 62px 62px);
+  background-position:var(--hd-pattern-pos, 0 0, 31px 31px);
+}
+
+/* ---------- Превью шапки в настройках ---------- */
+.hdpreview{
+  height:96px;border-radius:16px;position:relative;overflow:hidden;
+  margin:2px 0 4px;
+  background:linear-gradient(160deg, var(--hd-top, #6a5cff) 0%, var(--hd-bottom, #2a9df4) 100%);
+}
+.hdpreview::before{
+  content:"";position:absolute;inset:0;opacity:.5;
+  background-image:var(--hd-pattern-img,
+    radial-gradient(circle,rgba(255,255,255,.28) 2.5px,transparent 3px),
+    radial-gradient(circle,rgba(255,255,255,.18) 2px,transparent 2.5px));
+  background-size:var(--hd-pattern-size, 62px 62px);
+  background-position:var(--hd-pattern-pos, 0 0, 31px 31px);
+}
