@@ -2238,6 +2238,7 @@ async function openProfile(username, isMe) {
   }
   if (p.birthdayToday) acts.push(actionBtn("fa-cake-candles", "Поздравить", `closeProfile(); congratulate('${esc(p.username)}')`, "act-orange"));
   if (!p.blocked) acts.push(actionBtn("fa-user-plus", "В друзья", `addFriendByName('${esc(p.username)}')`, "act-violet"));
+  if (!p.blocked) acts.push(actionBtn("fa-address-book", "Контакт", `openSaveContactModal('${esc(p.username)}')`, "act-blue"));
   if (p.iBlockedThem) {
     acts.push(actionBtn("fa-user-check", "Разблокировать", `unblockFromProfile('${esc(p.username)}')`, "act-orange"));
   } else {
@@ -2346,10 +2347,12 @@ function openSettings() {
   renderPrivacySection();
   renderFriendsSection();
   renderBlacklistSection();
+  renderContactsSection();
   renderUsernameSection();
   renderGoogleSection();
   renderVerificationSection();
   renderSessionsSection();
+  renderLegalSection();
   renderDeleteAccountSection();
 }
 
@@ -2485,6 +2488,166 @@ async function addFriend() {
 async function removeFriend(username) {
   await fetch(`/api/friends/${encodeURIComponent(username)}`, { method: "DELETE", headers: authHeaders() });
   renderFriendsSection();
+}
+
+// ---------------- ЛИЧНЫЕ КОНТАКТЫ (свой ярлык на юзернейм, как в телефонной книге) ----------------
+async function renderContactsSection() {
+  const box = document.getElementById("contactsSection");
+  if (!box) return;
+  box.innerHTML = `<div class="hint">Загрузка...</div>`;
+
+  const r = await fetch("/api/contacts", { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok || d.contacts.length === 0) {
+    box.innerHTML = `<div class="hint">Пока нет сохранённых контактов. Открой чей-нибудь профиль и нажми «Контакт», чтобы сохранить.</div>`;
+    return;
+  }
+
+  box.innerHTML = d.contacts.map(c => `
+    <div class="memberrow">
+      <div class="avatar">${avatarHtml(c)}</div>
+      <div class="meta">
+        <div class="name">${esc(c.contactName)}</div>
+        <div class="preview">@${esc(c.username)}${c.note ? " · " + esc(c.note) : ""}</div>
+      </div>
+      <button class="iconbtn" onclick="openSaveContactModal('${esc(c.username)}','${esc(c.contactName).replace(/'/g, "&#39;")}','${esc(c.note).replace(/'/g, "&#39;")}')" title="Изменить"><i class="fa-solid fa-pen"></i></button>
+      <button class="iconbtn" onclick="deleteContact('${esc(c.username)}')" title="Удалить"><i class="fa-solid fa-trash"></i></button>
+    </div>
+  `).join("");
+}
+
+function openSaveContactModal(username, name, note) {
+  document.getElementById("saveContactUsername").value = username;
+  document.getElementById("saveContactUsernameLabel").textContent = "@" + username;
+  document.getElementById("saveContactName").value = name || "";
+  document.getElementById("saveContactNote").value = note || "";
+  document.getElementById("saveContactModal").classList.remove("hidden");
+}
+function closeSaveContactModal() {
+  document.getElementById("saveContactModal").classList.add("hidden");
+}
+async function submitSaveContact() {
+  const username = document.getElementById("saveContactUsername").value;
+  const name = document.getElementById("saveContactName").value.trim();
+  const note = document.getElementById("saveContactNote").value.trim();
+  if (!name) return alert("Введи имя контакта");
+
+  const r = await fetch("/api/contacts", {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ username, name, note })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+
+  closeSaveContactModal();
+  toast(`Контакт «${name}» сохранён ✅`);
+  renderContactsSection();
+}
+async function deleteContact(username) {
+  if (!confirm("Удалить контакт?")) return;
+  await fetch(`/api/contacts/${encodeURIComponent(username)}`, { method: "DELETE", headers: authHeaders() });
+  renderContactsSection();
+}
+
+// ---------------- ПОЛИТИКА ИСПОЛЬЗОВАНИЯ / КОНФИДЕНЦИАЛЬНОСТИ ----------------
+const LEGAL_TERMS_TEXT = `Условия использования One Messenger
+
+1. Общие положения
+One Messenger — мессенджер для обмена сообщениями, звонков и медиа. Регистрируясь, ты подтверждаешь, что тебе не менее 13 лет и ты принимаешь эти условия.
+
+2. Аккаунт
+Юзернейм и пароль придумываешь сам(а). Ты несёшь ответственность за сохранность пароля и за всё, что происходит через твой аккаунт. Рекомендуем включить двухфакторную аутентификацию в Настройках.
+
+3. Правила поведения
+Запрещены: спам и массовая рассылка нежелательных сообщений, угрозы и травля, публикация незаконного контента, выдача себя за другого человека, попытки взлома сервиса. За нарушение администрация вправе удалить контент, ограничить (мут) или заблокировать (бан) аккаунт без предупреждения.
+
+4. Разрешения устройства
+Приложение может запрашивать доступ к камере и микрофону — для фото/видео-сообщений, круглых видеосообщений и аудио/видеозвонков; к уведомлениям — чтобы присылать пуш-уведомления о новых сообщениях и входящих звонках (по аналогии с экраном входящего вызова, как в FaceTime); к геолокации — только когда ты сам(а) решаешь отправить точку на карте. Ничего из этого не включается без действия, инициированного тобой, и ты в любой момент можешь отозвать разрешения в настройках браузера/устройства.
+
+5. Контент
+Ты сохраняешь права на публикуемый контент, но несёшь за него полную ответственность. Администрация может удалить отдельное сообщение или весь аккаунт при нарушении правил.
+
+6. Ограничение ответственности
+Сервис предоставляется «как есть». Мы стараемся обеспечивать стабильную работу, но не гарантируем отсутствие сбоев или потери данных.
+
+7. Изменения условий
+Мы можем обновлять эти условия. О существенных изменениях сообщим через уведомление в приложении.
+
+8. Контакты
+По любым вопросам — через раздел «Поддержка» внутри приложения.`;
+
+const LEGAL_PRIVACY_TEXT = `Политика конфиденциальности One Messenger
+
+1. Какие данные мы собираем
+Юзернейм, отображаемое имя, био, дата рождения (опционально), аватар; текст и медиа (фото, видео, голосовые, файлы, геометки) отправляемых сообщений; служебные данные — время отправки/прочтения, IP-адрес и user-agent сессий входа (для защиты аккаунта).
+
+2. Как мы используем данные
+Для работы функций мессенджера (доставка сообщений, звонки, уведомления, сторис), для защиты аккаунта от несанкционированного доступа и для ответа на обращения в поддержку.
+
+3. Хранение медиа
+Фото, видео и голосовые сообщения хранятся на сервере и доступны только участникам переписки.
+
+4. Доступ администрации
+Модераторы не могут открыть профиль или переписку пользователя без отдельного, дополнительного кода подтверждения — обычного входа в панель администратора для этого недостаточно.
+
+5. Передача третьим лицам
+Мы не продаём и не передаём твои данные третьим лицам, за исключением случаев, прямо предусмотренных законом.
+
+6. Твои права
+В любой момент можно скачать список своих данных через поддержку или полностью удалить аккаунт со всеми данными — Настройки → Аккаунт → Удалить аккаунт. Удаление необратимо.
+
+7. Безопасность
+Пароли хранятся в хэшированном виде (bcrypt), доступна двухфакторная аутентификация (TOTP).
+
+8. Возрастные ограничения
+Сервисом могут пользоваться лица не младше 13 лет либо старше возраста, установленного законодательством страны проживания.
+
+9. Изменения политики
+Мы можем обновлять эту политику. О существенных изменениях сообщим через уведомление в приложении.
+
+10. Контакты
+По вопросам, связанным с персональными данными — через раздел «Поддержка» внутри приложения.`;
+
+function renderLegalSection() {
+  const box = document.getElementById("legalSection");
+  if (!box) return;
+  const accepted = !!(me && me.tosAcceptedAt);
+  box.innerHTML = `
+    <div class="row">
+      <button class="btn ghost full" onclick="openLegalModal('terms')">Условия использования</button>
+    </div>
+    <div class="row">
+      <button class="btn ghost full" onclick="openLegalModal('privacy')">Политика конфиденциальности</button>
+    </div>
+    ${accepted
+      ? `<div class="hint">✅ Принято ${new Date(me.tosAcceptedAt).toLocaleDateString("ru-RU")}</div>`
+      : `<div class="hint" style="color:#ff8a3d">⚠️ Ты ещё не принял(а) политику условий</div>
+         <button class="btn primary full" onclick="acceptTerms()">Принять</button>`}
+  `;
+}
+function openLegalModal(tab) {
+  document.getElementById("legalTermsBody").textContent = LEGAL_TERMS_TEXT;
+  document.getElementById("legalPrivacyBody").textContent = LEGAL_PRIVACY_TEXT;
+  switchLegalTab(tab || "terms");
+  document.getElementById("legalModal").classList.remove("hidden");
+}
+function closeLegalModal() {
+  document.getElementById("legalModal").classList.add("hidden");
+}
+function switchLegalTab(tab) {
+  document.getElementById("legalTabTerms").classList.toggle("active", tab === "terms");
+  document.getElementById("legalTabPrivacy").classList.toggle("active", tab === "privacy");
+  document.getElementById("legalTermsBody").classList.toggle("hidden", tab !== "terms");
+  document.getElementById("legalPrivacyBody").classList.toggle("hidden", tab !== "privacy");
+}
+async function acceptTerms() {
+  const r = await fetch("/api/me/accept-terms", { method: "POST", headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  me.tosAcceptedAt = d.tosAcceptedAt;
+  toast("Спасибо! Политика принята ✅");
+  renderLegalSection();
 }
 
 // ---------------- ЧЁРНЫЙ СПИСОК ----------------
