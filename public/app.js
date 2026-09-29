@@ -680,6 +680,7 @@ document.addEventListener("visibilitychange", () => {
 
 function msgPreview(msg) {
   if (msg.mediaType === "gift") return "🎁 Подарок";
+  if (msg.mediaType === "round") return "⭕ Видеосообщение";
   if (msg.mediaType === "list") return "📋 Список";
   if (msg.mediaType === "location") return "📍 Геолокация";
   if (msg.mediaType === "file") return "📎 " + (msg.fileName || "Файл");
@@ -916,6 +917,8 @@ function renderMessage(m) {
     body = renderLocationBody(m);
   } else if (m.mediaType === "gift") {
     body = renderGiftBody(m);
+  } else if (m.mediaType === "round") {
+    body = renderRoundBody(m);
   } else {
     const text = m.text || "";
     body = EMOJI_ONLY_RE.test(text.trim())
@@ -924,6 +927,11 @@ function renderMessage(m) {
   }
 
   const actions = [];
+  if (["image", "video", "round", "audio", "file"].includes(m.mediaType) && m.mediaUrl) {
+    const dlName = esc(m.fileName || (m.mediaType === "round" ? "video_message.webm" : m.mediaType));
+    actions.push(`<a class="mact" href="${esc(m.mediaUrl)}" download="${dlName}" title="Скачать"><i class="fa-solid fa-download"></i></a>`);
+    actions.push(`<button class="mact" onclick="openForwardPicker(${m.id})" title="Переслать"><i class="fa-solid fa-share"></i></button>`);
+  }
   if (!isSelfChat(currentChat) && m.chatType !== "support") {
     actions.push(`<button class="mact" onclick="saveToFavorites(${m.id})" title="В избранное"><i class="fa-regular fa-star"></i></button>`);
   }
@@ -1364,6 +1372,181 @@ async function sendMedia(input) {
   if (!d.ok) {
     if (d.gated) return openContactRequest(currentChat, "");
     alert(d.error || "Ошибка отправки файла");
+  }
+}
+
+// ---------------- ВИДЕОСООБЩЕНИЯ-КРУЖОЧКИ (как в Telegram) ----------------
+const ROUND_MAX_MS = 60000;
+let roundStream = null, roundRecorder = null, roundChunks = [], roundBlob = null;
+let roundTimerInterval = null, roundStartedAt = 0;
+
+function pickRoundMime() {
+  const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
+  for (const c of candidates) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) return c;
+  }
+  return "";
+}
+
+async function openRoundRecorder() {
+  if (currentChat === "support") return alert("В поддержку видеосообщения отправлять нельзя");
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return alert("Этот браузер не поддерживает запись видео");
+
+  resetRoundUI();
+  document.getElementById("roundRecorderModal").classList.remove("hidden");
+
+  try {
+    roundStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 480 }, height: { ideal: 480 }, aspectRatio: 1 },
+      audio: true
+    });
+  } catch {
+    alert("Нет доступа к камере или микрофону — разреши его в настройках браузера");
+    closeRoundRecorder();
+    return;
+  }
+
+  const v = document.getElementById("roundLiveVideo");
+  v.srcObject = roundStream;
+  v.muted = true;
+  v.loop = false;
+  try { await v.play(); } catch {}
+}
+
+function startRoundRecording() {
+  if (!roundStream) return;
+  roundChunks = [];
+  const mime = pickRoundMime();
+  try {
+    roundRecorder = mime ? new MediaRecorder(roundStream, { mimeType: mime }) : new MediaRecorder(roundStream);
+  } catch {
+    alert("Запись видео не поддерживается этим браузером");
+    return;
+  }
+  roundRecorder.ondataavailable = (e) => { if (e.data && e.data.size) roundChunks.push(e.data); };
+  roundRecorder.onstop = onRoundStop;
+  roundRecorder.start();
+  roundStartedAt = Date.now();
+
+  document.getElementById("roundRecordBtn").classList.add("hidden");
+  document.getElementById("roundStopBtn").classList.remove("hidden");
+  document.getElementById("roundTimer").classList.remove("hidden");
+  tickRoundTimer();
+  roundTimerInterval = setInterval(tickRoundTimer, 200);
+}
+
+function tickRoundTimer() {
+  const ms = Date.now() - roundStartedAt;
+  const s = Math.floor(ms / 1000);
+  document.getElementById("roundTimer").textContent =
+    String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+  if (ms >= ROUND_MAX_MS) stopRoundRecording();
+}
+
+function stopRoundRecording() {
+  clearInterval(roundTimerInterval);
+  roundTimerInterval = null;
+  if (roundRecorder && roundRecorder.state !== "inactive") roundRecorder.stop();
+}
+
+function onRoundStop() {
+  const mime = (roundRecorder && roundRecorder.mimeType) || "video/webm";
+  roundBlob = new Blob(roundChunks, { type: mime });
+  const url = URL.createObjectURL(roundBlob);
+
+  const v = document.getElementById("roundLiveVideo");
+  v.srcObject = null;
+  v.src = url;
+  v.muted = false;
+  v.loop = true;
+  v.play().catch(() => {});
+
+  document.getElementById("roundStopBtn").classList.add("hidden");
+  document.getElementById("roundTimer").classList.add("hidden");
+  document.getElementById("roundPreviewActions").classList.remove("hidden");
+}
+
+function retakeRound() {
+  roundBlob = null;
+  roundChunks = [];
+  const v = document.getElementById("roundLiveVideo");
+  v.src = "";
+  v.srcObject = roundStream;
+  v.muted = true;
+  v.loop = false;
+  v.play().catch(() => {});
+  document.getElementById("roundPreviewActions").classList.add("hidden");
+  document.getElementById("roundRecordBtn").classList.remove("hidden");
+}
+
+async function sendRoundVideo() {
+  if (!roundBlob) return;
+  const blob = roundBlob;
+  closeRoundRecorder();
+
+  const fd = new FormData();
+  fd.append("file", blob, "round.webm");
+  fd.append("receiver", currentChat);
+  fd.append("text", "");
+  fd.append("kind", "round");
+
+  toast("Отправка видеосообщения...");
+  const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
+  const d = await r.json();
+  if (!d.ok) {
+    if (d.gated) return openContactRequest(currentChat, "");
+    alert(d.error || "Ошибка отправки видеосообщения");
+  }
+}
+
+function resetRoundUI() {
+  document.getElementById("roundRecordBtn").classList.remove("hidden");
+  document.getElementById("roundStopBtn").classList.add("hidden");
+  document.getElementById("roundTimer").classList.add("hidden");
+  document.getElementById("roundTimer").textContent = "00:00";
+  document.getElementById("roundPreviewActions").classList.add("hidden");
+}
+
+function closeRoundRecorder() {
+  document.getElementById("roundRecorderModal").classList.add("hidden");
+  clearInterval(roundTimerInterval);
+  roundTimerInterval = null;
+  if (roundRecorder && roundRecorder.state !== "inactive") {
+    try { roundRecorder.stop(); } catch {}
+  }
+  roundRecorder = null;
+  roundChunks = [];
+  roundBlob = null;
+  if (roundStream) {
+    roundStream.getTracks().forEach((t) => t.stop());
+    roundStream = null;
+  }
+  const v = document.getElementById("roundLiveVideo");
+  if (v) { v.pause(); v.srcObject = null; v.removeAttribute("src"); v.load(); }
+}
+
+function renderRoundBody(m) {
+  return `
+    <div class="roundmsg" onclick="toggleRoundPlay(this)">
+      <video class="roundvid" src="${esc(m.mediaUrl)}" playsinline preload="metadata"
+        onended="this.closest('.roundmsg').classList.remove('playing')"></video>
+      <div class="roundplay"><i class="fa-solid fa-play"></i></div>
+    </div>
+  `;
+}
+
+function toggleRoundPlay(wrap) {
+  const v = wrap.querySelector("video");
+  if (!v) return;
+  if (v.paused) {
+    document.querySelectorAll(".roundvid").forEach((o) => {
+      if (o !== v) { o.pause(); o.currentTime = 0; o.closest(".roundmsg")?.classList.remove("playing"); }
+    });
+    v.play().catch(() => {});
+    wrap.classList.add("playing");
+  } else {
+    v.pause();
+    wrap.classList.remove("playing");
   }
 }
 
