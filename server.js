@@ -438,6 +438,19 @@ async function initSchema() {
   await addColumn("messages", "fileName", "TEXT NOT NULL DEFAULT ''");
   await addColumn("messages", "fileSize", "INTEGER NOT NULL DEFAULT 0");
   await addColumn("messages", "forwardedFrom", "TEXT NOT NULL DEFAULT ''");
+  await addColumn("messages", "replyTo", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("messages", "edited", "INTEGER NOT NULL DEFAULT 0");
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS message_reads (
+      messageId INTEGER NOT NULL,
+      reader TEXT NOT NULL,
+      readAt INTEGER NOT NULL,
+      PRIMARY KEY (messageId, reader)
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_reads_msg ON message_reads(messageId)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_reads_reader ON message_reads(reader)`);
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS stories (
@@ -977,6 +990,8 @@ async function wipeUserData(u) {
   await dbRun(`DELETE FROM dm_exceptions WHERE owner=? OR allowed=?`, [u, u]);
   await dbRun(`DELETE FROM contact_requests WHERE fromUser=? OR toUser=?`, [u, u]);
   await dbRun(`DELETE FROM chat_wallpapers WHERE owner=? OR chat=?`, [u, u]);
+  await dbRun(`DELETE FROM message_reads WHERE reader=?`, [u]);
+  await dbRun(`DELETE FROM blocked_users WHERE owner=? OR blocked=?`, [u, u]);
   await dbRun(`DELETE FROM users WHERE username=?`, [u]);
 }
 
@@ -1060,6 +1075,7 @@ app.post("/api/me/username", verifyAuth, rateLimit(3, 60 * 60 * 1000), async (re
     await dbRun(`UPDATE chat_wallpapers SET owner=? WHERE owner=?`, [newUsername, old]);
     await dbRun(`UPDATE chat_wallpapers SET chat=? WHERE chat=?`, [newUsername, old]);
     await dbRun(`UPDATE birthday_log SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE message_reads SET reader=? WHERE reader=?`, [newUsername, old]);
   } catch (e) {
     console.error("[USERNAME CHANGE]", e.message);
     return res.status(500).json({ ok: false, error: "Ошибка смены юзернейма" });
@@ -1840,10 +1856,105 @@ app.get("/api/chats", verifyAuth, async (req, res) => {
 });
 
 // ---------------- MESSAGES ----------------
-async function sendMessagesWithUsers(res, rows) {
-  const users = await getUserCards(rows.map(r => r.sender));
-  res.json({ ok: true, messages: rows, users });
+async function attachReadAndReply(rows, me) {
+  const myIds = rows.filter(r => r.sender === me).length ? rows.filter(r => r.sender === me).map(r => r.id) : [];
+  let readMap = {}; // messageId -> count of OTHER readers
+  if (myIds.length) {
+    const placeholders = myIds.map(() => "?").join(",");
+    const readRows = await dbAll(
+      `SELECT messageId, COUNT(DISTINCT reader) c FROM message_reads WHERE messageId IN (${placeholders}) AND reader!=? GROUP BY messageId`,
+      [...myIds, me]
+    );
+    readRows.forEach(r => { readMap[r.messageId] = r.c; });
+  }
+
+  const replyIds = [...new Set(rows.map(r => Number(r.replyTo) || 0).filter(Boolean))];
+  let replyMap = {};
+  if (replyIds.length) {
+    const placeholders = replyIds.map(() => "?").join(",");
+    const replyRows = await dbAll(`SELECT id, sender, text, mediaType FROM messages WHERE id IN (${placeholders})`, replyIds);
+    replyRows.forEach(r => { replyMap[r.id] = r; });
+  }
+
+  return rows.map(r => ({
+    ...r,
+    readCount: r.sender === me ? (readMap[r.id] || 0) : undefined,
+    replyPreview: r.replyTo ? (replyMap[r.replyTo] || null) : null
+  }));
 }
+
+async function sendMessagesWithUsers(res, rows, me) {
+  const users = await getUserCards(rows.map(r => r.sender));
+  const withExtra = me ? await attachReadAndReply(rows, me) : rows;
+  res.json({ ok: true, messages: withExtra, users });
+}
+
+// Кто и когда прочитал конкретное сообщение (для долгого нажатия на сообщение)
+app.get("/api/messages/:id/reads", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
+  if (!row || !(await canReadMessage(row, req.user.username))) return res.status(404).json({ ok: false, error: "Не найдено" });
+
+  const rows = await dbAll(
+    `SELECT r.reader, r.readAt, u.displayName, u.avatarUrl FROM message_reads r JOIN users u ON u.username=r.reader WHERE r.messageId=? ORDER BY r.readAt ASC`,
+    [id]
+  );
+  res.json({ ok: true, reads: rows });
+});
+
+// Редактирование своего текстового сообщения
+app.put("/api/messages/:id", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  const text = String(req.body.text || "").trim().slice(0, 2000);
+  if (!text) return res.status(400).json({ ok: false, error: "Пустой текст" });
+
+  const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
+  if (!row) return res.status(404).json({ ok: false, error: "Не найдено" });
+  if (row.sender !== me) return res.status(403).json({ ok: false, error: "Можно редактировать только своё" });
+  if (row.mediaType !== "text") return res.status(400).json({ ok: false, error: "Можно редактировать только текстовые сообщения" });
+
+  await dbRun(`UPDATE messages SET text=?, edited=1 WHERE id=?`, [text, id]);
+  await broadcastToChat(row.chatType, row.receiver, row.sender, { type: "messageEdited", id, text, edited: true });
+  res.json({ ok: true });
+});
+
+// Переслать сообщение в любой чат (личка/группа/канал/избранное)
+app.post("/api/messages/:id/forward", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  const to = String(req.body.to || "").replace(/^@+/, "").toLowerCase();
+  if (!to) return res.status(400).json({ ok: false, error: "Не указан чат" });
+
+  const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
+  if (!row || !(await canReadMessage(row, me))) return res.status(404).json({ ok: false, error: "Сообщение не найдено" });
+
+  if (row.sender !== me && row.sender !== "support") {
+    const senderUser = await dbGet(`SELECT username, settings FROM users WHERE username=?`, [row.sender]);
+    if (senderUser && !(await isAllowedByPrivacy(senderUser, me, "forwardPrivacy"))) {
+      return res.status(403).json({ ok: false, error: "Автор запретил пересылку своих сообщений" });
+    }
+  }
+
+  const chatType = resolveChatType(to);
+  const perm = await canPostTo(chatType, to, me);
+  if (!perm.canPost) return res.status(403).json({ ok: false, error: perm.error || "Нет доступа" });
+
+  const createdAt = now();
+  const forwardedFrom = row.sender === me ? "" : row.sender;
+  const result = await dbRun(
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, forwardedFrom)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    [chatType, me, to, row.text || "", row.mediaType || "text", row.mediaUrl || "", createdAt, row.fileName || "", Number(row.fileSize || 0), forwardedFrom]
+  );
+  const msg = {
+    id: result.lastID, chatType, sender: me, receiver: to, text: row.text || "",
+    mediaType: row.mediaType || "text", mediaUrl: row.mediaUrl || "", createdAt,
+    fileName: row.fileName || "", fileSize: Number(row.fileSize || 0), forwardedFrom, replyTo: 0
+  };
+  await broadcastMessage(msg);
+  res.json({ ok: true });
+});
 
 app.get("/api/messages", verifyAuth, async (req, res) => {
   const chat = String(req.query.chat || "global").replace(/^@+/, "").toLowerCase();
@@ -1851,7 +1962,7 @@ app.get("/api/messages", verifyAuth, async (req, res) => {
 
   if (chat === "global") {
     const rows = await dbAll(`SELECT * FROM messages WHERE chatType='global' ORDER BY createdAt ASC LIMIT 500`);
-    return sendMessagesWithUsers(res, rows);
+    return sendMessagesWithUsers(res, rows, me);
   }
 
   if (chat.startsWith("group:")) {
@@ -1863,7 +1974,7 @@ app.get("/api/messages", verifyAuth, async (req, res) => {
       `SELECT * FROM messages WHERE chatType='group' AND receiver=? ORDER BY createdAt ASC LIMIT 800`,
       [chat]
     );
-    return sendMessagesWithUsers(res, rows);
+    return sendMessagesWithUsers(res, rows, me);
   }
 
   if (chat === "support") {
@@ -1871,7 +1982,7 @@ app.get("/api/messages", verifyAuth, async (req, res) => {
       `SELECT * FROM messages WHERE chatType='support' AND ((sender=? AND receiver='support') OR (sender='support' AND receiver=?)) ORDER BY createdAt ASC LIMIT 500`,
       [me, me]
     );
-    return sendMessagesWithUsers(res, rows);
+    return sendMessagesWithUsers(res, rows, me);
   }
 
   const other = chat;
@@ -1885,7 +1996,7 @@ app.get("/api/messages", verifyAuth, async (req, res) => {
     `,
     [me, other, other, me]
   );
-  sendMessagesWithUsers(res, rows);
+  sendMessagesWithUsers(res, rows, me);
 });
 
 async function canReadMessage(row, username) {
@@ -1907,6 +2018,7 @@ app.delete("/api/messages/:id", verifyAuth, (req, res) => {
     db.run(`DELETE FROM messages WHERE id=?`, [id], async (e2) => {
       if (e2) return res.status(500).json({ ok: false, error: "Ошибка удаления" });
 
+      dbRun(`DELETE FROM message_reads WHERE messageId=?`, [id]).catch(() => {});
       await broadcastDelete(row, id);
       res.json({ ok: true });
     });
@@ -2678,13 +2790,73 @@ wss.on("connection", (ws, req) => {
           const perm = await canPostTo(chatType, receiver, from);
           if (!perm.canPost) return wsSend(ws, { type: "post-error", gated: !!perm.gated, to: receiver, message: perm.error || "Нет доступа" });
 
+          let replyTo = Number(data.replyTo) || 0;
+          let replyPreview = null;
+          if (replyTo) {
+            const replied = await dbGet(`SELECT id, sender, text, mediaType FROM messages WHERE id=?`, [replyTo]);
+            if (replied && (await canReadMessage(replied, from))) replyPreview = replied;
+            else replyTo = 0;
+          }
+
           const createdAt = now();
           const result = await dbRun(
-            `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt) VALUES (?,?,?,?,?,?,?)`,
-            [chatType, from, receiver, text, "text", "", createdAt]
+            `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, replyTo) VALUES (?,?,?,?,?,?,?,?)`,
+            [chatType, from, receiver, text, "text", "", createdAt, replyTo]
           );
-          const msg = { id: result.lastID, chatType, sender: from, receiver, text, mediaType: "text", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "" };
+          const msg = { id: result.lastID, chatType, sender: from, receiver, text, mediaType: "text", mediaUrl: "", createdAt, fileName: "", fileSize: 0, forwardedFrom: "", replyTo, replyPreview };
           await broadcastMessage(msg);
+          return;
+        }
+
+        if (data.type === "edit-message") {
+          const id = Number(data.id);
+          const text = String(data.text || "").trim().slice(0, 2000);
+          if (!id || !text) return;
+          const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
+          if (!row || row.sender !== from || row.mediaType !== "text") return;
+          await dbRun(`UPDATE messages SET text=?, edited=1 WHERE id=?`, [text, id]);
+          await broadcastToChat(row.chatType, row.receiver, row.sender, { type: "messageEdited", id, text, edited: true });
+          return;
+        }
+
+        if (data.type === "mark-read") {
+          const to = String(data.to || "").replace(/^@+/, "").toLowerCase();
+          const upToId = Number(data.upToId) || 0;
+          if (!to || !upToId || to === from) return;
+          const chatType = resolveChatType(to);
+          if (chatType === "support") return;
+
+          let rows;
+          if (chatType === "private") {
+            // сообщения, которые "to" отправил(а) мне (from) — их я сейчас прочитал(а)
+            rows = await dbAll(
+              `SELECT id FROM messages WHERE chatType='private' AND sender=? AND receiver=? AND id<=?`,
+              [to, from, upToId]
+            );
+          } else if (chatType === "group") {
+            if (!(await isMember(Number(String(to).slice(6)), from))) return;
+            rows = await dbAll(
+              `SELECT id FROM messages WHERE chatType='group' AND receiver=? AND sender!=? AND id<=?`,
+              [to, from, upToId]
+            );
+          } else if (chatType === "global") {
+            rows = await dbAll(`SELECT id FROM messages WHERE chatType='global' AND sender!=? AND id<=?`, [from, upToId]);
+          } else {
+            return;
+          }
+          if (!rows.length) return;
+
+          const readAt = now();
+          for (const r of rows) {
+            await dbRun(`INSERT OR IGNORE INTO message_reads (messageId, reader, readAt) VALUES (?,?,?)`, [r.id, from, readAt]);
+          }
+
+          if (chatType === "private") {
+            // отправителю (to) шлём событие с ключом чата = мой username (from), т.к. это его "переписка со мной"
+            wsSendToUser(to, { type: "read", by: from, chatKey: from, upToId, readAt });
+          } else {
+            await broadcastToChat(chatType, to, from, { type: "read", by: from, chatKey: to, upToId, readAt });
+          }
           return;
         }
 
