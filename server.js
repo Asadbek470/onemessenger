@@ -2674,10 +2674,20 @@ app.get("/api/admin/user/:username/overview", verifySuperAdmin, requireMsgUnlock
 
   const globalCount = await dbGet(`SELECT COUNT(*) AS c FROM messages WHERE chatType='global' AND sender=?`, [u]);
 
-  res.json({ ok: true, partners, groups, globalMessageCount: globalCount.c });
+  // Личная адресная книга пользователя (кого он сохранил и как подписал) —
+  // тоже личные данные, отдаём только вместе с остальным «разблокированным» обзором.
+  const contacts = await dbAll(
+    `SELECT username, name, note, createdAt FROM contacts WHERE owner=? ORDER BY createdAt DESC`,
+    [u]
+  );
+
+  res.json({ ok: true, partners, groups, globalMessageCount: globalCount.c, contacts });
 });
 
-app.get("/api/admin/sessions", verifySuperAdmin, async (req, res) => {
+// Просмотр и управление сессиями — тоже личные данные пользователя
+// (IP, устройство, история входов), поэтому закрыто тем же кодом
+// разблокировки, что и переписки/профили.
+app.get("/api/admin/sessions", verifySuperAdmin, requireMsgUnlock, async (req, res) => {
   const q = String(req.query.q || "").trim().toLowerCase();
   const rows = await dbAll(
     q
@@ -2689,7 +2699,7 @@ app.get("/api/admin/sessions", verifySuperAdmin, async (req, res) => {
   res.json({ ok: true, sessions: withOnline });
 });
 
-app.post("/api/admin/sessions/:id/revoke", verifySuperAdmin, async (req, res) => {
+app.post("/api/admin/sessions/:id/revoke", verifySuperAdmin, requireMsgUnlock, async (req, res) => {
   const id = Number(req.params.id);
   await dbRun(`UPDATE sessions SET revoked=1 WHERE id=?`, [id]);
   res.json({ ok: true });
