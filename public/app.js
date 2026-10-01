@@ -28,6 +28,7 @@ const rtcCfg = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 const onlineSet = new Set();
 const lastSeenMap = new Map();       // username -> timestamp (живые обновления)
 const userInfoCache = new Map();     // username -> карточка (аватар, цвет имени, статус...)
+const contactNamesCache = new Map(); // username -> моё сохранённое имя для него ("Мама", "Папа"...)
 
 let myGroups = [];
 let lastSentText = "";               // чтобы подставить текст в заявку, если аккаунт официальный
@@ -95,9 +96,12 @@ function avatarHtml(info) {
 }
 
 // Имя: цвет имени + эмодзи-статус + галочка + 🎂 в день рождения
+// Если контакт сохранён под своим именем («Мама», «Папа», «Друг»...),
+// оно показывается везде — в шапке чата, списке чатов, профиле — а не только в настройках.
 function nameHtml(info, opts = {}) {
   info = info || {};
-  const name = esc(info.displayName || info.username || "");
+  const saved = info.username ? contactNamesCache.get(info.username) : "";
+  const name = esc(saved || info.displayName || info.username || "");
   const status = info.emojiStatus ? `<span class="emojistatus" title="Статус">${esc(info.emojiStatus)}</span>` : "";
   const bday = info.birthdayToday ? `<span class="bdaymark" title="Сегодня день рождения">🎂</span>` : "";
   return `<span class="uname">${name}</span>${status}${verifiedBadge(info.verified)}${opts.noBday ? "" : bday}`;
@@ -210,6 +214,7 @@ function renderPasscodeSection() {
 
 // ================== BOOT ==================
 window.addEventListener("DOMContentLoaded", () => {
+  setupStoryGestures();
   if (passcodeEnabled()) {
     document.getElementById("passcodeOverlay").classList.remove("hidden");
     document.getElementById("passcodeInput").focus();
@@ -630,6 +635,7 @@ async function initApp() {
   applyLanguage((me.settings && me.settings.language) || currentLang);
   connectWS();
 
+  await loadContactNamesCache();
   await refreshChats();
   await loadStories();
   await showBirthdays();
@@ -947,6 +953,19 @@ function connectWS() {
       if (viewersModal && !viewersModal.classList.contains("hidden")) {
         openStoryViewersModal(data.storyId);
       }
+      return;
+    }
+
+    if (data.type === "storyComment") {
+      toast(`💬 @${data.from}: ${data.text}`);
+      if (currentStory && currentStory.id === data.storyId) {
+        loadStoryComments(data.storyId);
+      }
+      return;
+    }
+
+    if (data.type === "storyRepost") {
+      toast(`🔁 @${data.from} репостнул(а) твою историю`);
       return;
     }
 
@@ -2773,6 +2792,20 @@ async function removeFriend(username) {
 }
 
 // ---------------- ЛИЧНЫЕ КОНТАКТЫ (свой ярлык на юзернейм, как в телефонной книге) ----------------
+// contactNamesCache держит мои собственные ярлыки («Мама», «Папа», «Друг»...),
+// чтобы их было видно везде по приложению — в шапке чата, списке чатов, профиле, — а не только в этом списке.
+async function loadContactNamesCache() {
+  try {
+    const r = await fetch("/api/contacts", { headers: authHeaders() });
+    const d = await r.json();
+    if (!d.ok) return;
+    contactNamesCache.clear();
+    for (const c of d.contacts) {
+      if (c.contactName) contactNamesCache.set(c.username, c.contactName);
+    }
+  } catch (e) {}
+}
+
 async function renderContactsSection() {
   const box = document.getElementById("contactsSection");
   if (!box) return;
@@ -2780,6 +2813,14 @@ async function renderContactsSection() {
 
   const r = await fetch("/api/contacts", { headers: authHeaders() });
   const d = await r.json();
+
+  contactNamesCache.clear();
+  for (const c of (d.contacts || [])) {
+    if (c.contactName) contactNamesCache.set(c.username, c.contactName);
+  }
+  if (isPrivateChat(currentChat)) updateHeader();
+  refreshChats();
+
   if (!d.ok || d.contacts.length === 0) {
     box.innerHTML = `<div class="hint">${t("contact.empty")}</div>`;
     return;
@@ -3876,6 +3917,11 @@ async function sendGift(emoji) {
 }
 
 // ================== STORIES ==================
+// storyFeedQueue — лента историй (по одной на автора, как заголовки), по которой
+// можно листать вертикальным свайпом вверх/вниз, как в шортс/риллс.
+let storyFeedQueue = [];
+let storyFeedIndex = -1;
+
 async function loadStories() {
   const r = await fetch("/api/stories", { headers: authHeaders() });
   const d = await r.json();
@@ -3884,13 +3930,15 @@ async function loadStories() {
   const map = new Map();
   d.stories.forEach(s => { if (!map.has(s.owner)) map.set(s.owner, s); });
 
+  storyFeedQueue = [...map.values()].slice(0, 20);
+
   const list = document.getElementById("storiesList");
   list.innerHTML = "";
 
-  [...map.values()].slice(0, 20).forEach(s => {
+  storyFeedQueue.forEach((s, i) => {
     const b = document.createElement("button");
     b.className = "storychip";
-    b.onclick = () => viewStory(s);
+    b.onclick = () => openStoryFeedAt(i);
     b.innerHTML = `
       <div class="storyava">${avatarHtml({ username: s.owner, displayName: s.displayName, avatarUrl: s.avatarUrl })}</div>
       <div class="storyname">${esc((s.displayName || s.owner).split(" ")[0])}${verifiedBadge(s.verified)}</div>
@@ -3898,6 +3946,16 @@ async function loadStories() {
     list.appendChild(b);
   });
 }
+
+// Открыть ленту историй с конкретного места и дать листать её свайпом/стрелками,
+// как шортс/риллс, а не закрывать после каждой истории.
+function openStoryFeedAt(i) {
+  if (i < 0 || i >= storyFeedQueue.length) { closeStoryViewer(); return; }
+  storyFeedIndex = i;
+  viewStory(storyFeedQueue[i]);
+}
+function goToNextStory() { openStoryFeedAt(storyFeedIndex + 1); }
+function goToPrevStory() { if (storyFeedIndex > 0) openStoryFeedAt(storyFeedIndex - 1); }
 
 function openStoryComposer() {
   document.getElementById("storyModal").classList.remove("hidden");
@@ -3930,26 +3988,40 @@ const STORY_DURATION_MS = 6000;
 let currentStory = null;
 const STORY_QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👏", "🔥"];
 
+// --- удержание пальца/курсора ставит историю на паузу, как в шортс/риллс ---
+let storyDurationMs = 0;
+let storyStartedAt = 0;
+let storyPausedElapsed = 0;
+let storyPaused = false;
+let storyVideoEl = null;
+
 function closeStoryViewer() {
   const modal = document.getElementById("storyViewerModal");
   modal.classList.add("hidden");
   document.getElementById("storyViewerMedia").innerHTML = "";
   document.getElementById("storyViewerFooter").innerHTML = "";
+  const commentsBox = document.getElementById("storyViewerComments");
+  if (commentsBox) commentsBox.innerHTML = "";
   clearTimeout(storyTimer);
   storyTimer = null;
   currentStory = null;
+  storyVideoEl = null;
+  storyPaused = false;
+  storyFeedIndex = -1;
 }
 
 function viewStory(s) {
   const modal = document.getElementById("storyViewerModal");
   modal.classList.remove("hidden");
   currentStory = s;
+  storyVideoEl = null;
 
   const avatarBox = document.getElementById("storyViewerAvatar");
   avatarBox.innerHTML = avatarHtml({ username: s.owner, displayName: s.displayName, avatarUrl: s.avatarUrl });
   document.getElementById("storyViewerName").innerHTML = esc(s.displayName || s.owner) + verifiedBadge(s.verified);
   document.getElementById("storyViewerCaption").textContent = s.text || "";
   renderStoryFooter(s);
+  loadStoryComments(s.id);
 
   const isOwner = me && s.owner === me.username;
   if (!isOwner) {
@@ -3960,11 +4032,6 @@ function viewStory(s) {
   mediaBox.innerHTML = "";
   clearTimeout(storyTimer);
 
-  const bar = document.getElementById("storyProgressBar");
-  bar.style.transition = "none";
-  bar.style.width = "0%";
-  void bar.offsetWidth;
-
   if (s.mediaType === "video" && s.mediaUrl) {
     const video = document.createElement("video");
     video.src = s.mediaUrl;
@@ -3972,25 +4039,23 @@ function viewStory(s) {
     video.playsInline = true;
     video.className = "storyviewer-video";
     mediaBox.appendChild(video);
+    storyVideoEl = video;
     video.addEventListener("loadedmetadata", () => {
       const durMs = isFinite(video.duration) ? video.duration * 1000 : STORY_DURATION_MS;
-      animateStoryProgress(bar, durMs);
-      storyTimer = setTimeout(closeStoryViewer, durMs);
+      startStoryTimer(durMs);
     });
   } else if (s.mediaType === "image" && s.mediaUrl) {
     const img = document.createElement("img");
     img.src = s.mediaUrl;
     img.className = "storyviewer-image";
     mediaBox.appendChild(img);
-    animateStoryProgress(bar, STORY_DURATION_MS);
-    storyTimer = setTimeout(closeStoryViewer, STORY_DURATION_MS);
+    startStoryTimer(STORY_DURATION_MS);
   } else {
     const card = document.createElement("div");
     card.className = "storyviewer-textcard";
     card.textContent = s.text || "";
     mediaBox.appendChild(card);
-    animateStoryProgress(bar, STORY_DURATION_MS);
-    storyTimer = setTimeout(closeStoryViewer, STORY_DURATION_MS);
+    startStoryTimer(STORY_DURATION_MS);
   }
 }
 
@@ -4001,7 +4066,83 @@ function animateStoryProgress(bar, durMs) {
   });
 }
 
-// ---------------- РЕАКЦИИ И ПРОСМОТРЫ ИСТОРИЙ ----------------
+function startStoryTimer(durMs) {
+  storyDurationMs = durMs;
+  storyPausedElapsed = 0;
+  storyStartedAt = Date.now();
+  storyPaused = false;
+
+  const bar = document.getElementById("storyProgressBar");
+  bar.style.transition = "none";
+  bar.style.width = "0%";
+  void bar.offsetWidth;
+  animateStoryProgress(bar, durMs);
+
+  clearTimeout(storyTimer);
+  storyTimer = setTimeout(goToNextStory, durMs);
+}
+
+// Нажал и держишь — история (и видео) стоит на месте, пока не отпустишь.
+function pauseStory() {
+  if (storyPaused || !currentStory) return;
+  storyPaused = true;
+  storyPausedElapsed += Date.now() - storyStartedAt;
+  clearTimeout(storyTimer);
+
+  const bar = document.getElementById("storyProgressBar");
+  const w = getComputedStyle(bar).width;
+  bar.style.transition = "none";
+  bar.style.width = w;
+
+  if (storyVideoEl) storyVideoEl.pause();
+}
+
+function resumeStory() {
+  if (!storyPaused || !currentStory) return;
+  storyPaused = false;
+  const remaining = Math.max(300, storyDurationMs - storyPausedElapsed);
+  storyStartedAt = Date.now();
+
+  const bar = document.getElementById("storyProgressBar");
+  requestAnimationFrame(() => {
+    bar.style.transition = `width ${remaining}ms linear`;
+    bar.style.width = "100%";
+  });
+
+  clearTimeout(storyTimer);
+  storyTimer = setTimeout(goToNextStory, remaining);
+
+  if (storyVideoEl) storyVideoEl.play();
+}
+
+// Удержание (мышь/палец) ставит на паузу; свайп вверх/вниз — следующая/предыдущая
+// история в ленте, как шортс/риллс. Вешаем один раз на статичные элементы DOM.
+function setupStoryGestures() {
+  const media = document.getElementById("storyViewerMedia");
+  const inner = document.querySelector(".storyviewer-inner");
+  if (!media || !inner || media.dataset.gesturesReady) return;
+  media.dataset.gesturesReady = "1";
+
+  let holdTimer = null;
+  const HOLD_DELAY = 180; // короткий тап не должен считаться за "держать"
+  const startHold = () => { holdTimer = setTimeout(pauseStory, HOLD_DELAY); };
+  const endHold = () => { clearTimeout(holdTimer); if (storyPaused) resumeStory(); };
+
+  media.addEventListener("pointerdown", startHold);
+  media.addEventListener("pointerup", endHold);
+  media.addEventListener("pointercancel", endHold);
+  media.addEventListener("pointerleave", endHold);
+
+  let touchStartY = 0;
+  inner.addEventListener("touchstart", (e) => { touchStartY = e.touches[0].clientY; }, { passive: true });
+  inner.addEventListener("touchend", (e) => {
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (Math.abs(dy) < 50) return;
+    if (dy < 0) goToNextStory(); else goToPrevStory();
+  }, { passive: true });
+}
+
+// ---------------- РЕАКЦИИ, КОММЕНТАРИИ И РЕПОСТ ИСТОРИЙ ----------------
 function renderStoryFooter(s) {
   const box = document.getElementById("storyViewerFooter");
   if (!box) return;
@@ -4026,8 +4167,64 @@ function renderStoryFooter(s) {
       ${STORY_QUICK_REACTIONS.map(e => `
         <button class="storyviewer-reactbtn ${mine === e ? "active" : ""}" onclick="reactToStory(${s.id}, '${e}')">${e}</button>
       `).join("")}
+      <button class="storyviewer-reactbtn" onclick="repostStory(${s.id})" title="Репост"><i class="fa-solid fa-retweet"></i></button>
     </div>
+    <div class="storyviewer-commentrow">
+      <input id="storyCommentInput" placeholder="Оставить комментарий..." onkeydown="if(event.key==='Enter') submitStoryComment(${s.id})" onfocus="pauseStory()" onblur="resumeStory()">
+      <button class="iconbtn" onclick="submitStoryComment(${s.id})"><i class="fa-solid fa-paper-plane"></i></button>
+    </div>
+    <div id="storyViewerComments" class="storyviewer-comments"></div>
   `;
+}
+
+async function loadStoryComments(storyId) {
+  const box = document.getElementById("storyViewerComments");
+  if (!box) return;
+  try {
+    const r = await fetch(`/api/stories/${storyId}/comments`, { headers: authHeaders() });
+    const d = await r.json();
+    if (!d.ok || !currentStory || currentStory.id !== storyId) return;
+    if (!d.comments.length) { box.innerHTML = ""; return; }
+    box.innerHTML = d.comments.map(c => `
+      <div class="storyviewer-comment">
+        <span class="storyviewer-comment-name">${nameHtml({ username: c.username, displayName: c.displayName, verified: c.verified })}:</span>
+        <span class="storyviewer-comment-text">${esc(c.text)}</span>
+      </div>
+    `).join("");
+    box.scrollTop = box.scrollHeight;
+  } catch (e) {}
+}
+
+async function submitStoryComment(id) {
+  const input = document.getElementById("storyCommentInput");
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  try {
+    const r = await fetch(`/api/stories/${id}/comments`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    const d = await r.json();
+    if (!d.ok) return alert(d.error || t("common.error"));
+    await loadStoryComments(id);
+  } catch {}
+  resumeStory();
+}
+
+async function repostStory(id) {
+  if (!currentStory || currentStory.id !== id) return;
+  try {
+    const r = await fetch(`/api/stories/${id}/repost`, { method: "POST", headers: authHeaders() });
+    const d = await r.json();
+    if (!d.ok) return alert(d.error || t("common.error"));
+    toast("🔁 История репостнута в твои сторис");
+    await loadStories();
+  } catch {
+    alert(t("common.error"));
+  }
 }
 
 async function reactToStory(id, emoji) {
@@ -4051,6 +4248,7 @@ async function reactToStory(id, emoji) {
     return;
   }
   renderStoryFooter(currentStory);
+  loadStoryComments(id);
 }
 
 async function openStoryViewersModal(storyId) {
