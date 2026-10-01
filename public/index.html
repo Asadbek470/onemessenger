@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
+  <meta name="google-site-verification" content="DrhRAp88TUKCKXi76zqCO7jqeZJkP5PuIU8Kpn59bQI" />
   <script src="splash.js"></script>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>One Messenger | Login</title>
@@ -66,6 +67,11 @@
   <!-- Условия использования / Политика конфиденциальности -->
   <div id="legalModal" class="modal hidden" style="position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);">
     <div class="auth-card" style="max-height:82vh;overflow-y:auto;width:min(520px,92vw)">
+      <div class="tabs" id="legalLangTabs" style="margin-bottom:8px">
+        <button class="tab" id="legalLangRu" onclick="switchLegalLang('ru')">Русский</button>
+        <button class="tab" id="legalLangUz" onclick="switchLegalLang('uz')">O'zbekcha</button>
+        <button class="tab" id="legalLangEn" onclick="switchLegalLang('en')">English</button>
+      </div>
       <div class="tabs" id="legalTabs">
         <button class="tab active" id="legalTabTerms" onclick="switchLegalTab('terms')">Условия использования</button>
         <button class="tab" id="legalTabPrivacy" onclick="switchLegalTab('privacy')">Конфиденциальность</button>
@@ -77,7 +83,9 @@
   </div>
 
   <script>
-    const LEGAL_TERMS_TEXT = `Условия использования One Messenger
+    const LEGAL_TEXT = {
+      ru: {
+        terms: `Условия использования One Messenger
 
 1. Общие положения
 One Messenger — мессенджер для обмена сообщениями, звонков и медиа. Регистрируясь, ты подтверждаешь, что тебе не менее 13 лет и ты принимаешь эти условия.
@@ -101,9 +109,8 @@ One Messenger — мессенджер для обмена сообщениям�
 Мы можем обновлять эти условия. О существенных изменениях сообщим через уведомление в приложении.
 
 8. Контакты
-По любым вопросам — через раздел «Поддержка» внутри приложения.`;
-
-    const LEGAL_PRIVACY_TEXT = `Политика конфиденциальности One Messenger
+По любым вопросам — через раздел «Поддержка» внутри приложения.`,
+        privacy: `Политика конфиденциальности One Messenger
 
 1. Какие данные мы собираем
 Юзернейм, отображаемое имя, био, дата рождения (опционально), аватар; текст и медиа (фото, видео, голосовые, файлы, геометки) отправляемых сообщений; служебные данные — время отправки/прочтения, IP-адрес и user-agent сессий входа (для защиты аккаунта).
@@ -133,22 +140,157 @@ One Messenger — мессенджер для обмена сообщениям�
 Мы можем обновлять эту политику. О существенных изменениях сообщим через уведомление в приложении.
 
 10. Контакты
-По вопросам, связанным с персональными данными — через раздел «Поддержка» внутри приложения.`;
+По вопросам, связанным с персональными данными — через раздел «Поддержка» внутри приложения.`
+      },
+      uz: {
+        terms: `One Messenger foydalanish shartlari
+
+1. Umumiy qoidalar
+One Messenger — xabar almashish, qo'ng'iroqlar va media uchun messenjer. Ro'yxatdan o'tish orqali siz kamida 13 yoshda ekaningizni va ushbu shartlarni qabul qilishingizni tasdiqlaysiz.
+
+2. Hisob
+Foydalanuvchi nomi va parolni o'zingiz tanlaysiz. Parolning xavfsizligi va hisobingiz orqali sodir bo'ladigan barcha harakatlar uchun javobgarlik sizda. Sozlamalarda ikki bosqichli autentifikatsiyani yoqishni tavsiya qilamiz.
+
+3. Xatti-harakat qoidalari
+Taqiqlangan: spam va keraksiz xabarlar yuborish, tahdid va bezorilik, noqonuniy kontent joylashtirish, boshqa shaxs sifatida ko'rinish, xizmatni buzishga urinish. Qoidabuzarlik uchun administratsiya ogohlantirishsiz kontentni o'chirish, hisobni cheklash (mute) yoki bloklash (ban) huquqiga ega.
+
+4. Qurilma ruxsatlari
+Ilova kamera va mikrofonga kirishni so'rashi mumkin — foto/video xabarlar, doira shaklidagi video xabarlar hamda audio/video qo'ng'iroqlar uchun; bildirishnomalarga — yangi xabarlar va kiruvchi qo'ng'iroqlar haqida push-bildirishnoma yuborish uchun (FaceTime kabi kiruvchi qo'ng'iroq ekraniga o'xshash); geolokatsiyaga — faqat siz xaritada nuqta yuborishga qaror qilganingizda. Bularning hech biri sizning bevosita amalingizsiz yoqilmaydi va istalgan vaqtda brauzer/qurilma sozlamalarida ruxsatlarni bekor qilishingiz mumkin.
+
+5. Kontent
+Siz joylashtirgan kontentga bo'lgan huquqlaringiz sizda qoladi, ammo unga to'liq javobgarlik ham sizda. Administratsiya qoidabuzarlik yuz berganda alohida xabarni yoki butun hisobni o'chirishi mumkin.
+
+6. Javobgarlikni cheklash
+Xizmat "bor holicha" taqdim etiladi. Biz barqaror ishlashga harakat qilamiz, biroq nosozliklar yoki ma'lumot yo'qolishining oldini to'liq kafolatlay olmaymiz.
+
+7. Shartlardagi o'zgarishlar
+Biz ushbu shartlarni yangilashimiz mumkin. Muhim o'zgarishlar haqida ilova ichida bildirishnoma orqali xabar beramiz.
+
+8. Aloqa
+Har qanday savol bo'yicha — ilovadagi «Qo'llab-quvvatlash» bo'limi orqali.`,
+        privacy: `One Messenger maxfiylik siyosati
+
+1. Biz qanday ma'lumotlarni to'playmiz
+Foydalanuvchi nomi, ko'rsatiladigan ism, bio, tug'ilgan sana (ixtiyoriy), avatar; yuborilgan xabarlarning matni va mediasi (foto, video, ovozli xabarlar, fayllar, geometkalar); xizmat ma'lumotlari — yuborilgan/o'qilgan vaqti, kirish seanslarining IP-manzili va user-agent (hisobni himoya qilish uchun).
+
+2. Ma'lumotlardan qanday foydalanamiz
+Messenjer funksiyalarining ishlashi (xabarlarni yetkazish, qo'ng'iroqlar, bildirishnomalar, hikoyalar) uchun, hisobni ruxsatsiz kirishdan himoya qilish va qo'llab-quvvatlash xizmatiga javob berish uchun.
+
+3. Media saqlash
+Foto, video va ovozli xabarlar serverda saqlanadi va faqat yozishma ishtirokchilariga ochiq.
+
+4. Administratsiya kirishi
+Moderatorlar alohida, qo'shimcha tasdiqlash kodisiz foydalanuvchi profili yoki yozishmasini ocha olmaydi — administrator panelga oddiy kirish buning uchun yetarli emas.
+
+5. Uchinchi shaxslarga uzatish
+Biz sizning ma'lumotlaringizni sotmaymiz va qonun tomonidan aniq belgilangan holatlar bundan mustasno, uchinchi shaxslarga uzatmaymiz.
+
+6. Sizning huquqlaringiz
+Istalgan vaqtda qo'llab-quvvatlash orqali o'z ma'lumotlaringiz ro'yxatini so'rashingiz yoki hisobingizni barcha ma'lumotlar bilan butunlay o'chirishingiz mumkin — Sozlamalar → Hisob → Hisobni o'chirish. O'chirish qaytarib bo'lmaydi.
+
+7. Xavfsizlik
+Parollar xeshlangan holda saqlanadi (bcrypt), ikki bosqichli autentifikatsiya (TOTP) mavjud.
+
+8. Yosh cheklovi
+Xizmatdan kamida 13 yoshli yoki yashash mamlakati qonunchiligida belgilangan yoshdan katta shaxslar foydalanishi mumkin.
+
+9. Siyosatdagi o'zgarishlar
+Biz ushbu siyosatni yangilashimiz mumkin. Muhim o'zgarishlar haqida ilova ichida bildirishnoma orqali xabar beramiz.
+
+10. Aloqa
+Shaxsiy ma'lumotlar bilan bog'liq savollar bo'yicha — ilovadagi «Qo'llab-quvvatlash» bo'limi orqali.`
+      },
+      en: {
+        terms: `One Messenger Terms of Use
+
+1. General
+One Messenger is a messenger app for chatting, calls and media sharing. By registering, you confirm you are at least 13 years old and accept these terms.
+
+2. Account
+You choose your own username and password. You are responsible for keeping your password safe and for everything that happens through your account. We recommend enabling two-factor authentication in Settings.
+
+3. Rules of conduct
+Prohibited: spam and mass unwanted messaging, threats and harassment, posting illegal content, impersonating another person, attempting to hack the service. For violations, the administration may remove content, restrict (mute) or block (ban) an account without prior notice.
+
+4. Device permissions
+The app may request access to the camera and microphone — for photo/video messages, round video messages and audio/video calls; to notifications — to send push notifications about new messages and incoming calls (similar to an incoming-call screen, like FaceTime); to location — only when you choose to send a location pin. None of this is enabled without an action initiated by you, and you can revoke permissions at any time in your browser/device settings.
+
+5. Content
+You retain rights to the content you post, but you are fully responsible for it. The administration may remove an individual message or an entire account for rule violations.
+
+6. Limitation of liability
+The service is provided "as is". We strive for stable operation but do not guarantee against outages or data loss.
+
+7. Changes to these terms
+We may update these terms. We'll notify you of significant changes via an in-app notification.
+
+8. Contact
+For any questions — via the "Support" section inside the app.`,
+        privacy: `One Messenger Privacy Policy
+
+1. What data we collect
+Username, display name, bio, birth date (optional), avatar; the text and media (photos, videos, voice messages, files, location pins) of messages you send; service data — send/read timestamps, IP address and user-agent of login sessions (for account security).
+
+2. How we use your data
+To operate the messenger's features (delivering messages, calls, notifications, stories), to protect your account from unauthorized access, and to respond to support requests.
+
+3. Media storage
+Photos, videos and voice messages are stored on the server and are only accessible to the participants of that conversation.
+
+4. Administration access
+Moderators cannot open a user's profile or conversation without a separate, additional confirmation code — a regular login to the admin panel is not enough.
+
+5. Sharing with third parties
+We do not sell or share your data with third parties, except where explicitly required by law.
+
+6. Your rights
+At any time you can request a list of your data via Support, or permanently delete your account along with all data — Settings → Account → Delete account. Deletion is irreversible.
+
+7. Security
+Passwords are stored hashed (bcrypt); two-factor authentication (TOTP) is available.
+
+8. Age restriction
+The service may be used by individuals at least 13 years old, or older where required by the laws of their country of residence.
+
+9. Changes to this policy
+We may update this policy. We'll notify you of significant changes via an in-app notification.
+
+10. Contact
+For questions related to personal data — via the "Support" section inside the app.`
+      }
+    };
+
+    let legalLang = localStorage.getItem("legalLang") || "ru";
+    let legalTab = "terms";
 
     function openLegalModal(tab) {
-      document.getElementById("legalTermsBody").textContent = LEGAL_TERMS_TEXT;
-      document.getElementById("legalPrivacyBody").textContent = LEGAL_PRIVACY_TEXT;
-      switchLegalTab(tab || "terms");
+      legalTab = tab || "terms";
+      renderLegalBody();
       document.getElementById("legalModal").classList.remove("hidden");
     }
     function closeLegalModal() {
       document.getElementById("legalModal").classList.add("hidden");
     }
     function switchLegalTab(tab) {
-      document.getElementById("legalTabTerms").classList.toggle("active", tab === "terms");
-      document.getElementById("legalTabPrivacy").classList.toggle("active", tab === "privacy");
-      document.getElementById("legalTermsBody").classList.toggle("hidden", tab !== "terms");
-      document.getElementById("legalPrivacyBody").classList.toggle("hidden", tab !== "privacy");
+      legalTab = tab;
+      renderLegalBody();
+    }
+    function switchLegalLang(lang) {
+      legalLang = lang;
+      localStorage.setItem("legalLang", lang);
+      renderLegalBody();
+    }
+    function renderLegalBody() {
+      const t = LEGAL_TEXT[legalLang] || LEGAL_TEXT.ru;
+      document.getElementById("legalTermsBody").textContent = t.terms;
+      document.getElementById("legalPrivacyBody").textContent = t.privacy;
+      document.getElementById("legalTabTerms").classList.toggle("active", legalTab === "terms");
+      document.getElementById("legalTabPrivacy").classList.toggle("active", legalTab === "privacy");
+      document.getElementById("legalTermsBody").classList.toggle("hidden", legalTab !== "terms");
+      document.getElementById("legalPrivacyBody").classList.toggle("hidden", legalTab !== "privacy");
+      document.getElementById("legalLangRu").classList.toggle("active", legalLang === "ru");
+      document.getElementById("legalLangUz").classList.toggle("active", legalLang === "uz");
+      document.getElementById("legalLangEn").classList.toggle("active", legalLang === "en");
     }
 
     let mode = "login";
