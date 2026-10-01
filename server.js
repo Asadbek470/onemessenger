@@ -495,6 +495,9 @@ async function initSchema() {
       expiresAt INTEGER NOT NULL
     )
   `);
+  // Репост чужой истории к себе — храним, у кого она была изначально
+  await addColumn("stories", "repostOfId", "INTEGER");
+  await addColumn("stories", "repostOfOwner", "TEXT DEFAULT ''");
 
   // Просмотры историй + реакции на них
   await dbRun(`
@@ -509,6 +512,18 @@ async function initSchema() {
   `);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_views_story ON story_views(storyId)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_views_viewer ON story_views(viewer)`);
+
+  // Комментарии к историям
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS story_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      storyId INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      text TEXT NOT NULL,
+      createdAt INTEGER NOT NULL
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_comments_story ON story_comments(storyId)`);
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS groups (
@@ -861,8 +876,9 @@ function guessMediaType(mime) {
 
 function cleanupStories() {
   db.run(`DELETE FROM stories WHERE expiresAt <= ?`, [now()]);
-  // подчищаем просмотры/реакции историй, которых уже нет (истекли/удалены)
+  // подчищаем просмотры/реакции/комментарии историй, которых уже нет (истекли/удалены)
   db.run(`DELETE FROM story_views WHERE storyId NOT IN (SELECT id FROM stories)`);
+  db.run(`DELETE FROM story_comments WHERE storyId NOT IN (SELECT id FROM stories)`);
 }
 setInterval(cleanupStories, 60 * 1000);
 
@@ -1071,6 +1087,8 @@ async function wipeUserData(u) {
   await dbRun(`DELETE FROM messages WHERE sender=? OR receiver=?`, [u, u]);
   await dbRun(`DELETE FROM story_views WHERE storyId IN (SELECT id FROM stories WHERE owner=?)`, [u]);
   await dbRun(`DELETE FROM story_views WHERE viewer=?`, [u]);
+  await dbRun(`DELETE FROM story_comments WHERE storyId IN (SELECT id FROM stories WHERE owner=?)`, [u]);
+  await dbRun(`DELETE FROM story_comments WHERE username=?`, [u]);
   await dbRun(`DELETE FROM stories WHERE owner=?`, [u]);
   await dbRun(`DELETE FROM group_members WHERE username=?`, [u]);
   await dbRun(`DELETE FROM friends WHERE owner=? OR friend=?`, [u, u]);
@@ -2272,7 +2290,8 @@ app.get("/api/stories", verifyAuth, async (req, res) => {
   const rows = await dbAll(
     `
     SELECT s.*, u.displayName, u.avatarUrl, u.verified, u.settings AS ownerSettings,
-           COALESCE(sv.reaction, '') AS myReaction
+           COALESCE(sv.reaction, '') AS myReaction,
+           (SELECT COUNT(*) FROM story_comments sc WHERE sc.storyId=s.id) AS commentCount
     FROM stories s
     LEFT JOIN users u ON u.username=s.owner
     LEFT JOIN story_views sv ON sv.storyId=s.id AND sv.viewer=?
@@ -2306,7 +2325,8 @@ app.get("/api/stories/user/:username", verifyAuth, async (req, res) => {
 
   const rows = await dbAll(
     `
-    SELECT s.*, COALESCE(sv.reaction, '') AS myReaction
+    SELECT s.*, COALESCE(sv.reaction, '') AS myReaction,
+           (SELECT COUNT(*) FROM story_comments sc WHERE sc.storyId=s.id) AS commentCount
     FROM stories s
     LEFT JOIN story_views sv ON sv.storyId=s.id AND sv.viewer=?
     WHERE s.owner=? AND s.expiresAt > ?
@@ -2430,6 +2450,105 @@ app.get("/api/stories/:id/viewers", verifyAuth, async (req, res) => {
     [id]
   );
   res.json({ ok: true, viewers: rows, count: rows.length });
+});
+
+// ---------------- КОММЕНТАРИИ К ИСТОРИЯМ ----------------
+app.get("/api/stories/:id/comments", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const story = await dbGet(`SELECT id FROM stories WHERE id=?`, [id]);
+  if (!story) return res.status(404).json({ ok: false, error: "Не найдена" });
+
+  const rows = await dbAll(
+    `
+    SELECT sc.id, sc.username, sc.text, sc.createdAt, u.displayName, u.avatarUrl, u.verified
+    FROM story_comments sc
+    LEFT JOIN users u ON u.username = sc.username
+    WHERE sc.storyId=?
+    ORDER BY sc.createdAt ASC LIMIT 300
+    `,
+    [id]
+  );
+  res.json({ ok: true, comments: rows });
+});
+
+app.post("/api/stories/:id/comments", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  if (req.user.muted) return res.status(403).json({ ok: false, error: "Тебе временно запрещено писать комментарии" });
+  const text = String(req.body.text || "").trim().slice(0, 300);
+  if (!text) return res.status(400).json({ ok: false, error: "Пустой комментарий" });
+
+  const story = await dbGet(`SELECT id, owner FROM stories WHERE id=? AND expiresAt > ?`, [id, now()]);
+  if (!story) return res.status(404).json({ ok: false, error: "История не найдена или уже истекла" });
+
+  const createdAt = now();
+  const result = await dbRun(
+    `INSERT INTO story_comments (storyId, username, text, createdAt) VALUES (?,?,?,?)`,
+    [id, me, text, createdAt]
+  );
+  const comment = { id: result.lastID, storyId: id, username: me, text, createdAt };
+
+  if (story.owner !== me) {
+    const commenter = await dbGet(`SELECT displayName FROM users WHERE username=?`, [me]);
+    wsSendToUser(story.owner, {
+      type: "storyComment",
+      storyId: id,
+      from: me,
+      fromDisplayName: (commenter && commenter.displayName) || me,
+      text
+    });
+    sendPushToUser(story.owner, {
+      title: "Комментарий к истории",
+      body: `@${me}: ${text}`,
+      url: "/chat.html"
+    }).catch(() => {});
+  }
+
+  res.json({ ok: true, comment });
+});
+
+// ---------------- РЕПОСТ ИСТОРИИ ----------------
+app.post("/api/stories/:id/repost", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  if (req.user.muted) return res.status(403).json({ ok: false, error: "Тебе временно запрещено публиковать сторис" });
+
+  const story = await dbGet(`SELECT * FROM stories WHERE id=? AND expiresAt > ?`, [id, now()]);
+  if (!story) return res.status(404).json({ ok: false, error: "История не найдена или уже истекла" });
+  if (story.owner === me) return res.status(400).json({ ok: false, error: "Нельзя репостить свою же историю" });
+
+  const owner = await dbGet(`SELECT username, settings FROM users WHERE username=? AND banned=0`, [story.owner]);
+  if (!owner || !(await isAllowedByPrivacy(owner, me, "storyPrivacy"))) {
+    return res.status(403).json({ ok: false, error: "Нет доступа к этой истории" });
+  }
+
+  const createdAt = now();
+  const expiresAt = createdAt + 100 * 365 * 24 * 60 * 60 * 1000;
+  const originOwner = story.repostOfOwner || story.owner;
+  const originId = story.repostOfId || story.id;
+
+  const result = await dbRun(
+    `INSERT INTO stories (owner,text,mediaType,mediaUrl,createdAt,expiresAt,repostOfId,repostOfOwner)
+     VALUES (?,?,?,?,?,?,?,?)`,
+    [me, story.text, story.mediaType, story.mediaUrl, createdAt, expiresAt, originId, originOwner]
+  );
+
+  if (originOwner !== me) {
+    const reposter = await dbGet(`SELECT displayName FROM users WHERE username=?`, [me]);
+    wsSendToUser(originOwner, {
+      type: "storyRepost",
+      storyId: originId,
+      from: me,
+      fromDisplayName: (reposter && reposter.displayName) || me
+    });
+    sendPushToUser(originOwner, {
+      title: "Репост истории",
+      body: `@${me} репостнул(а) твою историю`,
+      url: "/chat.html"
+    }).catch(() => {});
+  }
+
+  res.json({ ok: true, id: result.lastID });
 });
 
 app.post("/api/stories", verifyAuth, singleUpload("story"), async (req, res) => {
