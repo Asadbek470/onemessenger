@@ -34,7 +34,7 @@ let lastSentText = "";               // чтобы подставить текс
 let activeTagFilter = null;          // фильтр по #тегу в Избранном
 let pendingTagFilter = null;
 
-const OM_ICON = "/icon-192.png";
+const OM_ICON = "/icon-192.png?v=2";
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 function esc(s = "") {
