@@ -19,7 +19,7 @@ async function closeCallNotifications() {
 }
 
 self.addEventListener("push", (event) => {
-  let d = { title: "One Messenger", body: "У тебя новое уведомление", url: "/chat.html" };
+  let d = { title: "UzMessenger", body: "У тебя новое уведомление", url: "/chat.html" };
   try {
     if (event.data) d = { ...d, ...event.data.json() };
   } catch {}
