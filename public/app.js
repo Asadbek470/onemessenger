@@ -87,7 +87,7 @@ function avatarGradient(c) {
 const AVA_IMG_STYLE = "width:100%;height:100%;object-fit:cover;display:block;border-radius:50%";
 function avatarHtml(info) {
   info = info || {};
-  if (info.username === "support") return `<img src="${OM_ICON}" alt="OM" style="${AVA_IMG_STYLE}">`;
+  if (info.username === "support") return `<img src="${OM_ICON}" alt="UM" style="${AVA_IMG_STYLE}">`;
   if (info.avatarUrl) return `<img src="${esc(info.avatarUrl)}" alt="" style="${AVA_IMG_STYLE}">`;
   const letter = esc(String(info.displayName || info.username || "?")[0].toUpperCase());
   const bg = colorFromName(info.username);
@@ -227,7 +227,7 @@ const LANG = {
     "chats.searchPlaceholder": "Поиск @username...",
     "chats.group": "Группа", "chats.channel": "Канал", "chats.discover": "Популярное", "chats.invite": "Пригласить",
     "chats.globalChat": "Общий чат", "chats.globalChatSub": "общение со всеми",
-    "chats.support": "Поддержка", "chats.supportSub": "One Messenger Support",
+    "chats.support": "Поддержка", "chats.supportSub": "UzMessenger Support",
     "profile.title": "Профиль", "profile.editProfile": "Редактировать профиль", "profile.myStories": "Мои истории",
     "settings.title": "Настройки", "settings.profileBlock": "Профиль",
     "settings.displayName": "Display name", "settings.bio": "Bio", "settings.birthDate": "Дата рождения",
@@ -324,7 +324,7 @@ const LANG = {
     "settings.customEmoji": "Свой эмодзи", "settings.set": "Поставить",
     "contactReq.hint": "Этот аккаунт официально подтверждён. Напиши сообщение — администрация проверит его и передаст. Ответ придёт в чат «Поддержка».",
     "contactReq.placeholder": "Здравствуйте! Пишу по вопросу...", "contactReq.send": "Отправить через администрацию",
-    "bday.title": "С днём рождения!", "bday.text": "One Messenger поздравляет тебя! Пусть этот год будет самым счастливым 🎉",
+    "bday.title": "С днём рождения!", "bday.text": "UzMessenger поздравляет тебя! Пусть этот год будет самым счастливым 🎉",
     "bday.thanks": "Спасибо! 🎈",
     "call.someoneCalling": "Кто-то звонит…", "call.decline": "Отклонить", "call.accept": "Принять",
     "call.mic": "Микрофон", "call.end": "Завершить", "call.speaker": "Звук",
@@ -336,7 +336,7 @@ const LANG = {
     "chats.searchPlaceholder": "Search @username...",
     "chats.group": "Group", "chats.channel": "Channel", "chats.discover": "Discover", "chats.invite": "Invite",
     "chats.globalChat": "Global chat", "chats.globalChatSub": "chat with everyone",
-    "chats.support": "Support", "chats.supportSub": "One Messenger Support",
+    "chats.support": "Support", "chats.supportSub": "UzMessenger Support",
     "profile.title": "Profile", "profile.editProfile": "Edit profile", "profile.myStories": "My stories",
     "settings.title": "Settings", "settings.profileBlock": "Profile",
     "settings.displayName": "Display name", "settings.bio": "Bio", "settings.birthDate": "Birth date",
@@ -433,7 +433,7 @@ const LANG = {
     "settings.customEmoji": "Custom emoji", "settings.set": "Set",
     "contactReq.hint": "This account is officially verified. Write a message — the administration will review and pass it on. The reply will arrive in the «Support» chat.",
     "contactReq.placeholder": "Hello! I'm writing about...", "contactReq.send": "Send via administration",
-    "bday.title": "Happy Birthday!", "bday.text": "One Messenger wishes you all the best! May this be your happiest year yet 🎉",
+    "bday.title": "Happy Birthday!", "bday.text": "UzMessenger wishes you all the best! May this be your happiest year yet 🎉",
     "bday.thanks": "Thanks! 🎈",
     "call.someoneCalling": "Someone is calling…", "call.decline": "Decline", "call.accept": "Accept",
     "call.mic": "Microphone", "call.end": "End call", "call.speaker": "Speaker",
@@ -445,7 +445,7 @@ const LANG = {
     "chats.searchPlaceholder": "@username qidirish...",
     "chats.group": "Guruh", "chats.channel": "Kanal", "chats.discover": "Ommabop", "chats.invite": "Taklif qilish",
     "chats.globalChat": "Umumiy chat", "chats.globalChatSub": "hamma bilan muloqot",
-    "chats.support": "Yordam", "chats.supportSub": "One Messenger Support",
+    "chats.support": "Yordam", "chats.supportSub": "UzMessenger Support",
     "profile.title": "Profil", "profile.editProfile": "Profilni tahrirlash", "profile.myStories": "Mening hikoyalarim",
     "settings.title": "Sozlamalar", "settings.profileBlock": "Profil",
     "settings.displayName": "Ko'rsatiladigan ism", "settings.bio": "O'zim haqimda", "settings.birthDate": "Tug'ilgan sana",
@@ -542,7 +542,7 @@ const LANG = {
     "settings.customEmoji": "O'z emojingiz", "settings.set": "O'rnatish",
     "contactReq.hint": "Bu hisob rasmiy tasdiqlangan. Xabar yozing — administratsiya ko'rib chiqib yetkazadi. Javob «Yordam» chatiga keladi.",
     "contactReq.placeholder": "Assalomu alaykum! Savolim shu bo'yicha...", "contactReq.send": "Administratsiya orqali yuborish",
-    "bday.title": "Tug'ilgan kuningiz bilan!", "bday.text": "One Messenger sizni tabriklaydi! Bu yil eng baxtli yilingiz bo'lsin 🎉",
+    "bday.title": "Tug'ilgan kuningiz bilan!", "bday.text": "UzMessenger sizni tabriklaydi! Bu yil eng baxtli yilingiz bo'lsin 🎉",
     "bday.thanks": "Rahmat! 🎈",
     "call.someoneCalling": "Kimdir qo'ng'iroq qilyapti…", "call.decline": "Rad etish", "call.accept": "Qabul qilish",
     "call.mic": "Mikrofon", "call.end": "Tugatish", "call.speaker": "Ovoz",
@@ -814,7 +814,7 @@ function updateHeader() {
     ava.innerHTML = `<span class="headicon act-blue"><i class="fa-solid fa-earth-americas"></i></span>`;
   } else if (currentChat === "support") {
     title.innerHTML = `Поддержка${verifiedBadge(true)}`;
-    sub.textContent = "One Messenger Support";
+    sub.textContent = "UzMessenger Support";
     ava.innerHTML = avatarHtml({ username: "support" });
   } else if (isSelfChat(currentChat)) {
     title.innerHTML = `Избранное`;
@@ -1011,7 +1011,7 @@ function maybeNotify(msg) {
     const info = msg.senderInfo || userInfoCache.get(msg.sender) || {};
     const title = msg.chatType === "global" ? "Общий чат"
       : msg.chatType === "group" ? "Группа"
-      : msg.chatType === "support" ? "One Messenger"
+      : msg.chatType === "support" ? "UzMessenger"
       : (info.displayName || "@" + msg.sender);
     new Notification(title, { body: msgPreview(msg), icon: info.avatarUrl || OM_ICON });
   } catch {}
@@ -1210,7 +1210,7 @@ function renderMessage(m) {
 
   const mine = m.sender === me.username;
   const info = m.sender === "support"
-    ? { username: "support", displayName: "Поддержка One Messenger", verified: true }
+    ? { username: "support", displayName: "Поддержка UzMessenger", verified: true }
     : (userInfoCache.get(m.sender) || m.senderInfo || { username: m.sender, displayName: m.sender });
 
   let body = "";
@@ -2389,7 +2389,7 @@ async function searchUsers(val) {
       <div class="chatitem invite-hint">
         <div class="meta">
           <div class="name">@${esc(q)} не найден(а)</div>
-          <div class="preview">Его/её ещё нет в One Messenger</div>
+          <div class="preview">Его/её ещё нет в UzMessenger</div>
         </div>
         <button class="btn ghost small" onclick="inviteToMessenger()"><i class="fa-solid fa-user-plus"></i> Пригласить</button>
       </div>
@@ -2417,7 +2417,7 @@ async function searchUsers(val) {
 // ================== INVITE ==================
 function buildInviteText() {
   const inviteUrl = `${location.origin}/index.html`;
-  return `Я в One Messenger — общаемся без сим-карты и без слежки за данными. Голосовые, звонки, группы, каналы, сторис — всё в одном месте. Присоединяйся: ${inviteUrl}`;
+  return `Я в UzMessenger — общаемся без сим-карты и без слежки за данными. Голосовые, звонки, группы, каналы, сторис — всё в одном месте. Присоединяйся: ${inviteUrl}`;
 }
 
 async function inviteToMessenger() {
@@ -2425,7 +2425,7 @@ async function inviteToMessenger() {
 
   if (navigator.share) {
     try {
-      await navigator.share({ title: "One Messenger", text });
+      await navigator.share({ title: "UzMessenger", text });
     } catch {}
     return;
   }
@@ -2835,10 +2835,10 @@ async function deleteContact(username) {
 // ---------------- ПОЛИТИКА ИСПОЛЬЗОВАНИЯ / КОНФИДЕНЦИАЛЬНОСТИ ----------------
 const LEGAL_TEXT = {
   ru: {
-    terms: `Условия использования One Messenger
+    terms: `Условия использования UzMessenger
 
 1. Общие положения
-One Messenger — мессенджер для обмена сообщениями, звонков и медиа. Регистрируясь, ты подтверждаешь, что тебе не менее 13 лет и ты принимаешь эти условия.
+UzMessenger — мессенджер для обмена сообщениями, звонков и медиа. Регистрируясь, ты подтверждаешь, что тебе не менее 13 лет и ты принимаешь эти условия.
 
 2. Аккаунт
 Юзернейм и пароль придумываешь сам(а). Ты несёшь ответственность за сохранность пароля и за всё, что происходит через твой аккаунт. Рекомендуем включить двухфакторную аутентификацию в Настройках.
@@ -2860,7 +2860,7 @@ One Messenger — мессенджер для обмена сообщениям�
 
 8. Контакты
 По любым вопросам — через раздел «Поддержка» внутри приложения.`,
-    privacy: `Политика конфиденциальности One Messenger
+    privacy: `Политика конфиденциальности UzMessenger
 
 1. Какие данные мы собираем
 Юзернейм, отображаемое имя, био, дата рождения (опционально), аватар; текст и медиа (фото, видео, голосовые, файлы, геометки) отправляемых сообщений; служебные данные — время отправки/прочтения, IP-адрес и user-agent сессий входа (для защиты аккаунта).
@@ -2893,10 +2893,10 @@ One Messenger — мессенджер для обмена сообщениям�
 По вопросам, связанным с персональными данными — через раздел «Поддержка» внутри приложения.`
   },
   uz: {
-    terms: `One Messenger foydalanish shartlari
+    terms: `UzMessenger foydalanish shartlari
 
 1. Umumiy qoidalar
-One Messenger — xabar almashish, qo'ng'iroqlar va media uchun messenjer. Ro'yxatdan o'tish orqali siz kamida 13 yoshda ekaningizni va ushbu shartlarni qabul qilishingizni tasdiqlaysiz.
+UzMessenger — xabar almashish, qo'ng'iroqlar va media uchun messenjer. Ro'yxatdan o'tish orqali siz kamida 13 yoshda ekaningizni va ushbu shartlarni qabul qilishingizni tasdiqlaysiz.
 
 2. Hisob
 Foydalanuvchi nomi va parolni o'zingiz tanlaysiz. Parolning xavfsizligi va hisobingiz orqali sodir bo'ladigan barcha harakatlar uchun javobgarlik sizda. Sozlamalarda ikki bosqichli autentifikatsiyani yoqishni tavsiya qilamiz.
@@ -2918,7 +2918,7 @@ Biz ushbu shartlarni yangilashimiz mumkin. Muhim o'zgarishlar haqida ilova ichid
 
 8. Aloqa
 Har qanday savol bo'yicha — ilovadagi «Qo'llab-quvvatlash» bo'limi orqali.`,
-    privacy: `One Messenger maxfiylik siyosati
+    privacy: `UzMessenger maxfiylik siyosati
 
 1. Biz qanday ma'lumotlarni to'playmiz
 Foydalanuvchi nomi, ko'rsatiladigan ism, bio, tug'ilgan sana (ixtiyoriy), avatar; yuborilgan xabarlarning matni va mediasi (foto, video, ovozli xabarlar, fayllar, geometkalar); xizmat ma'lumotlari — yuborilgan/o'qilgan vaqti, kirish seanslarining IP-manzili va user-agent (hisobni himoya qilish uchun).
@@ -2951,10 +2951,10 @@ Biz ushbu siyosatni yangilashimiz mumkin. Muhim o'zgarishlar haqida ilova ichida
 Shaxsiy ma'lumotlar bilan bog'liq savollar bo'yicha — ilovadagi «Qo'llab-quvvatlash» bo'limi orqali.`
   },
   en: {
-    terms: `One Messenger Terms of Use
+    terms: `UzMessenger Terms of Use
 
 1. General
-One Messenger is a messenger app for chatting, calls and media sharing. By registering, you confirm you are at least 13 years old and accept these terms.
+UzMessenger is a messenger app for chatting, calls and media sharing. By registering, you confirm you are at least 13 years old and accept these terms.
 
 2. Account
 You choose your own username and password. You are responsible for keeping your password safe and for everything that happens through your account. We recommend enabling two-factor authentication in Settings.
@@ -2976,7 +2976,7 @@ We may update these terms. We'll notify you of significant changes via an in-app
 
 8. Contact
 For any questions — via the "Support" section inside the app.`,
-    privacy: `One Messenger Privacy Policy
+    privacy: `UzMessenger Privacy Policy
 
 1. What data we collect
 Username, display name, bio, birth date (optional), avatar; the text and media (photos, videos, voice messages, files, location pins) of messages you send; service data — send/read timestamps, IP address and user-agent of login sessions (for account security).
