@@ -1,7 +1,7 @@
 /* ================================================================
-   One Messenger — заставка при входе.
+   UzMessenger — заставка при входе.
    Подключается одной строкой в самом начале <head> (chat.html, index.html).
-   Никаких картинок: логотип OM «рисуется» линиями на глазах, вокруг него
+   Никаких картинок: логотип UM «рисуется» линиями на глазах, вокруг него
    расходятся круги, потом проявляется название. Всё внимание — на мессенджер.
 
    Показывается при входе и не повторяется чаще, чем раз в 8 секунд
@@ -46,10 +46,10 @@
     "@keyframes omTile{0%{transform:scale(.55) rotate(-9deg);opacity:0;filter:blur(10px) drop-shadow(0 0 0 rgba(42,157,244,0))}",
     "100%{transform:scale(1) rotate(0);opacity:1}}",
 
-    /* буквы O и M вырисовываются линией */
+    /* буквы U и M вырисовываются линией */
     "#omSplash .draw{fill:none;stroke:#fff;stroke-width:14;stroke-linecap:round;stroke-linejoin:round;",
     "stroke-dasharray:100;stroke-dashoffset:100;animation:omDraw .75s cubic-bezier(.5,0,.2,1) forwards}",
-    "#omSplash .dO{animation-delay:.3s}#omSplash .dM{animation-delay:.6s}",
+    "#omSplash .dU{animation-delay:.3s}#omSplash .dM{animation-delay:.6s}",
     "@keyframes omDraw{to{stroke-dashoffset:0}}",
 
     /* блик, пробегающий по значку */
@@ -78,7 +78,7 @@
     "#omSplash .bar i{width:100%}#omSplash .ring,#omSplash .shine{display:none}}"
   ].join("");
 
-  var word = "One Messenger".split("").map(function (ch, i) {
+  var word = "UzMessenger".split("").map(function (ch, i) {
     if (ch === " ") return '<span class="sp"></span>';
     return '<span style="animation-delay:' + (1.0 + i * 0.045).toFixed(3) + 's">' + ch + "</span>";
   }).join("");
@@ -96,8 +96,8 @@
           '</defs>' +
           '<rect width="200" height="200" rx="46" fill="url(#omg)"/>' +
           '<ellipse cx="100" cy="30" rx="70" ry="34" fill="#fff" opacity=".1"/>' +
-          '<path class="draw dO" pathLength="100" d="M83 100 a24 26 0 1 0 -48 0 a24 26 0 1 0 48 0"/>' +
-          '<path class="draw dM" pathLength="100" d="M100 133 V67 L128 111.5 L156 67 V133"/>' +
+          '<path class="draw dU" pathLength="100" d="M35 67 V109 Q35 133 59 133 Q83 133 83 109 V67"/>' +
+          '<path class="draw dM" pathLength="100" d="M112 133 V67 L140 111.5 L168 67 V133"/>' +
           '<g clip-path="url(#omc)"><rect class="shine" x="0" y="-20" width="70" height="240" fill="url(#oms)" transform="skewX(-18)"/></g>' +
         '</svg>' +
       '</div>' +
