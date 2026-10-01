@@ -135,7 +135,7 @@
               '<clipPath id="omc"><rect width="200" height="200" rx="46"/></clipPath>' +
             '</defs>' +
             '<rect width="200" height="200" rx="46" fill="url(#omg)"/>' +
-            '<ellipse cx="100" cy="30" rx="70" ry="34" fill="#fff" opacity=".1"/>' +
+            '<ellipse cx="100" cy="30" rx="70" ry="34" fill="#fff" opacity=".1" clip-path="url(#omc)"/>' +
             '<g class="uHalf"><path fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" d="M35 67 V109 Q35 133 59 133 Q83 133 83 109 V67"/></g>' +
             '<g class="mHalf"><path fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" d="M112 133 V67 L140 111.5 L168 67 V133"/></g>' +
             '<g clip-path="url(#omc)"><rect class="shine" x="0" y="-20" width="70" height="240" fill="url(#oms)" transform="skewX(-18)"/></g>' +
