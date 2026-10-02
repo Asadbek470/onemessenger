@@ -554,6 +554,22 @@ async function initSchema() {
   `);
   await addColumn("groups", "discoverable", "INTEGER NOT NULL DEFAULT 0");
 
+  // Ссылки-приглашения в группы и каналы (у одной группы их может быть несколько)
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS group_invites (
+      code TEXT PRIMARY KEY,
+      groupId INTEGER NOT NULL,
+      createdBy TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      maxUses INTEGER NOT NULL DEFAULT 0,
+      uses INTEGER NOT NULL DEFAULT 0,
+      expiresAt INTEGER NOT NULL DEFAULT 0,
+      revoked INTEGER NOT NULL DEFAULT 0,
+      createdAt INTEGER NOT NULL
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_group_invites_group ON group_invites(groupId)`);
+
   await dbRun(`
     CREATE TABLE IF NOT EXISTS group_members (
       groupId INTEGER NOT NULL,
@@ -1987,6 +2003,16 @@ app.delete("/api/groups/:id/members/:username", verifyAuth, async (req, res) => 
     return res.status(403).json({ ok: false, error: "Админ не может убрать другого админа — только владелец" });
   }
 
+  // Владелец не может просто уйти и оставить группу без хозяина
+  if (selfLeave && role === "owner") {
+    const others = await dbGet(`SELECT COUNT(*) AS c FROM group_members WHERE groupId=? AND username<>?`, [groupId, target]);
+    if (others && Number(others.c) > 0) {
+      return res.status(400).json({ ok: false, error: "Ты владелец. Сначала передай права другому участнику или удали группу" });
+    }
+    await deleteGroupData(groupId); // был один — группа удаляется целиком
+    return res.json({ ok: true, deleted: true });
+  }
+
   await dbRun(`DELETE FROM group_members WHERE groupId=? AND username=?`, [groupId, target]);
   res.json({ ok: true });
 });
@@ -2026,11 +2052,150 @@ app.delete("/api/groups/:id", verifyAuth, async (req, res) => {
   const role = await isMember(groupId, req.user.username);
   if (role !== "owner") return res.status(403).json({ ok: false, error: "Удалить может только владелец" });
 
+  await deleteGroupData(groupId);
+  res.json({ ok: true });
+});
+
+async function deleteGroupData(groupId) {
   await dbRun(`DELETE FROM messages WHERE chatType='group' AND receiver=?`, [`group:${groupId}`]);
   await dbRun(`DELETE FROM group_members WHERE groupId=?`, [groupId]);
   await dbRun(`DELETE FROM group_bans WHERE groupId=?`, [groupId]);
+  await dbRun(`DELETE FROM group_invites WHERE groupId=?`, [groupId]);
   await dbRun(`DELETE FROM groups WHERE id=?`, [groupId]);
+}
+
+// ---------------- РЕДАКТИРОВАНИЕ ГРУППЫ / КАНАЛА ----------------
+// Название, описание и тип (публичная — видна в «Популярном», приватная — только по ссылке)
+app.put("/api/groups/:id", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const role = await isMember(groupId, req.user.username);
+  if (role !== "owner" && role !== "admin") return res.status(403).json({ ok: false, error: "Недостаточно прав" });
+
+  const group = await dbGet(`SELECT * FROM groups WHERE id=?`, [groupId]);
+  if (!group) return res.status(404).json({ ok: false, error: "Не найдено" });
+
+  const name = req.body.name != null ? String(req.body.name).trim().slice(0, 60) : group.name;
+  const description = req.body.description != null ? String(req.body.description).trim().slice(0, 300) : group.description;
+  if (!name) return res.status(400).json({ ok: false, error: "Название обязательно" });
+
+  // менять публичность может только владелец
+  let discoverable = group.discoverable;
+  if (req.body.discoverable != null && role === "owner") discoverable = req.body.discoverable ? 1 : 0;
+
+  await dbRun(`UPDATE groups SET name=?, description=?, discoverable=? WHERE id=?`, [name, description, discoverable, groupId]);
+  res.json({ ok: true, group: { ...group, name, description, discoverable } });
+});
+
+app.post("/api/groups/:id/avatar", verifyAuth, singleUpload("file"), async (req, res) => {
+  const groupId = Number(req.params.id);
+  const role = await isMember(groupId, req.user.username);
+  if (role !== "owner" && role !== "admin") return res.status(403).json({ ok: false, error: "Недостаточно прав" });
+  if (!req.file) return res.status(400).json({ ok: false, error: "Нет файла" });
+  if (guessMediaType(req.file.mimetype) !== "image") {
+    return res.status(400).json({ ok: false, error: "Аватар должен быть изображением" });
+  }
+  const avatarUrl = await saveUploadedFile(req.file.buffer, req.file.mimetype, "avatar");
+  await dbRun(`UPDATE groups SET avatarUrl=? WHERE id=?`, [avatarUrl, groupId]);
+  res.json({ ok: true, avatarUrl });
+});
+
+// Передать владение другому участнику (прежний владелец становится админом)
+app.post("/api/groups/:id/transfer", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const me = req.user.username;
+  const target = String(req.body.username || "").replace(/^@+/, "").toLowerCase();
+
+  if ((await isMember(groupId, me)) !== "owner") return res.status(403).json({ ok: false, error: "Передать права может только владелец" });
+  if (!target || target === me) return res.status(400).json({ ok: false, error: "Выбери другого участника" });
+  if (!(await isMember(groupId, target))) return res.status(404).json({ ok: false, error: "Этот пользователь не участник группы" });
+
+  await dbRun(`UPDATE group_members SET role='owner' WHERE groupId=? AND username=?`, [groupId, target]);
+  await dbRun(`UPDATE group_members SET role='admin' WHERE groupId=? AND username=?`, [groupId, me]);
+  await dbRun(`UPDATE groups SET owner=? WHERE id=?`, [target, groupId]);
+
+  const group = await dbGet(`SELECT name FROM groups WHERE id=?`, [groupId]);
+  wsSendToUser(target, { type: "groupOwner", groupId, groupName: group ? group.name : "", from: me });
   res.json({ ok: true });
+});
+
+// ---------------- ССЫЛКИ-ПРИГЛАШЕНИЯ ----------------
+function inviteIsValid(inv) {
+  if (!inv || inv.revoked) return false;
+  if (inv.expiresAt && inv.expiresAt <= now()) return false;
+  if (inv.maxUses && inv.uses >= inv.maxUses) return false;
+  return true;
+}
+
+app.get("/api/groups/:id/invites", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const role = await isMember(groupId, req.user.username);
+  if (role !== "owner" && role !== "admin") return res.status(403).json({ ok: false, error: "Недостаточно прав" });
+
+  const rows = await dbAll(`SELECT * FROM group_invites WHERE groupId=? AND revoked=0 ORDER BY createdAt DESC`, [groupId]);
+  res.json({ ok: true, invites: rows.map(i => ({ ...i, valid: inviteIsValid(i) })) });
+});
+
+app.post("/api/groups/:id/invites", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const role = await isMember(groupId, req.user.username);
+  if (role !== "owner" && role !== "admin") return res.status(403).json({ ok: false, error: "Недостаточно прав" });
+
+  const active = await dbGet(`SELECT COUNT(*) AS c FROM group_invites WHERE groupId=? AND revoked=0`, [groupId]);
+  if (active && Number(active.c) >= 20) return res.status(400).json({ ok: false, error: "Слишком много ссылок — отзови ненужные" });
+
+  const name = String(req.body.name || "").trim().slice(0, 40);
+  const maxUses = Math.max(0, Math.min(100000, Math.floor(Number(req.body.maxUses) || 0)));
+  const hours = Math.max(0, Math.min(24 * 365, Number(req.body.expiresInHours) || 0));
+  const createdAt = now();
+  const code = crypto.randomBytes(9).toString("base64url");
+
+  await dbRun(
+    `INSERT INTO group_invites (code, groupId, createdBy, name, maxUses, uses, expiresAt, revoked, createdAt)
+     VALUES (?,?,?,?,?,0,?,0,?)`,
+    [code, groupId, req.user.username, name, maxUses, hours ? createdAt + hours * 3600 * 1000 : 0, createdAt]
+  );
+  res.json({ ok: true, code });
+});
+
+app.delete("/api/groups/:id/invites/:code", verifyAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const role = await isMember(groupId, req.user.username);
+  if (role !== "owner" && role !== "admin") return res.status(403).json({ ok: false, error: "Недостаточно прав" });
+
+  await dbRun(`UPDATE group_invites SET revoked=1 WHERE groupId=? AND code=?`, [groupId, String(req.params.code)]);
+  res.json({ ok: true });
+});
+
+// Что за группа скрывается за ссылкой (показываем перед вступлением)
+app.get("/api/invite/:code", verifyAuth, async (req, res) => {
+  const inv = await dbGet(`SELECT * FROM group_invites WHERE code=?`, [String(req.params.code)]);
+  if (!inviteIsValid(inv)) return res.status(404).json({ ok: false, error: "Ссылка недействительна или истекла" });
+
+  const group = await dbGet(
+    `SELECT g.id, g.name, g.description, g.avatarUrl, g.isChannel,
+            (SELECT COUNT(*) FROM group_members gm WHERE gm.groupId=g.id) AS memberCount
+     FROM groups g WHERE g.id=?`,
+    [inv.groupId]
+  );
+  if (!group) return res.status(404).json({ ok: false, error: "Группа больше не существует" });
+
+  res.json({ ok: true, group, alreadyMember: !!(await isMember(group.id, req.user.username)) });
+});
+
+app.post("/api/invite/:code/join", verifyAuth, rateLimit(30, 60 * 1000), async (req, res) => {
+  const me = req.user.username;
+  const inv = await dbGet(`SELECT * FROM group_invites WHERE code=?`, [String(req.params.code)]);
+  if (!inviteIsValid(inv)) return res.status(404).json({ ok: false, error: "Ссылка недействительна или истекла" });
+
+  const group = await dbGet(`SELECT id, name FROM groups WHERE id=?`, [inv.groupId]);
+  if (!group) return res.status(404).json({ ok: false, error: "Группа больше не существует" });
+  if (await isBanned(group.id, me)) return res.status(403).json({ ok: false, error: "Ты забанен(а) в этой группе" });
+
+  if (!(await isMember(group.id, me))) {
+    await dbRun(`INSERT OR IGNORE INTO group_members (groupId, username, role, joinedAt) VALUES (?,?,'member',?)`, [group.id, me, now()]);
+    await dbRun(`UPDATE group_invites SET uses = uses + 1 WHERE code=?`, [inv.code]);
+  }
+  res.json({ ok: true, groupId: group.id });
 });
 
 app.post("/api/groups/:id/members/:username/role", verifyAuth, async (req, res) => {
