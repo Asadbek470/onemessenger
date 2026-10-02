@@ -4176,6 +4176,9 @@ function renderStoryFooter(s) {
         <span><i class="fa-solid fa-retweet"></i> ${fmtCount(s.repostCount)}</span>
         <span class="storyviewer-viewslabel">Статистика</span>
       </button>
+      <button class="storyviewer-viewsbtn" onclick="promoteStory(${s.id})">
+        <span><i class="fa-solid fa-rocket"></i> Продвинуть в рекомендации (по коду)</span>
+      </button>
       <div id="storyViewerComments" class="storyviewer-comments"></div>
     `;
     return;
@@ -4355,6 +4358,9 @@ function reelRailHtml(s) {
     ${own ? `
     <button class="reel-act" onclick="openStoryViewersModal(${s.id})" title="Статистика">
       <i class="fa-solid fa-chart-simple"></i><span>${fmtCount(s.viewCount)}</span>
+    </button>
+    <button class="reel-act ${s.promoted ? "on-like" : ""}" onclick="promoteStory(${s.id})" title="В рекомендации">
+      <i class="fa-solid fa-rocket"></i><span>${s.promoted ? "в топе" : "в топ"}</span>
     </button>` : `
     <div class="reel-act reel-views" title="Просмотры">
       <i class="fa-solid fa-eye"></i><span>${fmtCount(s.viewCount)}</span>
@@ -4382,6 +4388,7 @@ function reelCardHtml(s) {
           <span class="avatar">${avatarHtml(info)}</span>
           <span class="reel-authorname">${nameHtml(info)}</span>
         </button>
+        ${s.promoted ? `<div class="reel-promo"><i class="fa-solid fa-fire"></i> Рекомендуем</div>` : ""}
         ${s.repostOfOwner && s.repostOfOwner !== s.owner ? `<div class="reel-repost"><i class="fa-solid fa-retweet"></i> репост от @${esc(s.repostOfOwner)}</div>` : ""}
         ${hasMedia && s.text ? `<div class="reel-caption">${esc(s.text)}</div>` : ""}
       </div>
@@ -4397,7 +4404,7 @@ async function loadReels() {
 
   let d;
   try {
-    const r = await fetch("/api/stories", { headers: authHeaders() });
+    const r = await fetch("/api/stories/feed", { headers: authHeaders() });
     d = await r.json();
   } catch { d = { ok: false }; }
   if (!d.ok) { feed.innerHTML = `<div class="reels-empty">${t("common.error")}</div>`; return; }
@@ -4423,20 +4430,68 @@ async function loadReels() {
       const video = card.querySelector("video");
       if (en.isIntersecting && en.intersectionRatio >= 0.6) {
         card.classList.remove("paused");
+        startReelWatch(Number(card.dataset.id));
         if (video && activeTab === "stories") {
           video.muted = false;
           video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
         }
         markReelViewed(Number(card.dataset.id));
-      } else if (video) {
-        video.pause();
+      } else {
+        if (reelWatch && reelWatch.id === Number(card.dataset.id)) flushReelWatch();
+        if (video) video.pause();
       }
     });
   }, { root: feed, threshold: [0, 0.6] });
   feed.querySelectorAll(".reel").forEach(c => reelsObserver.observe(c));
 }
 
+// --- сколько времени человек смотрел историю: по этому строится подборка ---
+let reelWatch = null; // { id, since }
+
+function startReelWatch(id) {
+  if (reelWatch && reelWatch.id === id) return;
+  flushReelWatch();
+  reelWatch = { id, since: Date.now() };
+}
+
+function flushReelWatch() {
+  if (!reelWatch) return;
+  const { id, since } = reelWatch;
+  reelWatch = null;
+  const s = reelById(id);
+  const ms = Date.now() - since;
+  if (!s || ms < 200 || (me && s.owner === me.username)) return;
+  fetch(`/api/stories/${id}/watch`, {
+    method: "POST",
+    keepalive: true,
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ ms })
+  }).catch(() => {});
+}
+window.addEventListener("pagehide", flushReelWatch);
+document.addEventListener("visibilitychange", () => { if (document.hidden) flushReelWatch(); });
+
+// Продвинуть свою историю в рекомендации по секретному коду
+async function promoteStory(id) {
+  const code = prompt("Секретный код, чтобы история попала в рекомендации:");
+  if (!code) return;
+  try {
+    const r = await fetch(`/api/stories/${id}/promote`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ code: code.trim() })
+    });
+    const d = await r.json();
+    if (!d.ok) return alert(d.error || t("common.error"));
+    toast(`🚀 История в рекомендациях на 3 дня. Осталось на этой неделе: ${d.left}`);
+    const s = reelById(id);
+    if (s) { s.promoted = true; refreshReelRail(id); }
+    if (currentStory && currentStory.id === id) { currentStory.promoted = true; }
+  } catch { alert(t("common.error")); }
+}
+
 function pauseAllReels() {
+  flushReelWatch();
   const feed = document.getElementById("reelsFeed");
   if (feed) feed.querySelectorAll("video").forEach(v => v.pause());
 }
