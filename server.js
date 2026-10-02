@@ -538,6 +538,23 @@ async function initSchema() {
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_likes_story ON story_likes(storyId)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_stories_repost ON stories(repostOfId)`);
 
+  // Сколько времени зритель смотрел историю — основа для подборки рекомендаций
+  await addColumn("story_views", "watchMs", "INTEGER NOT NULL DEFAULT 0");
+
+  // Продвижение истории в ленту рекомендаций по секретному коду
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS story_promos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      storyId INTEGER NOT NULL,
+      owner TEXT NOT NULL,
+      tier INTEGER NOT NULL DEFAULT 1,
+      createdAt INTEGER NOT NULL,
+      expiresAt INTEGER NOT NULL
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_promos_owner ON story_promos(owner, createdAt)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_promos_story ON story_promos(storyId)`);
+
   await dbRun(`
     CREATE TABLE IF NOT EXISTS groups (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -895,6 +912,53 @@ function cleanupStories() {
   db.run(`DELETE FROM story_likes WHERE storyId NOT IN (SELECT id FROM stories)`);
 }
 
+// ---- Продвижение историй по секретному коду ----
+// Обычные коды (777 / 666) — 2 продвижения в неделю, VIP-код (999) — 5 в неделю.
+const STORY_PROMO_CODES = String(process.env.STORY_PROMO_CODES || "777,666").split(",").map(x => x.trim()).filter(Boolean);
+const STORY_PROMO_VIP_CODES = String(process.env.STORY_PROMO_VIP_CODES || "999").split(",").map(x => x.trim()).filter(Boolean);
+const STORY_PROMO_LIMIT = 2;
+const STORY_PROMO_VIP_LIMIT = 5;
+const STORY_PROMO_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const STORY_PROMO_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // история держится в рекомендациях 3 дня
+
+async function storyPromoUsed(username) {
+  const row = await dbGet(`SELECT COUNT(*) AS c FROM story_promos WHERE owner=? AND createdAt > ?`, [username, now() - STORY_PROMO_WINDOW_MS]);
+  return Number((row && row.c) || 0);
+}
+
+// Истории, которые viewer вправе видеть (с учётом приватности авторов)
+async function fetchVisibleStories(me) {
+  const rows = await dbAll(
+    `
+    SELECT s.*, u.displayName, u.avatarUrl, u.verified, u.settings AS ownerSettings,
+           COALESCE(sv.reaction, '') AS myReaction,
+           COALESCE((SELECT value FROM story_likes ml WHERE ml.storyId=s.id AND ml.username=?), 0) AS myLike,
+           ${STORY_COUNTS_SQL}
+    FROM stories s
+    LEFT JOIN users u ON u.username=s.owner
+    LEFT JOIN story_views sv ON sv.storyId=s.id AND sv.viewer=?
+    WHERE s.expiresAt > ? AND u.banned=0
+    ORDER BY s.createdAt DESC
+    LIMIT 200
+    `,
+    [me, me, now()]
+  );
+
+  const visible = [];
+  const allowedCache = new Map();
+  for (const row of rows) {
+    if (!allowedCache.has(row.owner)) {
+      const ownerLike = { username: row.owner, settings: row.ownerSettings };
+      allowedCache.set(row.owner, await isAllowedByPrivacy(ownerLike, me, "storyPrivacy"));
+    }
+    if (allowedCache.get(row.owner)) {
+      delete row.ownerSettings;
+      visible.push(row);
+    }
+  }
+  return visible;
+}
+
 // Счётчики истории — одинаковые для ленты, профиля и «моих историй»
 const STORY_COUNTS_SQL = `
            (SELECT COUNT(*) FROM story_views v WHERE v.storyId=s.id) AS viewCount,
@@ -1114,6 +1178,7 @@ async function wipeUserData(u) {
   await dbRun(`DELETE FROM story_comments WHERE username=?`, [u]);
   await dbRun(`DELETE FROM story_likes WHERE storyId IN (SELECT id FROM stories WHERE owner=?)`, [u]);
   await dbRun(`DELETE FROM story_likes WHERE username=?`, [u]);
+  await dbRun(`DELETE FROM story_promos WHERE owner=?`, [u]);
   await dbRun(`DELETE FROM stories WHERE owner=?`, [u]);
   await dbRun(`DELETE FROM group_members WHERE username=?`, [u]);
   await dbRun(`DELETE FROM friends WHERE owner=? OR friend=?`, [u, u]);
@@ -1189,6 +1254,7 @@ app.post("/api/me/username", verifyAuth, rateLimit(3, 60 * 60 * 1000), async (re
     await dbRun(`UPDATE story_views SET viewer=? WHERE viewer=?`, [newUsername, old]);
     await dbRun(`UPDATE story_comments SET username=? WHERE username=?`, [newUsername, old]);
     await dbRun(`UPDATE story_likes SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE story_promos SET owner=? WHERE owner=?`, [newUsername, old]);
     await dbRun(`UPDATE stories SET repostOfOwner=? WHERE repostOfOwner=?`, [newUsername, old]);
     await dbRun(`UPDATE groups SET owner=? WHERE owner=?`, [newUsername, old]);
     await dbRun(`UPDATE group_members SET username=? WHERE username=?`, [newUsername, old]);
@@ -2314,32 +2380,144 @@ app.post("/api/upload", verifyAuth, singleUpload("file"), async (req, res) => {
 // ---------------- STORIES ----------------
 app.get("/api/stories", verifyAuth, async (req, res) => {
   cleanupStories();
-  const me = req.user.username;
-  const rows = await dbAll(
-    `
-    SELECT s.*, u.displayName, u.avatarUrl, u.verified, u.settings AS ownerSettings,
-           COALESCE(sv.reaction, '') AS myReaction,
-           COALESCE((SELECT value FROM story_likes ml WHERE ml.storyId=s.id AND ml.username=?), 0) AS myLike,
-           ${STORY_COUNTS_SQL}
-    FROM stories s
-    LEFT JOIN users u ON u.username=s.owner
-    LEFT JOIN story_views sv ON sv.storyId=s.id AND sv.viewer=?
-    WHERE s.expiresAt > ? AND u.banned=0
-    ORDER BY s.createdAt DESC
-    LIMIT 200
-    `,
-    [me, me, now()]
-  );
+  res.json({ ok: true, stories: await fetchVisibleStories(req.user.username) });
+});
 
-  const visible = [];
-  for (const row of rows) {
-    const ownerLike = { username: row.owner, settings: row.ownerSettings };
-    if (await isAllowedByPrivacy(ownerLike, me, "storyPrivacy")) {
-      delete row.ownerSettings;
-      visible.push(row);
-    }
+// ---------------- ЛЕНТА РЕКОМЕНДАЦИЙ (вкладка «Сторис») ----------------
+// Подборка под конкретного зрителя. Смотрим, как он вёл себя раньше:
+//   • досмотрел / смотрел долго / лайкнул  → автор «зацепил», его истории поднимаются;
+//   • пролистал за секунду / дизлайкнул    → автор опускается, показываем другое.
+// Плюс общая популярность истории, свежесть и продвижение по секретному коду.
+const WATCH_ENGAGED_MS = 5000;  // смотрел 5+ секунд — история зацепила
+const WATCH_SKIPPED_MS = 1500;  // пролистал быстрее 1.5 секунды — не зашло
+
+app.get("/api/stories/feed", verifyAuth, async (req, res) => {
+  cleanupStories();
+  const me = req.user.username;
+  const t = now();
+  const stories = await fetchVisibleStories(me);
+
+  const [history, myLikes, promos, watchAvg] = await Promise.all([
+    dbAll(
+      `SELECT sv.storyId, sv.watchMs, s.owner
+       FROM story_views sv JOIN stories s ON s.id=sv.storyId
+       WHERE sv.viewer=? ORDER BY sv.viewedAt DESC LIMIT 500`,
+      [me]
+    ),
+    dbAll(
+      `SELECT l.value, s.owner FROM story_likes l JOIN stories s ON s.id=l.storyId WHERE l.username=?`,
+      [me]
+    ),
+    dbAll(`SELECT storyId, MAX(tier) AS tier FROM story_promos WHERE expiresAt > ? GROUP BY storyId`, [t]),
+    dbAll(`SELECT storyId, AVG(watchMs) AS avgMs FROM story_views WHERE watchMs > 0 GROUP BY storyId`)
+  ]);
+
+  // Отношение зрителя к каждому автору
+  const affinity = new Map();
+  const bump = (owner, v) => {
+    const a = affinity.get(owner) || { sum: 0, n: 0 };
+    a.sum += v; a.n += 1;
+    affinity.set(owner, a);
+  };
+  const seen = new Set();
+  for (const h of history) {
+    seen.add(h.storyId);
+    const ms = Number(h.watchMs || 0);
+    if (ms >= WATCH_ENGAGED_MS) bump(h.owner, 1);
+    else if (ms > 0 && ms < WATCH_SKIPPED_MS) bump(h.owner, -1);
+    else if (ms > 0) bump(h.owner, 0.2);
   }
-  res.json({ ok: true, stories: visible });
+  for (const l of myLikes) bump(l.owner, l.value === 1 ? 2 : -2);
+
+  const promoTier = new Map(promos.map(p => [p.storyId, Number(p.tier)]));
+  const avgWatch = new Map(watchAvg.map(w => [w.storyId, Number(w.avgMs || 0)]));
+
+  for (const s of stories) {
+    const a = affinity.get(s.owner);
+    const aff = a ? a.sum / Math.sqrt(a.n + 1) : 0;                 // примерно −3…+3
+    const ageDays = Math.max(0, (t - s.createdAt) / 86400000);
+    const tier = promoTier.get(s.id) || 0;
+    const isSeen = seen.has(s.id);
+
+    let score = 0;
+    score += aff * 12;                                               // личная подборка
+    score += Math.min((avgWatch.get(s.id) || 0) / 1000, 10);         // насколько история удерживает людей
+    score += Math.log1p(Number(s.viewCount)) * 2;
+    score += Number(s.likeCount) * 1.5 - Number(s.dislikeCount) * 1.5;
+    score += Number(s.commentCount) + Number(s.repostCount) * 2;
+    score += Math.max(0, 10 - ageDays * 2);                          // свежее — выше
+    if (isSeen) score -= 40;                                         // уже видел — в конец
+    if (tier && !isSeen && s.owner !== me) score += 1000 * tier;     // продвижение по коду
+
+    s.promoted = tier > 0;
+    s._score = score;
+  }
+
+  stories.sort((x, y) => y._score - x._score || y.createdAt - x.createdAt);
+  stories.forEach(s => { delete s._score; });
+  res.json({ ok: true, stories });
+});
+
+// Сколько миллисекунд зритель смотрел историю (шлёт клиент, когда листает дальше)
+app.post("/api/stories/:id/watch", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  const ms = Math.max(0, Math.min(120000, Math.round(Number(req.body.ms) || 0)));
+  if (!ms) return res.json({ ok: true });
+
+  const story = await dbGet(`SELECT id, owner FROM stories WHERE id=?`, [id]);
+  if (!story) return res.status(404).json({ ok: false, error: "Не найдена" });
+  if (story.owner === me) return res.json({ ok: true });
+
+  await dbRun(
+    `INSERT INTO story_views (storyId, viewer, viewedAt, reaction, reactedAt, watchMs) VALUES (?,?,?,'',0,?)
+     ON CONFLICT(storyId, viewer) DO UPDATE SET watchMs = MIN(600000, watchMs + excluded.watchMs)`,
+    [id, me, now(), ms]
+  );
+  res.json({ ok: true });
+});
+
+// Сколько продвижений осталось на этой неделе
+app.get("/api/stories/promo/quota", verifyAuth, async (req, res) => {
+  const used = await storyPromoUsed(req.user.username);
+  res.json({ ok: true, used, limit: STORY_PROMO_LIMIT, vipLimit: STORY_PROMO_VIP_LIMIT });
+});
+
+// Продвинуть свою историю в рекомендации по секретному коду
+app.post("/api/stories/:id/promote", verifyAuth, rateLimit(10, 60 * 1000), async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  const code = String(req.body.code || "").trim();
+
+  const vip = STORY_PROMO_VIP_CODES.includes(code);
+  if (!vip && !STORY_PROMO_CODES.includes(code)) {
+    return res.status(400).json({ ok: false, error: "Неверный секретный код" });
+  }
+
+  const story = await dbGet(`SELECT id, owner FROM stories WHERE id=? AND expiresAt > ?`, [id, now()]);
+  if (!story) return res.status(404).json({ ok: false, error: "История не найдена" });
+  if (story.owner !== me) return res.status(403).json({ ok: false, error: "Продвигать можно только свою историю" });
+
+  const active = await dbGet(`SELECT id FROM story_promos WHERE storyId=? AND expiresAt > ?`, [id, now()]);
+  if (active) return res.status(400).json({ ok: false, error: "Эта история уже в рекомендациях" });
+
+  const limit = vip ? STORY_PROMO_VIP_LIMIT : STORY_PROMO_LIMIT;
+  const used = await storyPromoUsed(me);
+  if (used >= limit) {
+    return res.status(429).json({
+      ok: false,
+      error: vip
+        ? `Лимит исчерпан: ${STORY_PROMO_VIP_LIMIT} продвижений в неделю`
+        : `Лимит исчерпан: с этим кодом можно ${STORY_PROMO_LIMIT} раза в неделю`
+    });
+  }
+
+  const t = now();
+  await dbRun(
+    `INSERT INTO story_promos (storyId, owner, tier, createdAt, expiresAt) VALUES (?,?,?,?,?)`,
+    [id, me, vip ? 2 : 1, t, t + STORY_PROMO_DURATION_MS]
+  );
+  res.json({ ok: true, used: used + 1, limit, left: limit - used - 1, until: t + STORY_PROMO_DURATION_MS });
 });
 
 app.get("/api/stories/user/:username", verifyAuth, async (req, res) => {
@@ -2422,6 +2600,7 @@ app.delete("/api/stories/:id", verifyAuth, async (req, res) => {
   await dbRun(`DELETE FROM story_views WHERE storyId=?`, [id]);
   await dbRun(`DELETE FROM story_comments WHERE storyId=?`, [id]);
   await dbRun(`DELETE FROM story_likes WHERE storyId=?`, [id]);
+  await dbRun(`UPDATE story_promos SET expiresAt=0 WHERE storyId=?`, [id]);
   res.json({ ok: true });
 });
 
