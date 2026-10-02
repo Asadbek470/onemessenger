@@ -254,7 +254,7 @@
       const r = await fetch("/api/rtc-config", { headers: authHeaders() });
       const d = await r.json();
       if (d.ok && d.iceServers && d.iceServers.length) {
-        iceCache = { at: Date.now(), cfg: { iceServers: d.iceServers }, hasTurn: !!d.hasTurn };
+        iceCache = { at: Date.now(), cfg: { iceServers: d.iceServers }, hasTurn: !!d.hasTurn, viaLk: !!d.p2pViaLk };
         return iceCache.cfg;
       }
     } catch {}
@@ -408,6 +408,97 @@
     if (callVideo) startOverlayTimer();
   }
 
+  // ---------------- 1:1 через LiveKit (когда нет своего TURN) ----------------
+  // Прямое соединение между разными Wi‑Fi/операторами часто невозможно.
+  // Если на сервере настроен LiveKit, звонок 1:1 идёт через него — он сам
+  // передаёт звук и видео между любыми сетями.
+  let lk1Room = null;
+  let lk1Mode = false;
+
+  function relayMode() { return !!(iceCache && iceCache.viaLk); }
+
+  function lk1Connected() {
+    clearTimeout(connectGuard);
+    clearTimeout(ringGuard);
+    markConnected();
+  }
+
+  function armLkGuard() {
+    clearTimeout(connectGuard);
+    connectGuard = setTimeout(() => {
+      if (lk1Room && !lk1Room.remoteParticipants.size) {
+        alert("Не удалось соединиться: собеседник не подключился к звонку. Попробуйте ещё раз.");
+        endCall();
+      }
+    }, CONNECT_GUARD_MS);
+  }
+
+  async function joinLk1(peer) {
+    const r = await fetch("/api/call/lk-token", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ peer })
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "Не удалось начать звонок");
+
+    await loadLk();
+    const LK = window.LivekitClient;
+    const room = new LK.Room({
+      dynacast: true,
+      videoCaptureDefaults: { resolution: LK.VideoPresets.h540.resolution, facingMode: facing }
+    });
+    lk1Room = room;
+
+    room
+      .on(LK.RoomEvent.TrackSubscribed, (track) => {
+        if (lk1Room !== room) return;
+        if (track.kind === "video") {
+          const rv = $("omRemoteVideo");
+          track.attach(rv);
+          rv.style.visibility = "visible";
+          rv.play().catch(() => {});
+        } else {
+          const ra = $("remoteAudio");
+          track.attach(ra);
+          ra.play().catch(() => {});
+        }
+        lk1Connected();
+      })
+      .on(LK.RoomEvent.TrackUnsubscribed, (track) => { try { track.detach(); } catch {} })
+      .on(LK.RoomEvent.TrackMuted, (pub, p) => {
+        if (!p.isLocal && pub.kind === "video") $("omRemoteVideo").style.visibility = "hidden";
+      })
+      .on(LK.RoomEvent.TrackUnmuted, (pub, p) => {
+        if (!p.isLocal && pub.kind === "video") $("omRemoteVideo").style.visibility = "visible";
+      })
+      .on(LK.RoomEvent.LocalTrackPublished, (pub) => {
+        if (lk1Room !== room || !pub.track || pub.track.kind !== "video") return;
+        const lv = $("omLocalVideo");
+        pub.track.attach(lv);
+        lv.muted = true;
+        lv.classList.toggle("back", facing !== "user");
+      })
+      .on(LK.RoomEvent.ParticipantConnected, () => { if (lk1Room === room) lk1Connected(); })
+      .on(LK.RoomEvent.ParticipantDisconnected, () => {
+        if (lk1Room === room && !room.remoteParticipants.size) cleanupCall();
+      })
+      .on(LK.RoomEvent.Disconnected, () => { if (lk1Room === room) cleanupCall(); });
+
+    await room.connect(d.url, d.token);
+    if (lk1Room !== room) { try { room.disconnect(); } catch {} return; } // звонок отменили, пока подключались
+
+    await room.localParticipant.setMicrophoneEnabled(true);
+    if (callVideo) {
+      try { await room.localParticipant.setCameraEnabled(true); }
+      catch {
+        toast("Камера недоступна — продолжаем без видео");
+        setBtn("omCam", true, "fa-video", "fa-video-slash");
+      }
+    }
+    try { await room.startAudio(); } catch {}
+  }
+
   // ---------------- 1:1: исходящий ----------------
   async function startCall(video) {
     if (!isPrivateChat(currentChat)) return alert("Звонок только в личном чате");
@@ -422,14 +513,25 @@
     await showP2PUi(callPeer, "Звоним...", callVideo);
 
     try {
-      await createPeer(callPeer);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      ws.send(JSON.stringify({ type: "call-offer", to: callPeer, offer, video: callVideo }));
-      flushLocalIce(callPeer);
+      await getRtc();
+      if (relayMode()) {
+        // звонок через LiveKit: сначала сами входим в комнату, потом зовём собеседника
+        lk1Mode = true;
+        const peer = callPeer;
+        await joinLk1(peer);
+        if (callPeer !== peer || !lk1Room) return; // пока подключались, звонок отменили
+        ws.send(JSON.stringify({ type: "call-offer", to: peer, offer: { lk: true }, video: callVideo }));
+      } else {
+        await createPeer(callPeer);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        ws.send(JSON.stringify({ type: "call-offer", to: callPeer, offer, video: callVideo }));
+        flushLocalIce(callPeer);
+      }
 
       ringGuard = setTimeout(() => {
-        if (callPeer && !(pc && pc.connectionState === "connected")) {
+        const talking = (pc && pc.connectionState === "connected") || (lk1Room && lk1Room.remoteParticipants.size);
+        if (callPeer && !talking) {
           setStatus("Не отвечает");
           setTimeout(() => { if (callPeer) endCall(); }, 1200);
         }
@@ -437,7 +539,7 @@
     } catch (e) {
       alert(e && e.name === "NotAllowedError"
         ? "Нет доступа к микрофону или камере — разреши его в настройках браузера"
-        : "Не удалось начать звонок");
+        : ((lk1Mode && e && e.message) || "Не удалось начать звонок"));
       cleanupCall();
     }
   }
@@ -481,6 +583,17 @@
     await showP2PUi(from, "Подключение...", callVideo);
 
     try {
+      if (offer && offer.lk) {
+        // собеседник звонит через LiveKit — входим в ту же комнату
+        lk1Mode = true;
+        await joinLk1(from);
+        if (callPeer !== from || !lk1Room) return;
+        ws.send(JSON.stringify({ type: "call-answer", to: from, answer: { lk: true } }));
+        incomingFrom = null;
+        incomingOffer = null;
+        if (lk1Room.remoteParticipants.size) lk1Connected(); else armLkGuard();
+        return;
+      }
       await createPeer(from);
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       await flushRemoteIce();
@@ -494,7 +607,10 @@
     } catch (e) {
       alert(e && e.name === "NotAllowedError"
         ? "Нет доступа к микрофону или камере — разреши его в настройках браузера"
-        : "Не удалось принять звонок");
+        : ((lk1Mode && e && e.message) || "Не удалось принять звонок"));
+      if (lk1Mode && ws && ws.readyState === 1) {
+        try { ws.send(JSON.stringify({ type: "call-reject", to: from })); } catch {}
+      }
       cleanupCall();
     }
   }
@@ -511,6 +627,12 @@
   }
 
   async function onCallAnswer(data) {
+    if (lk1Mode) {
+      clearTimeout(ringGuard);
+      if (lk1Room && lk1Room.remoteParticipants.size) lk1Connected();
+      else { setStatus("Соединение..."); armLkGuard(); }
+      return;
+    }
     if (!pc || !data.answer) return;
     clearTimeout(ringGuard);
     try {
@@ -522,7 +644,7 @@
   }
 
   async function onIce(data) {
-    if (!data.candidate) return;
+    if (lk1Mode || !data.candidate) return;
     if (!pc || !pc.remoteDescription) { pendingIce.push(data.candidate); return; }
     try { await pc.addIceCandidate(data.candidate); } catch {}
   }
@@ -545,6 +667,11 @@
     closeIncoming();
     stopCallTimer();
     if (callMode === "p2p") hideOverlay();
+
+    const r1 = lk1Room;
+    lk1Room = null;
+    lk1Mode = false;
+    try { if (r1) r1.disconnect(); } catch {}
 
     try { pc && pc.close(); } catch {}
     pc = null;
@@ -595,9 +722,10 @@
   };
 
   window.omToggleCam = async function () {
-    if (callMode === "group" && lkRoom) {
-      const enabled = lkRoom.localParticipant.isCameraEnabled;
-      try { await lkRoom.localParticipant.setCameraEnabled(!enabled); } catch { return toast("Камера недоступна"); }
+    const room = (callMode === "group" && lkRoom) || lk1Room;
+    if (room) {
+      const enabled = room.localParticipant.isCameraEnabled;
+      try { await room.localParticipant.setCameraEnabled(!enabled); } catch { return toast("Камера недоступна"); }
       setBtn("omCam", enabled, "fa-video", "fa-video-slash");
       return;
     }
@@ -609,11 +737,13 @@
 
   window.omFlip = async function () {
     facing = facing === "user" ? "environment" : "user";
-    if (callMode === "group" && lkRoom) {
+    const room = (callMode === "group" && lkRoom) || lk1Room;
+    if (room) {
       try {
-        const pub = lkRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Camera);
+        const pub = room.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Camera);
         if (pub && pub.videoTrack) await pub.videoTrack.restartTrack({ facingMode: facing });
         else toast("Сначала включи камеру");
+        if (lk1Room) $("omLocalVideo").classList.toggle("back", facing !== "user");
       } catch { facing = facing === "user" ? "environment" : "user"; toast("Не удалось переключить камеру"); }
       return;
     }
@@ -885,6 +1015,19 @@
   window.createPeer = createPeer;
   window.markConnected = markConnected;
   window.cleanupCall = cleanupCall;
+
+  // кнопка «микрофон» в окне аудиозвонка — для звонка через LiveKit
+  const _toggleMute = window.toggleMute;
+  window.toggleMute = function () {
+    if (!lk1Room) return _toggleMute();
+    isMuted = !isMuted;
+    lk1Room.localParticipant.setMicrophoneEnabled(!isMuted).catch(() => {});
+    const btn = $("muteBtn");
+    if (btn) {
+      btn.classList.toggle("callbtn-active", isMuted);
+      btn.innerHTML = `<i class="fa-solid ${isMuted ? "fa-microphone-slash" : "fa-microphone"}"></i>`;
+    }
+  };
 
   const _updateHeader = window.updateHeader;
   window.updateHeader = function () { _updateHeader(); syncButtons(); };
