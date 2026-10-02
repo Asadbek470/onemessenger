@@ -1,9 +1,9 @@
 /* ================================================================
-   UzMessenger — заставка при входе.
+   Zumo — заставка при входе.
    Подключается одной строкой в самом начале <head> (chat.html, index.html).
 
    Сценарий: тёмный фон с «дышащим» сиянием и плывущими частицами →
-   плашка логотипа влетает в 3D с лёгким доворотом → буквы U и M
+   плашка логотипа влетает в 3D с лёгким доворотом → две половинки буквы Z
    съезжаются с двух сторон и «стыкуются» со вспышкой и ударной волной →
    название открывается широким диагональным «стиранием» (wipe) →
    полоска загрузки с бегущим бликом. Всё на CSS-анимациях и SVG,
@@ -119,7 +119,7 @@
     dots += '<div class="dot" style="left:' + c[0] + '%;animation-delay:' + c[1] + 's;animation-duration:' + c[2] + 's"></div>';
   }
 
-  var word = "UzMessenger";
+  var word = "Zumo";
 
   var html =
     '<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>' +
@@ -136,8 +136,8 @@
             '</defs>' +
             '<rect width="200" height="200" rx="46" fill="url(#omg)"/>' +
             '<ellipse cx="100" cy="30" rx="70" ry="34" fill="#fff" opacity=".1" clip-path="url(#omc)"/>' +
-            '<g class="uHalf"><path fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" d="M35 67 V109 Q35 133 59 133 Q83 133 83 109 V67"/></g>' +
-            '<g class="mHalf"><path fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" d="M112 133 V67 L140 111.5 L168 67 V133"/></g>' +
+            '<g class="uHalf"><path fill="none" stroke="#fff" stroke-width="17" stroke-linecap="round" stroke-linejoin="round" d="M66 62 H134 L100 100"/></g>' +
+            '<g class="mHalf"><path fill="none" stroke="#fff" stroke-width="17" stroke-linecap="round" stroke-linejoin="round" d="M100 100 L66 138 H134"/></g>' +
             '<g clip-path="url(#omc)"><rect class="shine" x="0" y="-20" width="70" height="240" fill="url(#oms)" transform="skewX(-18)"/></g>' +
           '</svg>' +
           '<div class="flash"></div>' +
