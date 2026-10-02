@@ -5,7 +5,7 @@
   <script src="splash.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Zumo</title>
-  <link rel="stylesheet" href="style.css?v=4" />
+  <link rel="stylesheet" href="style.css?v=5" />
   <link rel="stylesheet" href="features.css" />
   <link rel="icon" href="/icon-192.png?v=3" />
   <link rel="apple-touch-icon" href="/icon-192.png?v=3" />
@@ -582,7 +582,15 @@
         <button class="iconbtn" onclick="closeGroupInfo()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="formgrid">
-        <div id="groupInfoDesc" class="hint"></div>
+        <div class="grphead">
+          <div class="avatar" id="groupInfoAvatar"></div>
+          <div class="grphead-meta">
+            <div id="groupInfoSub" class="grphead-sub"></div>
+            <div id="groupInfoDesc" class="hint"></div>
+          </div>
+        </div>
+
+        <div id="groupManageBox" class="hidden"></div>
 
         <div id="groupAddMemberRow" class="row hidden">
           <input id="groupAddMemberInput" data-i18n-placeholder="group.addMemberPlaceholder" placeholder="@username">
@@ -595,6 +603,38 @@
 
         <button id="groupLeaveBtn" class="btn danger full" data-i18n="group.leave">Покинуть группу</button>
         <button id="groupDeleteBtn" class="btn danger full hidden" data-i18n="group.deleteGroup">Удалить группу</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ВСТУПЛЕНИЕ ПО ССЫЛКЕ-ПРИГЛАШЕНИЮ -->
+  <div id="inviteJoinModal" class="modal hidden">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">Приглашение</div>
+        <button class="iconbtn" onclick="closeInviteJoin()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="invitejoin">
+        <div class="avatar" id="inviteJoinAvatar"></div>
+        <div class="invitejoin-name" id="inviteJoinName"></div>
+        <div class="invitejoin-sub" id="inviteJoinSub"></div>
+        <div class="hint" id="inviteJoinDesc"></div>
+        <button class="btn primary full" id="inviteJoinBtn">Вступить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR-КОД ПРИГЛАШЕНИЯ -->
+  <div id="inviteQrModal" class="modal hidden" onclick="if(event.target===this) closeInviteQr()">
+    <div class="card">
+      <div class="cardtop">
+        <div class="cardtitle">QR-код приглашения</div>
+        <button class="iconbtn" onclick="closeInviteQr()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="invitejoin">
+        <div id="inviteQrBox" class="inviteqr"></div>
+        <div class="hint" id="inviteQrLink"></div>
+        <button class="btn ghost full" id="inviteQrCopy">Скопировать ссылку</button>
       </div>
     </div>
   </div>
@@ -770,7 +810,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
   <script src="calls-client.js?v=3"></script>
 </body>
 </html>
