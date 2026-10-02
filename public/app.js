@@ -645,6 +645,7 @@ async function initApp() {
   connectWS();
 
   await loadContactNamesCache();
+  await e2eInit(); // ключи сквозного шифрования — до загрузки чатов, чтобы сразу их расшифровать
   await refreshChats();
   await loadStories();
   await showBirthdays();
@@ -907,6 +908,9 @@ function connectWS() {
     }
 
     if (data.type === "messageEdited") {
+      const cached = messageCache.get(data.id);
+      if (cached && e2eIsCipher(data.text)) data.text = await e2eDecryptText(data.text, cached.sender, cached.receiver);
+      if (cached) cached.text = data.text;
       const el = document.querySelector(`[data-mid="${data.id}"] .mtext`);
       if (el) el.innerHTML = formatText(data.text);
       const row = document.querySelector(`[data-mid="${data.id}"]`);
@@ -1004,6 +1008,7 @@ function connectWS() {
 
     if (data.type === "message") {
       const msg = data.message;
+      await e2eDecryptMessages([msg]);
       if (msg.senderInfo) mergeUserInfo(msg.sender, msg.senderInfo);
       if (shouldRender(msg)) {
         renderMessage(msg);
@@ -1151,6 +1156,11 @@ async function loadMessages() {
   if (!d.ok) return;
 
   if (d.users) Object.entries(d.users).forEach(([u, info]) => mergeUserInfo(u, info));
+  const chatAtLoad = currentChat;
+  await e2eDecryptMessages(d.messages);
+  const e2eHint = await e2eChatHint(chatAtLoad);
+  if (currentChat !== chatAtLoad) return; // пока расшифровывали, открыли другой чат
+  box.innerHTML = e2eHint;
   d.messages.forEach(renderMessage);
 
   const lastIncoming = [...d.messages].reverse().find(m => m.sender !== me.username);
@@ -1337,7 +1347,19 @@ function renderMessage(m) {
 }
 
 async function saveToFavorites(id) {
-  const r = await fetch(`/api/messages/${id}/save`, { method: "POST", headers: authHeaders() });
+  const src = messageCache.get(id);
+  const body = {};
+  if (src && src.mediaType === "text") {
+    if (src.e2eFail) return alert("Это сообщение не удалось расшифровать — сохранить его нельзя");
+    const out = await e2eEncryptFor(me.username, src.text); // «Избранное» тоже шифруется — своим же ключом
+    if (out == null) return;
+    body.text = out;
+  }
+  const r = await fetch(`/api/messages/${id}/save`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
   const d = await r.json();
   if (!d.ok) return alert(d.error || "Не получилось сохранить");
   toast("⭐ Сохранено в Избранное");
@@ -1510,6 +1532,8 @@ function startReply(id) {
 }
 
 function startEdit(id) {
+  const cachedForEdit = messageCache.get(id);
+  if (cachedForEdit && cachedForEdit.e2eFail) return alert("Это сообщение не удалось расшифровать — изменить его нельзя");
   const m = messageCache.get(id);
   if (!m || m.mediaType !== "text") return;
   replyToId = null;
@@ -1529,20 +1553,28 @@ function cancelReplyOrEdit() {
   document.getElementById("textInput").value = "";
 }
 
-function sendText() {
+let sendingText = false;
+async function sendText() {
   const input = document.getElementById("textInput");
-  const text = input.value.trim();
-  if (!text) return;
+  const text = input.value.trim().slice(0, 2000);
+  if (!text || sendingText) return;
   if (!ws || ws.readyState !== 1) return alert("WS не подключен");
 
+  // личные чаты: текст шифруется на устройстве, на сервер уходит только шифр
+  const chat = currentChat;
+  sendingText = true;
+  let out;
+  try { out = await e2eEncryptFor(chat, text); } finally { sendingText = false; }
+  if (out == null || chat !== currentChat) return;
+
   if (editingMsgId) {
-    ws.send(JSON.stringify({ type: "edit-message", id: editingMsgId, text }));
+    ws.send(JSON.stringify({ type: "edit-message", id: editingMsgId, text: out }));
     cancelReplyOrEdit();
     return;
   }
 
   lastSentText = text;
-  const payload = { type: "text-message", receiver: currentChat, text };
+  const payload = { type: "text-message", receiver: chat, text: out };
   if (replyToId) payload.replyTo = replyToId;
   ws.send(JSON.stringify(payload));
   input.value = "";
@@ -1696,10 +1728,21 @@ function closeForwardPicker() {
 async function doForward(to) {
   if (!forwardMsgId) return;
   const target = to === "self" ? me.username : to;
+  const body = { to: target };
+
+  // Текст пересылаем заново зашифрованным под новый чат (сервер сам этого сделать не может)
+  const src = messageCache.get(forwardMsgId);
+  if (src && src.mediaType === "text" && (src.e2e || e2eIsChat(target))) {
+    if (src.e2eFail) return alert("Это сообщение не удалось расшифровать — переслать его нельзя");
+    const out = await e2eEncryptFor(target, src.text);
+    if (out == null) return;
+    body.text = out;
+  }
+
   const r = await fetch(`/api/messages/${forwardMsgId}/forward`, {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ to: target })
+    body: JSON.stringify(body)
   });
   const d = await r.json();
   if (!d.ok) return alert(d.error || t("forward.failed"));
@@ -2117,6 +2160,15 @@ async function refreshChats() {
   const chatsData = await chatsRes.json();
   const groupsData = await groupsRes.json();
   if (groupsData.ok) myGroups = groupsData.groups;
+
+  // последнее сообщение личного чата приходит зашифрованным — расшифровываем для списка
+  if (chatsData.ok) {
+    for (const c of chatsData.chats) {
+      if (c.previewEnc) {
+        try { c.preview = await e2eDecryptText(c.previewEnc.text, c.previewEnc.sender, c.previewEnc.receiver); } catch {}
+      }
+    }
+  }
 
   const wrap = document.getElementById("privateChats");
   wrap.innerHTML = "";
