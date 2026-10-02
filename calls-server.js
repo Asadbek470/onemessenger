@@ -215,7 +215,12 @@ module.exports = function setupCalls(ctx) {
 
   app.get("/api/rtc-config", verifyAuth, async (req, res) => {
     const c = await loadIce();
-    res.json({ ok: true, iceServers: c.list, hasTurn: c.hasTurn, groupCalls: lkConfigured() });
+    // p2pViaLk: своего TURN нет, но есть LiveKit — тогда и звонки 1:1 идут через него
+    // (LiveKit сам пробивает разные сети/операторов, отдельный TURN не нужен).
+    res.json({
+      ok: true, iceServers: c.list, hasTurn: c.hasTurn, groupCalls: lkConfigured(),
+      p2pViaLk: !c.hasTurn && lkConfigured()
+    });
   });
 
   // ---------------- групповые звонки (LiveKit) ----------------
@@ -239,6 +244,35 @@ module.exports = function setupCalls(ctx) {
       { algorithm: "HS256", issuer: process.env.LIVEKIT_API_KEY, subject: identity, expiresIn: "6h" }
     );
   }
+
+  // Токен для звонка 1:1 через LiveKit. Комната своя на каждую пару людей,
+  // токен получает только один из этих двоих.
+  app.post(
+    "/api/call/lk-token",
+    verifyAuth,
+    rateLimit ? rateLimit(30, 60 * 1000) : (req, res, next) => next(),
+    async (req, res) => {
+      if (!lkConfigured()) return res.status(503).json({ ok: false, error: "LiveKit не настроен на сервере" });
+      const me = req.user.username;
+      const peer = clean(req.body.peer);
+      if (!peer || peer === me) return res.status(400).json({ ok: false, error: "Неверный собеседник" });
+
+      const exists = await dbGet(`SELECT username FROM users WHERE username=?`, [peer]);
+      if (!exists) return res.status(404).json({ ok: false, error: "Пользователь не найден" });
+      if (canCall && !(await canCall(peer, me)) && !(await canCall(me, peer))) {
+        return res.status(403).json({ ok: false, error: "Звонок этому пользователю недоступен" });
+      }
+
+      try {
+        const room = "om-dm-" + [me, peer].sort().join("--");
+        const token = await makeLkToken(me, req.user.displayName || me, room);
+        res.json({ ok: true, url: process.env.LIVEKIT_URL, token });
+      } catch (e) {
+        console.error("[CALLS] LiveKit token:", e.message);
+        res.status(500).json({ ok: false, error: "Не удалось создать токен звонка" });
+      }
+    }
+  );
 
   // chat -> { from, video, startedAt, parts: Map(username -> lastPing) }
   const groupCalls = new Map();
