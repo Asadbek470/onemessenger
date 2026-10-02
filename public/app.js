@@ -228,7 +228,7 @@ function boot() { initApp(); }
 // ================== I18N (ru / en / uz) ==================
 const LANG = {
   ru: {
-    "nav.chats": "Чаты", "nav.profile": "Профиль", "nav.settings": "Настройки",
+    "nav.chats": "Чаты", "nav.stories": "Сторис", "nav.profile": "Профиль", "nav.settings": "Настройки",
     "chats.searchPlaceholder": "Поиск @username...",
     "chats.group": "Группа", "chats.channel": "Канал", "chats.discover": "Популярное", "chats.invite": "Пригласить",
     "chats.globalChat": "Общий чат", "chats.globalChatSub": "общение со всеми",
@@ -337,7 +337,7 @@ const LANG = {
     "msgact.readInfo": "Прочитано", "msgact.delete": "Удалить"
   },
   en: {
-    "nav.chats": "Chats", "nav.profile": "Profile", "nav.settings": "Settings",
+    "nav.chats": "Chats", "nav.stories": "Stories", "nav.profile": "Profile", "nav.settings": "Settings",
     "chats.searchPlaceholder": "Search @username...",
     "chats.group": "Group", "chats.channel": "Channel", "chats.discover": "Discover", "chats.invite": "Invite",
     "chats.globalChat": "Global chat", "chats.globalChatSub": "chat with everyone",
@@ -446,7 +446,7 @@ const LANG = {
     "msgact.readInfo": "Read by", "msgact.delete": "Delete"
   },
   uz: {
-    "nav.chats": "Suhbatlar", "nav.profile": "Profil", "nav.settings": "Sozlamalar",
+    "nav.chats": "Suhbatlar", "nav.stories": "Hikoyalar", "nav.profile": "Profil", "nav.settings": "Sozlamalar",
     "chats.searchPlaceholder": "@username qidirish...",
     "chats.group": "Guruh", "chats.channel": "Kanal", "chats.discover": "Ommabop", "chats.invite": "Taklif qilish",
     "chats.globalChat": "Umumiy chat", "chats.globalChatSub": "hamma bilan muloqot",
@@ -801,6 +801,7 @@ function switchTab(tab) {
   document.querySelectorAll(".navbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
   document.getElementById("bottomNav").classList.remove("hidden");
 
+  if (tab === "stories") loadReels(); else pauseAllReels();
   if (tab === "profile") loadMyProfileTab();
   if (tab === "settings") openSettings();
 }
@@ -961,11 +962,19 @@ function connectWS() {
       if (currentStory && currentStory.id === data.storyId) {
         loadStoryComments(data.storyId);
       }
+      if (reelCommentsStoryId === data.storyId) loadReelComments();
+      bumpReelCount(data.storyId, "commentCount", 1);
+      return;
+    }
+
+    if (data.type === "storyLike") {
+      toast(data.value === 1 ? `👍 @${data.from} лайкнул(а) твою историю` : `👎 @${data.from} поставил(а) дизлайк твоей истории`);
       return;
     }
 
     if (data.type === "storyRepost") {
       toast(`🔁 @${data.from} репостнул(а) твою историю`);
+      bumpReelCount(data.storyId, "repostCount", 1);
       return;
     }
 
@@ -3835,6 +3844,8 @@ async function loadMyProfileTab() {
 
   await loadGifts(me.username, "myGiftsRow");
 
+  renderMyStoriesStats();
+
   const r = await fetch("/api/stories/mine", { headers: authHeaders() });
   const d = await r.json();
   const grid = document.getElementById("myStoriesGrid");
@@ -3851,6 +3862,7 @@ async function loadMyProfileTab() {
       <div class="storythumb ${st.active ? "" : "expired"}" onclick='viewStory(${JSON.stringify(st).replace(/'/g, "&#39;")})'>
         ${thumb}
         ${!st.active ? '<span class="storythumb-badge">истекла</span>' : ""}
+        <span class="storythumb-stats"><i class="fa-solid fa-eye"></i> ${fmtCount(st.viewCount)} · <i class="fa-solid fa-thumbs-up"></i> ${fmtCount(st.likeCount)}</span>
         <button class="storythumb-del" onclick="event.stopPropagation(); deleteStory(${st.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>
       </div>
     `;
@@ -3954,7 +3966,11 @@ function openStoryFeedAt(i) {
   storyFeedIndex = i;
   viewStory(storyFeedQueue[i]);
 }
-function goToNextStory() { openStoryFeedAt(storyFeedIndex + 1); }
+function goToNextStory() {
+  // история открыта не из ленты (например, из «Моих историй») — просто закрываем
+  if (storyFeedIndex < 0) { closeStoryViewer(); return; }
+  openStoryFeedAt(storyFeedIndex + 1);
+}
 function goToPrevStory() { if (storyFeedIndex > 0) openStoryFeedAt(storyFeedIndex - 1); }
 
 function openStoryComposer() {
@@ -3981,6 +3997,7 @@ async function publishStory() {
 
   closeStoryComposer();
   await loadStories();
+  if (activeTab === "stories") loadReels();
 }
 
 let storyTimer = null;
@@ -4149,14 +4166,17 @@ function renderStoryFooter(s) {
   const isOwner = me && s.owner === me.username;
 
   if (isOwner) {
-    const views = s.viewCount || 0;
-    const reactions = s.reactionCount || 0;
+    // Автор видит всё: просмотры, лайки/дизлайки, комментарии, репосты — и кто именно
     box.innerHTML = `
       <button class="storyviewer-viewsbtn" onclick="openStoryViewersModal(${s.id})">
-        <i class="fa-solid fa-eye"></i> ${views}
-        ${reactions ? `<span class="storyviewer-reactcount">· ${reactions} ❤️</span>` : ""}
-        <span class="storyviewer-viewslabel">${t("story.viewersTitle")}</span>
+        <span><i class="fa-solid fa-eye"></i> ${fmtCount(s.viewCount)}</span>
+        <span><i class="fa-solid fa-thumbs-up"></i> ${fmtCount(s.likeCount)}</span>
+        <span><i class="fa-solid fa-thumbs-down"></i> ${fmtCount(s.dislikeCount)}</span>
+        <span><i class="fa-solid fa-comment"></i> ${fmtCount(s.commentCount)}</span>
+        <span><i class="fa-solid fa-retweet"></i> ${fmtCount(s.repostCount)}</span>
+        <span class="storyviewer-viewslabel">Статистика</span>
       </button>
+      <div id="storyViewerComments" class="storyviewer-comments"></div>
     `;
     return;
   }
@@ -4251,31 +4271,329 @@ async function reactToStory(id, emoji) {
   loadStoryComments(id);
 }
 
+// Полная статистика истории для автора: кто посмотрел, лайкнул, дизлайкнул,
+// прокомментировал и репостнул.
 async function openStoryViewersModal(storyId) {
-  clearTimeout(storyTimer); // пауза автопролистывания, пока читаем список
+  if (currentStory) pauseStory(); // пока читаем статистику — история стоит на паузе
   const modal = document.getElementById("storyViewersModal");
   const list = document.getElementById("storyViewersList");
   list.innerHTML = `<div class="hint">${t("common.loading")}</div>`;
   modal.classList.remove("hidden");
 
-  const r = await fetch(`/api/stories/${storyId}/viewers`, { headers: authHeaders() });
+  const r = await fetch(`/api/stories/${storyId}/stats`, { headers: authHeaders() });
   const d = await r.json();
-  if (!d.ok) { list.innerHTML = `<div class="hint">${t("common.error")}</div>`; return; }
-  if (!d.viewers.length) { list.innerHTML = `<div class="hint">${t("story.noViewers")}</div>`; return; }
+  if (!d.ok) { list.innerHTML = `<div class="hint">${esc(d.error || t("common.error"))}</div>`; return; }
 
-  list.innerHTML = d.viewers.map(v => `
-    <div class="memberrow">
+  const person = (v, right, sub) => `
+    <div class="memberrow clickable" onclick="closeStoryViewersModal(); openProfile('${esc(v.username)}')">
       <div class="avatar">${avatarHtml(v)}</div>
       <div class="meta">
         <div class="name">${nameHtml(v)}</div>
-        <div class="preview">@${esc(v.username)}</div>
+        <div class="preview">${sub != null ? sub : "@" + esc(v.username)}</div>
       </div>
-      ${v.reaction ? `<span class="storyviewer-viewer-reaction">${esc(v.reaction)}</span>` : ""}
+      ${right || ""}
+    </div>`;
+  const section = (icon, title, rows, html) => `
+    <div class="statsection">
+      <div class="statsection-title"><i class="fa-solid ${icon}"></i> ${title} <b>${rows.length}</b></div>
+      ${rows.length ? html : `<div class="hint">Пока никого</div>`}
+    </div>`;
+
+  list.innerHTML = `
+    <div class="statsummary">
+      <div><b>${fmtCount(d.viewers.length)}</b><span>просмотры</span></div>
+      <div><b>${fmtCount(d.likes.length)}</b><span>лайки</span></div>
+      <div><b>${fmtCount(d.dislikes.length)}</b><span>дизлайки</span></div>
+      <div><b>${fmtCount(d.comments.length)}</b><span>комментарии</span></div>
+      <div><b>${fmtCount(d.reposts.length)}</b><span>репосты</span></div>
     </div>
-  `).join("");
+    ${section("fa-thumbs-up", "Лайки", d.likes, d.likes.map(v => person(v)).join(""))}
+    ${section("fa-thumbs-down", "Дизлайки", d.dislikes, d.dislikes.map(v => person(v)).join(""))}
+    ${section("fa-comment", "Комментарии", d.comments, d.comments.map(v => person(v, "", esc(v.text))).join(""))}
+    ${section("fa-retweet", "Репосты", d.reposts, d.reposts.map(v => person(v)).join(""))}
+    ${section("fa-eye", t("story.viewersTitle"), d.viewers, d.viewers.map(v => person(v, v.reaction ? `<span class="storyviewer-viewer-reaction">${esc(v.reaction)}</span>` : "")).join(""))}
+  `;
 }
 function closeStoryViewersModal() {
   document.getElementById("storyViewersModal").classList.add("hidden");
+  if (currentStory) resumeStory();
+}
+
+// ================== ЛЕНТА «СТОРИС» (как Shorts / Reels) ==================
+// Отдельная вкладка внизу: все истории листаются вертикально, у каждой —
+// лайк / дизлайк со счётчиками, комментарии, репост и число просмотров.
+let reelsData = [];
+let reelsObserver = null;
+const reelsViewed = new Set();
+let reelCommentsStoryId = null;
+
+function fmtCount(n) {
+  n = Number(n || 0);
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
+
+function reelById(id) { return reelsData.find(x => x.id === id); }
+
+function reelRailHtml(s) {
+  const own = me && s.owner === me.username;
+  return `
+    <button class="reel-act ${s.myLike === 1 ? "on-like" : ""}" onclick="rateReel(${s.id}, 1)" title="Нравится">
+      <i class="fa-solid fa-thumbs-up"></i><span>${fmtCount(s.likeCount)}</span>
+    </button>
+    <button class="reel-act ${s.myLike === -1 ? "on-dislike" : ""}" onclick="rateReel(${s.id}, -1)" title="Не нравится">
+      <i class="fa-solid fa-thumbs-down"></i><span>${fmtCount(s.dislikeCount)}</span>
+    </button>
+    <button class="reel-act" onclick="openReelComments(${s.id})" title="Комментарии">
+      <i class="fa-solid fa-comment-dots"></i><span>${fmtCount(s.commentCount)}</span>
+    </button>
+    ${own ? "" : `
+    <button class="reel-act" onclick="repostReel(${s.id})" title="Репост">
+      <i class="fa-solid fa-retweet"></i><span>${fmtCount(s.repostCount)}</span>
+    </button>`}
+    ${own ? `
+    <button class="reel-act" onclick="openStoryViewersModal(${s.id})" title="Статистика">
+      <i class="fa-solid fa-chart-simple"></i><span>${fmtCount(s.viewCount)}</span>
+    </button>` : `
+    <div class="reel-act reel-views" title="Просмотры">
+      <i class="fa-solid fa-eye"></i><span>${fmtCount(s.viewCount)}</span>
+    </div>`}
+  `;
+}
+
+function reelCardHtml(s) {
+  const info = { username: s.owner, displayName: s.displayName, avatarUrl: s.avatarUrl, verified: s.verified };
+  let media;
+  if (s.mediaType === "video" && s.mediaUrl) {
+    media = `<video src="${esc(s.mediaUrl)}" loop playsinline preload="metadata"></video>`;
+  } else if (s.mediaType === "image" && s.mediaUrl) {
+    media = `<img src="${esc(s.mediaUrl)}" alt="" loading="lazy">`;
+  } else {
+    media = `<div class="reel-text">${esc(s.text || "")}</div>`;
+  }
+  const hasMedia = s.mediaType !== "text" && s.mediaUrl;
+  return `
+    <article class="reel" data-id="${s.id}">
+      <div class="reel-media" onclick="toggleReelPlay(${s.id})">${media}</div>
+      <div class="reel-playicon"><i class="fa-solid fa-play"></i></div>
+      <div class="reel-info">
+        <button class="reel-author" onclick="openProfile('${esc(s.owner)}')">
+          <span class="avatar">${avatarHtml(info)}</span>
+          <span class="reel-authorname">${nameHtml(info)}</span>
+        </button>
+        ${s.repostOfOwner && s.repostOfOwner !== s.owner ? `<div class="reel-repost"><i class="fa-solid fa-retweet"></i> репост от @${esc(s.repostOfOwner)}</div>` : ""}
+        ${hasMedia && s.text ? `<div class="reel-caption">${esc(s.text)}</div>` : ""}
+      </div>
+      <div class="reel-rail" id="reelRail-${s.id}">${reelRailHtml(s)}</div>
+    </article>
+  `;
+}
+
+async function loadReels() {
+  const feed = document.getElementById("reelsFeed");
+  if (!feed) return;
+  if (!feed.children.length) feed.innerHTML = `<div class="reels-empty">${t("common.loading")}</div>`;
+
+  let d;
+  try {
+    const r = await fetch("/api/stories", { headers: authHeaders() });
+    d = await r.json();
+  } catch { d = { ok: false }; }
+  if (!d.ok) { feed.innerHTML = `<div class="reels-empty">${t("common.error")}</div>`; return; }
+
+  reelsData = d.stories;
+  if (!reelsData.length) {
+    feed.innerHTML = `
+      <div class="reels-empty">
+        <i class="fa-solid fa-clapperboard"></i>
+        <div>Пока нет ни одной истории</div>
+        <button class="btn primary" onclick="openStoryComposer()">Опубликовать первую</button>
+      </div>`;
+    return;
+  }
+
+  feed.innerHTML = reelsData.map(reelCardHtml).join("");
+  feed.scrollTop = 0;
+
+  if (reelsObserver) reelsObserver.disconnect();
+  reelsObserver = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      const card = en.target;
+      const video = card.querySelector("video");
+      if (en.isIntersecting && en.intersectionRatio >= 0.6) {
+        card.classList.remove("paused");
+        if (video && activeTab === "stories") {
+          video.muted = false;
+          video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
+        }
+        markReelViewed(Number(card.dataset.id));
+      } else if (video) {
+        video.pause();
+      }
+    });
+  }, { root: feed, threshold: [0, 0.6] });
+  feed.querySelectorAll(".reel").forEach(c => reelsObserver.observe(c));
+}
+
+function pauseAllReels() {
+  const feed = document.getElementById("reelsFeed");
+  if (feed) feed.querySelectorAll("video").forEach(v => v.pause());
+}
+
+function toggleReelPlay(id) {
+  const card = document.querySelector(`.reel[data-id="${id}"]`);
+  const video = card && card.querySelector("video");
+  if (!video) return;
+  if (video.paused) { video.play().catch(() => {}); card.classList.remove("paused"); }
+  else { video.pause(); card.classList.add("paused"); }
+}
+
+function refreshReelRail(id) {
+  const s = reelById(id);
+  const rail = document.getElementById(`reelRail-${id}`);
+  if (s && rail) rail.innerHTML = reelRailHtml(s);
+}
+
+function bumpReelCount(id, field, delta) {
+  const s = reelById(id);
+  if (!s) return;
+  s[field] = Math.max(0, Number(s[field] || 0) + delta);
+  refreshReelRail(id);
+}
+
+function markReelViewed(id) {
+  const s = reelById(id);
+  if (!s || reelsViewed.has(id) || (me && s.owner === me.username)) return;
+  reelsViewed.add(id);
+  fetch(`/api/stories/${id}/view`, { method: "POST", headers: authHeaders() }).catch(() => {});
+}
+
+async function rateReel(id, value) {
+  const s = reelById(id);
+  if (!s) return;
+  try {
+    const r = await fetch(`/api/stories/${id}/like`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ value })
+    });
+    const d = await r.json();
+    if (!d.ok) return alert(d.error || t("common.error"));
+    s.myLike = d.myLike;
+    s.likeCount = d.likeCount;
+    s.dislikeCount = d.dislikeCount;
+    refreshReelRail(id);
+  } catch {}
+}
+
+async function repostReel(id) {
+  if (!confirm("Репостнуть эту историю к себе?")) return;
+  try {
+    const r = await fetch(`/api/stories/${id}/repost`, { method: "POST", headers: authHeaders() });
+    const d = await r.json();
+    if (!d.ok) return alert(d.error || t("common.error"));
+    toast("🔁 История репостнута в твои сторис");
+    bumpReelCount(id, "repostCount", 1);
+    loadStories();
+  } catch { alert(t("common.error")); }
+}
+
+function openReelComments(id) {
+  reelCommentsStoryId = id;
+  document.getElementById("reelCommentsModal").classList.remove("hidden");
+  document.getElementById("reelCommentsList").innerHTML = `<div class="hint">${t("common.loading")}</div>`;
+  document.getElementById("reelCommentInput").value = "";
+  loadReelComments();
+}
+function closeReelComments() {
+  reelCommentsStoryId = null;
+  document.getElementById("reelCommentsModal").classList.add("hidden");
+}
+
+function commentTime(ts) {
+  const d = new Date(ts);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
+async function loadReelComments() {
+  const id = reelCommentsStoryId;
+  if (!id) return;
+  const list = document.getElementById("reelCommentsList");
+  try {
+    const r = await fetch(`/api/stories/${id}/comments`, { headers: authHeaders() });
+    const d = await r.json();
+    if (reelCommentsStoryId !== id) return;
+    if (!d.ok) { list.innerHTML = `<div class="hint">${t("common.error")}</div>`; return; }
+
+    document.getElementById("reelCommentsCount").textContent = d.comments.length ? d.comments.length : "";
+    const s = reelById(id);
+    if (s) { s.commentCount = d.comments.length; refreshReelRail(id); }
+
+    if (!d.comments.length) { list.innerHTML = `<div class="hint">Комментариев пока нет — будь первым</div>`; return; }
+    list.innerHTML = d.comments.map(c => `
+      <div class="reelcomment">
+        <div class="avatar">${avatarHtml(c)}</div>
+        <div class="reelcomment-body">
+          <div class="reelcomment-head">${nameHtml(c)}<span class="reelcomment-time">${commentTime(c.createdAt)}</span></div>
+          <div class="reelcomment-text">${esc(c.text)}</div>
+        </div>
+      </div>
+    `).join("");
+    list.scrollTop = list.scrollHeight;
+  } catch {}
+}
+
+async function submitReelComment() {
+  const id = reelCommentsStoryId;
+  const input = document.getElementById("reelCommentInput");
+  const text = input.value.trim();
+  if (!id || !text) return;
+  input.value = "";
+  try {
+    const r = await fetch(`/api/stories/${id}/comments`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    const d = await r.json();
+    if (!d.ok) { input.value = text; return alert(d.error || t("common.error")); }
+    await loadReelComments();
+  } catch { input.value = text; }
+}
+
+// ---------------- АНАЛИТИКА МОИХ ИСТОРИЙ (вкладка «Профиль») ----------------
+async function renderMyStoriesStats() {
+  const box = document.getElementById("myStoriesStats");
+  if (!box) return;
+  try {
+    const r = await fetch("/api/stories/mine/stats", { headers: authHeaders() });
+    const d = await r.json();
+    if (!d.ok) { box.innerHTML = `<div class="hint">${t("common.error")}</div>`; return; }
+    const st = d.stats;
+    const tile = (icon, value, label) => `
+      <div class="storystat"><i class="fa-solid ${icon}"></i><b>${fmtCount(value)}</b><span>${label}</span></div>`;
+    const perStory = st.storiesCount ? Math.round(st.views / st.storiesCount) : 0;
+    box.innerHTML = `
+      <div class="storystats-grid">
+        ${tile("fa-eye", st.views, "просмотры")}
+        ${tile("fa-users", st.uniqueViewers, "зрители")}
+        ${tile("fa-thumbs-up", st.likes, "лайки")}
+        ${tile("fa-thumbs-down", st.dislikes, "дизлайки")}
+        ${tile("fa-comment", st.comments, "комментарии")}
+        ${tile("fa-retweet", st.reposts, "репосты")}
+      </div>
+      <div class="storystats-note">
+        Историй: <b>${st.storiesCount}</b> · в среднем на одну историю просмотров: <b>${fmtCount(perStory)}</b>
+        ${d.top ? `<br>Самая популярная${d.top.text ? ` — «${esc(d.top.text.slice(0, 40))}»` : ""}, просмотров: <b>${fmtCount(d.top.viewCount)}</b>` : ""}
+      </div>
+    `;
+  } catch {
+    box.innerHTML = `<div class="hint">${t("common.error")}</div>`;
+  }
 }
 
 // ================== BIRTHDAYS ==================
