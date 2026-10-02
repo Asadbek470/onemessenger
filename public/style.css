@@ -2026,3 +2026,34 @@ button.reel-act:active i{transform:scale(.88)}
   display:flex;width:max-content;align-items:center;gap:6px;margin:0 0 10px;padding:4px 10px;border-radius:999px;
   font-size:12px;font-weight:700;color:#fff;background:linear-gradient(90deg,#ff8a3d,#ff4d6d);
 }
+
+/* ================== ГРУППЫ: шапка, управление, приглашения ================== */
+.grphead{display:flex;gap:12px;align-items:center}
+.grphead .avatar{width:56px;height:56px;border-radius:50%;overflow:hidden;flex:none;display:grid;place-items:center}
+.grphead .avatar .headicon{width:100%;height:100%;display:grid;place-items:center;border-radius:50%;font-size:20px}
+.grphead-meta{min-width:0;flex:1}
+.grphead-sub{font-size:13px;color:var(--muted);font-weight:600}
+.grphead-meta .hint{margin-top:4px;overflow-wrap:anywhere}
+.grpsection{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.03);margin-top:10px}
+.grpsection summary{cursor:pointer;padding:12px 14px;font-weight:700;font-size:14px;list-style:none}
+.grpsection summary::-webkit-details-marker{display:none}
+.grpsection summary i{color:var(--blue);margin-right:6px}
+.grpsection-body{display:flex;flex-direction:column;gap:8px;padding:0 14px 14px}
+.grpsection-body .row{display:flex;gap:8px}
+.grpsection-body .row > *{flex:1;min-width:0}
+.grpinvite{display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid var(--line)}
+.grpinvite.dead{opacity:.5}
+.grpinvite-meta{flex:1;min-width:0}
+.grpinvite-link{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.invitejoin{display:flex;flex-direction:column;align-items:center;gap:8px;padding:6px 16px 18px;text-align:center}
+.invitejoin .avatar{width:84px;height:84px;border-radius:50%;overflow:hidden;display:grid;place-items:center}
+.invitejoin .avatar .headicon{width:100%;height:100%;display:grid;place-items:center;border-radius:50%;font-size:30px}
+.invitejoin-name{font-size:19px;font-weight:800;overflow-wrap:anywhere}
+.invitejoin-sub{font-size:13px;color:var(--muted)}
+.invitejoin .hint{overflow-wrap:anywhere}
+.inviteqr{background:#fff;padding:12px;border-radius:14px}
+.inviteqr img,.inviteqr canvas{display:block}
+#groupInfoModal .card{max-height:88vh;overflow-y:auto}
+#groupInfoModal .formgrid > *{min-width:0}
+#groupInfoModal .grpsection{overflow:hidden}
+.inviteqr{color:#111;font-size:13px}
