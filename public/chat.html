@@ -5,7 +5,7 @@
   <script src="splash.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>UzMessenger</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=2" />
   <link rel="stylesheet" href="features.css" />
   <link rel="icon" href="/icon-192.png?v=2" />
   <link rel="apple-touch-icon" href="/icon-192.png?v=2" />
@@ -101,6 +101,15 @@
       </div>
     </section>
 
+    <!-- ================= TAB: STORIES (лента как Shorts / Reels) ================= -->
+    <section id="screenStories" class="screen hidden">
+      <div class="reels-top">
+        <div class="reels-title" data-i18n="nav.stories">Сторис</div>
+        <button class="reels-add" onclick="openStoryComposer()" data-i18n-title="story.newStory" title="Добавить сторис"><i class="fa-solid fa-plus"></i></button>
+      </div>
+      <div id="reelsFeed" class="reels-feed"></div>
+    </section>
+
     <!-- ================= TAB: MY PROFILE ================= -->
     <section id="screenProfile" class="screen hidden">
       <div class="tgscroll">
@@ -116,6 +125,11 @@
         </div>
 
         <div class="tginfo" id="myProfileInfo"></div>
+
+        <div class="tgcard">
+          <div class="tgcardtitle">Аналитика историй</div>
+          <div id="myStoriesStats" class="storystats"></div>
+        </div>
 
         <div class="tgcard">
           <div class="tgcardtitle" data-i18n="profile.myStories">Мои истории</div>
@@ -383,6 +397,9 @@
       <button class="navbtn active" data-tab="chats" onclick="switchTab('chats')">
         <i class="fa-solid fa-comments"></i><span data-i18n="nav.chats">Чаты</span>
       </button>
+      <button class="navbtn" data-tab="stories" onclick="switchTab('stories')">
+        <i class="fa-solid fa-clapperboard"></i><span data-i18n="nav.stories">Сторис</span>
+      </button>
       <button class="navbtn" data-tab="profile" onclick="switchTab('profile')">
         <i class="fa-solid fa-user"></i><span data-i18n="nav.profile">Профиль</span>
       </button>
@@ -623,10 +640,25 @@
   <div id="storyViewersModal" class="modal hidden">
     <div class="card">
       <div class="cardtop">
-        <div class="cardtitle" data-i18n="story.viewersTitle">Просмотры</div>
+        <div class="cardtitle">Статистика истории</div>
         <button class="iconbtn" onclick="closeStoryViewersModal()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="storyViewersList"></div>
+    </div>
+  </div>
+
+  <!-- КОММЕНТАРИИ К ИСТОРИИ (открывается из ленты «Сторис») -->
+  <div id="reelCommentsModal" class="modal hidden" onclick="if(event.target===this) closeReelComments()">
+    <div class="card reelcomments-card">
+      <div class="cardtop">
+        <div class="cardtitle">Комментарии <span id="reelCommentsCount" class="reelcomments-count"></span></div>
+        <button class="iconbtn" onclick="closeReelComments()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="reelCommentsList" class="reelcomments-list"></div>
+      <div class="reelcomments-inputrow">
+        <input id="reelCommentInput" placeholder="Оставить комментарий..." maxlength="300" onkeydown="if(event.key==='Enter') submitReelComment()">
+        <button class="iconbtn send" onclick="submitReelComment()"><i class="fa-solid fa-paper-plane"></i></button>
+      </div>
     </div>
   </div>
 
@@ -738,7 +770,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
   <script src="calls-client.js?v=1"></script>
 </body>
 </html>
