@@ -288,7 +288,10 @@ function showThread(title, messages) {
       let list; try { list = JSON.parse(m.text); } catch { list = { title: "", items: [] }; }
       body = `<b>${esc(list.title)}</b><br>` + (list.items || []).map(it => `${it.checked ? "☑" : "☐"} ${esc(it.text)}`).join("<br>");
     } else {
-      body = esc(m.text || "");
+      // сквозное шифрование: текст зашифрован на устройствах собеседников, сервер и админка его не видят
+      body = String(m.text || "").startsWith("e2e:1:")
+        ? `<i style="opacity:.7">🔒 Зашифрованное сообщение (сквозное шифрование)</i>`
+        : esc(m.text || "");
     }
 
     return `
