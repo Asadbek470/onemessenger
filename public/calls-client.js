@@ -320,14 +320,30 @@
     clearTimeout(connectGuard);
     connectGuard = setTimeout(() => {
       if (pc && pc.connectionState !== "connected") {
-        alert("Не удалось соединиться. Скорее всего, между вашими сетями нужен TURN-сервер (см. настройку на сервере).");
+        // Точная причина: настроен ли TURN на сервере и ответил ли он этому устройству
+        const hasTurn = !!(iceCache && iceCache.hasTurn);
+        let why;
+        if (!hasTurn) {
+          why = "На сервере не включён TURN. В Render → Environment нужны METERED_DOMAIN + METERED_API_KEY (или TURN_URLS + TURN_USERNAME + TURN_CREDENTIAL).";
+        } else if (!iceStats.relay) {
+          why = "TURN на сервере задан, но не отвечает этому устройству: неверный ключ/логин, закончился лимит или сеть блокирует TURN." +
+                (iceStats.lastError ? " Ошибка: " + iceStats.lastError : "");
+        } else {
+          why = "TURN работает на этом устройстве — похоже, он не сработал на стороне собеседника. Пусть собеседник обновит страницу и попробует ещё раз.";
+        }
+        alert("Не удалось соединиться.\n\n" + why +
+              "\n\n(адреса: локальных " + iceStats.host + ", внешних " + iceStats.srflx + ", через TURN " + iceStats.relay + ")");
         cleanupCall();
       }
     }, CONNECT_GUARD_MS);
   }
 
+  // сколько адресов каждого типа нашло это устройство (для понятной ошибки)
+  let iceStats = { host: 0, srflx: 0, relay: 0, lastError: "" };
+
   async function createPeer(peer) {
     const cfg = await getRtc();
+    iceStats = { host: 0, srflx: 0, relay: 0, lastError: "" };
     const p = new RTCPeerConnection({ ...cfg, iceCandidatePoolSize: 4 });
     pc = p;
     remoteStream = new MediaStream();
@@ -342,8 +358,16 @@
       lv.classList.toggle("back", facing !== "user");
     }
 
+    p.onicecandidateerror = (ev) => {
+      if (ev.errorCode && ev.errorCode !== 701) iceStats.lastError = ev.errorCode + " " + (ev.errorText || "");
+    };
+
     p.onicecandidate = (ev) => {
       if (!ev.candidate) return;
+      const ty = ev.candidate.type || (/ typ (\w+)/.exec(ev.candidate.candidate || "") || [])[1];
+      if (ty === "relay") iceStats.relay++;
+      else if (ty === "srflx" || ty === "prflx") iceStats.srflx++;
+      else if (ty === "host") iceStats.host++;
       if (signalReady) sendIce(peer, ev.candidate); else localIce.push(ev.candidate);
     };
 
