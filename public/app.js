@@ -4384,11 +4384,11 @@ function reelCardHtml(s) {
       <div class="reel-media" onclick="toggleReelPlay(${s.id})">${media}</div>
       <div class="reel-playicon"><i class="fa-solid fa-play"></i></div>
       <div class="reel-info">
+        ${s.promoted ? `<div class="reel-promo"><i class="fa-solid fa-fire"></i> Рекомендуем</div>` : ""}
         <button class="reel-author" onclick="openProfile('${esc(s.owner)}')">
           <span class="avatar">${avatarHtml(info)}</span>
           <span class="reel-authorname">${nameHtml(info)}</span>
         </button>
-        ${s.promoted ? `<div class="reel-promo"><i class="fa-solid fa-fire"></i> Рекомендуем</div>` : ""}
         ${s.repostOfOwner && s.repostOfOwner !== s.owner ? `<div class="reel-repost"><i class="fa-solid fa-retweet"></i> репост от @${esc(s.repostOfOwner)}</div>` : ""}
         ${hasMedia && s.text ? `<div class="reel-caption">${esc(s.text)}</div>` : ""}
       </div>
