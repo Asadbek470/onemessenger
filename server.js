@@ -48,7 +48,7 @@ async function sendPushToUser(username, payload) {
     }
   }
 }
-const APP_NAME = "UzMessenger";
+const APP_NAME = "Zumo";
 
 // ---------------- GIFTS ----------------
 const GIFT_SECRET_CODES = String(process.env.GIFT_SECRET_CODES || "777,666")
@@ -145,28 +145,13 @@ function segDist(px, py, ax, ay, bx, by) {
 }
 
 function isLetterPixel(x, y, S) {
-  const cy = 0.5 * S, hh = 0.165 * S, t = 0.07 * S;
-
-  // ---- U ----
-  const ux0 = 0.175 * S, ux1 = 0.415 * S;
-  const utop = cy - hh;
-  const ur = (ux1 - ux0) / 2;
-  const ucx = (ux0 + ux1) / 2;
-  const ubendY = cy + hh - ur;
-  if (segDist(x, y, ux0, utop, ux0, ubendY) <= t / 2) return true;
-  if (segDist(x, y, ux1, utop, ux1, ubendY) <= t / 2) return true;
-  if (y >= ubendY) {
-    const ud = Math.hypot(x - ucx, y - ubendY);
-    if (Math.abs(ud - ur) <= t / 2) return true;
-  }
-
-  // ---- M ----
-  const x0 = 0.56 * S, x1 = 0.84 * S, xm = (x0 + x1) / 2;
-  const top = cy - hh, bot = cy + hh, mid = cy + hh * 0.35, w = t / 2;
-  if (segDist(x, y, x0, bot, x0, top) <= w) return true;
-  if (segDist(x, y, x1, bot, x1, top) <= w) return true;
-  if (segDist(x, y, x0, top, xm, mid) <= w) return true;
-  if (segDist(x, y, xm, mid, x1, top) <= w) return true;
+  // Буква «Z»: верхняя перекладина, диагональ, нижняя перекладина
+  const cy = 0.5 * S, hh = 0.19 * S, w = 0.045 * S;
+  const x0 = 0.33 * S, x1 = 0.67 * S;
+  const top = cy - hh, bot = cy + hh;
+  if (segDist(x, y, x0, top, x1, top) <= w) return true;
+  if (segDist(x, y, x1, top, x0, bot) <= w) return true;
+  if (segDist(x, y, x0, bot, x1, bot) <= w) return true;
   return false;
 }
 
@@ -233,14 +218,14 @@ app.get("/favicon.ico", serveIcon(64));
 app.get("/manifest.json", (req, res) => {
   res.json({
     name: APP_NAME,
-    short_name: "UM",
+    short_name: "Zumo",
     start_url: "/chat.html",
     display: "standalone",
     background_color: "#0b1420",
     theme_color: "#0b1420",
     icons: [
-      { src: "/icon-192.png?v=2", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png?v=2", sizes: "512x512", type: "image/png", purpose: "any" }
+      { src: "/icon-192.png?v=3", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png?v=3", sizes: "512x512", type: "image/png", purpose: "any" }
     ]
   });
 });
@@ -771,8 +756,8 @@ function safeUser(u) {
 
 const SUPPORT_CARD = {
   username: "support",
-  displayName: "Поддержка UzMessenger",
-  avatarUrl: "/icon-192.png?v=2",
+  displayName: "Поддержка Zumo",
+  avatarUrl: "/icon-192.png?v=3",
   verified: true,
   emojiStatus: "",
   birthdayToday: false
@@ -1052,7 +1037,7 @@ function otpauthUrl(username, secret) {
 }
 
 // ---------------- AUTH ----------------
-const RESERVED_USERNAMES = ["global", "support", "admin", "one", "onemessenger", "uz", "uzmessenger"];
+const RESERVED_USERNAMES = ["global", "support", "admin", "one", "onemessenger", "uz", "uzmessenger", "zumo", "zumomessenger"];
 
 app.post("/api/auth/register", rateLimit(10, 60 * 1000), async (req, res) => {
   const usernameRaw = String(req.body.username || "").trim().replace(/^@+/, "").toLowerCase();
@@ -1765,7 +1750,7 @@ app.get("/api/users/search", verifyAuth, async (req, res) => {
 
 app.get("/api/users/:username", verifyAuth, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
-  if (u === "support") return res.json({ ok: true, user: { ...SUPPORT_CARD, bio: "Официальная поддержка UzMessenger", online: true, canMessage: true, dmGated: false } });
+  if (u === "support") return res.json({ ok: true, user: { ...SUPPORT_CARD, bio: "Официальная поддержка Zumo", online: true, canMessage: true, dmGated: false } });
 
   const row = await dbGet(
     `SELECT username, displayName, bio, avatarUrl, verified, settings, birthDate, lastSeen FROM users WHERE username=? AND banned=0`,
@@ -3013,7 +2998,7 @@ async function runBirthdayJob() {
       const name = u.displayName || u.username;
       await sendSupportMessage(
         u.username,
-        `🎉 С днём рождения, ${name}! Команда UzMessenger желает тебе счастья, здоровья и исполнения всех желаний! 🎂🎈`
+        `🎉 С днём рождения, ${name}! Команда Zumo желает тебе счастья, здоровья и исполнения всех желаний! 🎂🎈`
       );
 
       const contacts = await birthdayContacts(u.username);
@@ -3032,7 +3017,7 @@ async function runBirthdayJob() {
 const TOS_REMINDER_INTERVAL_MS = 2 * 24 * 60 * 60 * 1000; // раз в 2 дня
 const TOS_REMINDER_TEXT =
   "📋 Пожалуйста, согласитесь с нашей Политикой условий (Условия использования и Политика конфиденциальности), " +
-  "чтобы продолжать пользоваться UzMessenger без ограничений. Это можно сделать в Настройки → Аккаунт → " +
+  "чтобы продолжать пользоваться Zumo без ограничений. Это можно сделать в Настройки → Аккаунт → " +
   "Политика использования → «Принять».";
 
 async function runTosReminderJob() {
@@ -3483,7 +3468,7 @@ async function pushNotifyMessage(msg) {
   if (recipients.length === 0) return;
 
   const body = previewText(msg);
-  const title = msg.chatType === "group" ? `Группа · @${msg.sender}` : (msg.sender === "support" ? "UzMessenger" : `@${msg.sender}`);
+  const title = msg.chatType === "group" ? `Группа · @${msg.sender}` : (msg.sender === "support" ? "Zumo" : `@${msg.sender}`);
 
   for (const u of recipients) {
     sendPushToUser(u, { title, body, url: "/chat.html" }).catch(() => {});
