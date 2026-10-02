@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <script src="splash.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>UzMessenger</title>
+  <title>Zumo</title>
   <link rel="stylesheet" href="style.css?v=4" />
   <link rel="stylesheet" href="features.css" />
-  <link rel="icon" href="/icon-192.png?v=2" />
-  <link rel="apple-touch-icon" href="/icon-192.png?v=2" />
+  <link rel="icon" href="/icon-192.png?v=3" />
+  <link rel="apple-touch-icon" href="/icon-192.png?v=3" />
   <link rel="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#0b1420" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
@@ -42,7 +42,7 @@
   <!-- DEVICE PASSCODE LOCK -->
   <div id="passcodeOverlay" class="passcode-overlay hidden">
     <div class="passcode-box">
-      <div class="logo">UM</div>
+      <div class="logo">Z</div>
       <h2 data-i18n="passcode.enter">Введи код-пароль</h2>
       <input id="passcodeInput" type="password" inputmode="numeric" maxlength="8" autofocus onkeydown="passcodeKeydown(event)">
       <div id="passcodeError" class="passcode-error"></div>
@@ -89,10 +89,10 @@
         </button>
 
         <button class="chatitem" data-chat="support" onclick="openChat('support')">
-          <div class="avatar circle"><img src="/icon-192.png?v=2" alt="UM" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:50%"></div>
+          <div class="avatar circle"><img src="/icon-192.png?v=3" alt="Zumo" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:50%"></div>
           <div class="meta">
             <div class="name" data-i18n="chats.support">Поддержка</div>
-            <div class="preview" data-i18n="chats.supportSub">UzMessenger Support</div>
+            <div class="preview" data-i18n="chats.supportSub">Zumo Support</div>
           </div>
         </button>
 
@@ -725,7 +725,7 @@
       <div class="bdaybody">
         <div class="bdaycake">🎂</div>
         <h2 id="bdayTitle" data-i18n="bday.title">С днём рождения!</h2>
-        <p data-i18n="bday.text">UzMessenger поздравляет тебя! Пусть этот год будет самым счастливым 🎉</p>
+        <p data-i18n="bday.text">Zumo поздравляет тебя! Пусть этот год будет самым счастливым 🎉</p>
         <button class="btn primary full" onclick="closeBdayModal()" data-i18n="bday.thanks">Спасибо! 🎈</button>
       </div>
     </div>
@@ -770,7 +770,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
   <script src="calls-client.js?v=1"></script>
 </body>
 </html>
