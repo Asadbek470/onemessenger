@@ -5,7 +5,7 @@
   <script src="splash.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Zumo</title>
-  <link rel="stylesheet" href="style.css?v=5" />
+  <link rel="stylesheet" href="style.css?v=6" />
   <link rel="stylesheet" href="features.css" />
   <link rel="icon" href="/icon-192.png?v=3" />
   <link rel="apple-touch-icon" href="/icon-192.png?v=3" />
@@ -305,6 +305,35 @@
               <div class="formgrid">
                 <button class="btn ghost full" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i> <span data-i18n="settings.logout">Выйти из аккаунта</span></button>
                 <div id="deleteAccountSection"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== КАТЕГОРИЯ: О приложении ===== -->
+        <div class="settingscategory" data-cat="about">
+          <button type="button" class="categoryhead" onclick="toggleSettingsCategory(this)">
+            <span class="cathead-icon">ℹ️</span>
+            <span class="cathead-label" data-i18n="settings.catAbout">О приложении</span>
+            <i class="fa-solid fa-chevron-down cathead-chevron"></i>
+          </button>
+          <div class="categorybody">
+            <div class="settingsblock">
+              <div class="aboutapp">
+                <img src="/icon-192.png?v=3" alt="Zumo" class="aboutapp-logo">
+                <div class="aboutapp-name">Zumo</div>
+                <div class="aboutapp-tag" data-i18n="about.tagline">Мессенджер без номера телефона</div>
+              </div>
+              <div class="formgrid">
+                <button type="button" class="aboutrow" onclick="openProfile('asadbek')">
+                  <span class="aboutrow-label" data-i18n="about.founder">Основатель</span>
+                  <span class="aboutrow-value">Асадбек Абдумаликов</span>
+                  <span class="aboutrow-sub">@asadbek</span>
+                </button>
+                <button type="button" class="aboutrow" onclick="openChat('support')">
+                  <span class="aboutrow-label" data-i18n="about.support">Поддержка</span>
+                  <span class="aboutrow-value" data-i18n="about.supportValue">Написать в чат поддержки</span>
+                </button>
               </div>
             </div>
           </div>
@@ -810,7 +839,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=12"></script>
   <script src="calls-client.js?v=3"></script>
 </body>
 </html>
