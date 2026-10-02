@@ -440,6 +440,21 @@ async function initSchema() {
   await addColumn("users", "tosAcceptedAt", "INTEGER NOT NULL DEFAULT 0");
   await addColumn("users", "lastTosReminderAt", "INTEGER NOT NULL DEFAULT 0");
 
+  // ---- Сквозное шифрование личных чатов ----
+  // На сервере лежат только ОТКРЫТЫЕ ключи и (по желанию пользователя) резервная копия
+  // закрытого ключа, зашифрованная паролем, которого сервер не знает.
+  await addColumn("users", "e2eKeyId", "TEXT NOT NULL DEFAULT ''");
+  await addColumn("users", "e2eBackup", "TEXT NOT NULL DEFAULT ''");
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS e2e_keys (
+      username TEXT NOT NULL,
+      keyId TEXT NOT NULL,
+      publicKey TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (username, keyId)
+    )
+  `);
+
   await dbRun(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -814,6 +829,14 @@ async function getUserCard(username) {
   return map[username] || { username, displayName: username, avatarUrl: "", verified: false, emojiStatus: "", birthdayToday: false };
 }
 
+// Зашифрованный текст (сквозное шифрование) — сервер не может его прочитать
+function isE2EText(text) { return typeof text === "string" && text.startsWith("e2e:1:"); }
+// Обычный текст — до 2000 символов; шифртекст длиннее исходного, ему даём запас
+function cleanMsgText(raw) {
+  const text = String(raw || "").trim();
+  return isE2EText(text) ? text.slice(0, 12000) : text.slice(0, 2000);
+}
+
 function previewText(m) {
   if (m.mediaType === "gift") return "🎁 Подарок";
   if (m.mediaType === "round") return "⭕ Видеосообщение";
@@ -823,6 +846,7 @@ function previewText(m) {
   if (m.mediaType === "image") return "🖼 Фото";
   if (m.mediaType === "video") return "🎬 Видео";
   if (m.mediaType === "audio") return "🎤 Голосовое";
+  if (isE2EText(m.text)) return "🔒 Новое сообщение";
   return m.text || "";
 }
 
@@ -1180,6 +1204,7 @@ async function wipeUserData(u) {
   await dbRun(`DELETE FROM story_likes WHERE storyId IN (SELECT id FROM stories WHERE owner=?)`, [u]);
   await dbRun(`DELETE FROM story_likes WHERE username=?`, [u]);
   await dbRun(`DELETE FROM story_promos WHERE owner=?`, [u]);
+  await dbRun(`DELETE FROM e2e_keys WHERE username=?`, [u]);
   await dbRun(`DELETE FROM stories WHERE owner=?`, [u]);
   await dbRun(`DELETE FROM group_members WHERE username=?`, [u]);
   await dbRun(`DELETE FROM friends WHERE owner=? OR friend=?`, [u, u]);
@@ -1278,6 +1303,7 @@ app.post("/api/me/username", verifyAuth, rateLimit(3, 60 * 60 * 1000), async (re
     await dbRun(`UPDATE chat_wallpapers SET chat=? WHERE chat=?`, [newUsername, old]);
     await dbRun(`UPDATE birthday_log SET username=? WHERE username=?`, [newUsername, old]);
     await dbRun(`UPDATE message_reads SET reader=? WHERE reader=?`, [newUsername, old]);
+    await dbRun(`UPDATE e2e_keys SET username=? WHERE username=?`, [newUsername, old]);
     await dbRun(`UPDATE contacts SET owner=? WHERE owner=?`, [newUsername, old]);
     await dbRun(`UPDATE contacts SET username=? WHERE username=?`, [newUsername, old]);
   } catch (e) {
@@ -1859,6 +1885,84 @@ app.post("/api/admin/verification-requests/:id/reject", verifySuperAdmin, (req, 
 });
 
 // ================================================================
+// СКВОЗНОЕ ШИФРОВАНИЕ (E2E) ЛИЧНЫХ ЧАТОВ
+// Сервер хранит только открытые ключи и зашифрованную паролем резервную копию.
+// Закрытые ключи и сам текст сообщений сервер не видит.
+// ================================================================
+const E2E_KEYID_RE = /^[a-f0-9]{16,64}$/;
+
+function validE2EPublicKey(raw) {
+  try {
+    const j = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!j || j.kty !== "EC" || j.crv !== "P-256" || !j.x || !j.y || j.d) return null; // d — закрытая часть, её не принимаем
+    return JSON.stringify({ kty: "EC", crv: "P-256", x: String(j.x), y: String(j.y) });
+  } catch { return null; }
+}
+function validE2EBackup(raw) {
+  if (raw == null || raw === "") return "";
+  try {
+    const j = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!j || j.v !== 1 || !j.salt || !j.iv || !j.ct) return null;
+    const out = JSON.stringify({ v: 1, salt: String(j.salt), iv: String(j.iv), ct: String(j.ct), iter: Number(j.iter) || 0, keyId: String(j.keyId || "") });
+    return out.length <= 4000 ? out : null;
+  } catch { return null; }
+}
+
+app.get("/api/e2e/me", verifyAuth, async (req, res) => {
+  const u = await dbGet(`SELECT e2eKeyId, e2eBackup FROM users WHERE username=?`, [req.user.username]);
+  const key = u && u.e2eKeyId
+    ? await dbGet(`SELECT publicKey FROM e2e_keys WHERE username=? AND keyId=?`, [req.user.username, u.e2eKeyId])
+    : null;
+  res.json({ ok: true, keyId: (u && u.e2eKeyId) || "", publicKey: key ? key.publicKey : "", backup: (u && u.e2eBackup) || "" });
+});
+
+// Устройство создало (или восстановило) ключ — сохраняем открытую часть как текущую
+app.put("/api/e2e/key", verifyAuth, rateLimit(20, 60 * 1000), async (req, res) => {
+  const me = req.user.username;
+  const keyId = String(req.body.keyId || "");
+  const publicKey = validE2EPublicKey(req.body.publicKey);
+  if (!E2E_KEYID_RE.test(keyId) || !publicKey) return res.status(400).json({ ok: false, error: "Неверный ключ" });
+
+  await dbRun(
+    `INSERT INTO e2e_keys (username, keyId, publicKey, createdAt) VALUES (?,?,?,?)
+     ON CONFLICT(username, keyId) DO NOTHING`,
+    [me, keyId, publicKey, now()]
+  );
+
+  // новый ключ → старая резервная копия к нему не подходит; сбрасываем, если не прислали новую
+  const prev = await dbGet(`SELECT e2eKeyId FROM users WHERE username=?`, [me]);
+  const backup = validE2EBackup(req.body.backup);
+  if (backup === null) return res.status(400).json({ ok: false, error: "Неверная резервная копия" });
+  if (prev && prev.e2eKeyId === keyId && !backup) {
+    await dbRun(`UPDATE users SET e2eKeyId=? WHERE username=?`, [keyId, me]);
+  } else {
+    await dbRun(`UPDATE users SET e2eKeyId=?, e2eBackup=? WHERE username=?`, [keyId, backup, me]);
+  }
+  res.json({ ok: true });
+});
+
+// Резервная копия закрытого ключа, зашифрованная паролем на устройстве ("" — удалить копию)
+app.put("/api/e2e/backup", verifyAuth, rateLimit(20, 60 * 1000), async (req, res) => {
+  const backup = validE2EBackup(req.body.backup);
+  if (backup === null) return res.status(400).json({ ok: false, error: "Неверная резервная копия" });
+  await dbRun(`UPDATE users SET e2eBackup=? WHERE username=?`, [backup, req.user.username]);
+  res.json({ ok: true });
+});
+
+// Открытый ключ собеседника: текущий, либо конкретный по keyId (для старых сообщений)
+app.get("/api/e2e/key/:username", verifyAuth, async (req, res) => {
+  const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
+  let keyId = String(req.query.keyId || "");
+  if (!keyId) {
+    const user = await dbGet(`SELECT e2eKeyId FROM users WHERE username=?`, [u]);
+    keyId = (user && user.e2eKeyId) || "";
+  }
+  if (!keyId) return res.json({ ok: true, keyId: "", publicKey: "" });
+  const key = await dbGet(`SELECT publicKey FROM e2e_keys WHERE username=? AND keyId=?`, [u, keyId]);
+  res.json({ ok: true, keyId: key ? keyId : "", publicKey: key ? key.publicKey : "" });
+});
+
+// ================================================================
 // GROUPS & CHANNELS
 // ================================================================
 async function isMember(groupId, username) {
@@ -2256,9 +2360,13 @@ app.get("/api/chats", verifyAuth, async (req, res) => {
     [me, me]
   );
   const preview = new Map();
+  const previewEnc = new Map(); // зашифрованное последнее сообщение — расшифрует сам клиент
   msgs.forEach(m => {
     const other = m.sender === me ? m.receiver : m.sender;
-    if (!preview.has(other)) preview.set(other, previewText(m));
+    if (!preview.has(other)) {
+      preview.set(other, previewText(m));
+      if (m.mediaType === "text" && isE2EText(m.text)) previewEnc.set(other, { text: m.text, sender: m.sender, receiver: m.receiver });
+    }
   });
 
   const out = [];
@@ -2268,7 +2376,7 @@ app.get("/api/chats", verifyAuth, async (req, res) => {
       out.push({ username: o, displayName: o, avatarUrl: "", verified: false, emojiStatus: "", preview: preview.get(o) || "" });
       continue;
     }
-    out.push({ ...userCardFromRow(u), ...(await visibleLastSeen(u, me)), preview: preview.get(o) || "" });
+    out.push({ ...userCardFromRow(u), ...(await visibleLastSeen(u, me)), preview: preview.get(o) || "", previewEnc: previewEnc.get(o) || null });
   }
 
   res.json({ ok: true, chats: out });
@@ -2325,7 +2433,7 @@ app.get("/api/messages/:id/reads", verifyAuth, async (req, res) => {
 app.put("/api/messages/:id", verifyAuth, async (req, res) => {
   const id = Number(req.params.id);
   const me = req.user.username;
-  const text = String(req.body.text || "").trim().slice(0, 2000);
+  const text = cleanMsgText(req.body.text);
   if (!text) return res.status(400).json({ ok: false, error: "Пустой текст" });
 
   const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
@@ -2358,6 +2466,11 @@ app.post("/api/messages/:id/forward", verifyAuth, async (req, res) => {
   const chatType = resolveChatType(to);
   const perm = await canPostTo(chatType, to, me);
   if (!perm.canPost) return res.status(403).json({ ok: false, error: perm.error || "Нет доступа" });
+
+  // При сквозном шифровании сервер не может сам «переложить» текст в другой чат:
+  // клиент расшифровывает его у себя и присылает заново зашифрованным для нового чата.
+  if (req.body.text != null && (row.mediaType || "text") === "text") row.text = cleanMsgText(req.body.text);
+  else if (isE2EText(row.text)) return res.status(400).json({ ok: false, error: "Обнови страницу, чтобы пересылать зашифрованные сообщения" });
 
   const createdAt = now();
   const forwardedFrom = row.sender === me ? "" : row.sender;
@@ -2456,6 +2569,9 @@ app.post("/api/messages/:id/save", verifyAuth, async (req, res) => {
       return res.status(403).json({ ok: false, error: "Автор запретил пересылку своих сообщений" });
     }
   }
+
+  if (req.body.text != null && (row.mediaType || "text") === "text") row.text = cleanMsgText(req.body.text);
+  else if (isE2EText(row.text)) return res.status(400).json({ ok: false, error: "Обнови страницу, чтобы сохранять зашифрованные сообщения" });
 
   const createdAt = now();
   const forwardedFrom = row.sender === me ? "" : row.sender;
@@ -3701,7 +3817,7 @@ wss.on("connection", (ws, req) => {
 
           const receiver = String(data.receiver || "global").replace(/^@+/, "").toLowerCase();
           const chatType = resolveChatType(receiver);
-          const text = String(data.text || "").trim().slice(0, 2000);
+          const text = cleanMsgText(data.text);
           if (!text) return;
 
           const perm = await canPostTo(chatType, receiver, from);
@@ -3727,7 +3843,7 @@ wss.on("connection", (ws, req) => {
 
         if (data.type === "edit-message") {
           const id = Number(data.id);
-          const text = String(data.text || "").trim().slice(0, 2000);
+          const text = cleanMsgText(data.text);
           if (!id || !text) return;
           const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
           if (!row || row.sender !== from || row.mediaType !== "text") return;
