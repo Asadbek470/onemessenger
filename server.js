@@ -250,7 +250,7 @@ app.use(express.static(path.join(__dirname, "public"), {
     // HTML и JS — часто меняются, браузер не должен кэшировать их надолго,
     // иначе после деплоя люди продолжают видеть старую версию (старые
     // переводы, старый код) пока сами не сделают hard-refresh.
-    if (/\.(html|js)$/i.test(filePath)) {
+    if (/\.(html|js|css)$/i.test(filePath)) {
       res.setHeader("Cache-Control", "no-cache");
     }
   }
@@ -524,6 +524,19 @@ async function initSchema() {
     )
   `);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_comments_story ON story_comments(storyId)`);
+
+  // Лайки / дизлайки историй (value: 1 — лайк, -1 — дизлайк)
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS story_likes (
+      storyId INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      value INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (storyId, username)
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_story_likes_story ON story_likes(storyId)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_stories_repost ON stories(repostOfId)`);
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS groups (
@@ -879,7 +892,17 @@ function cleanupStories() {
   // подчищаем просмотры/реакции/комментарии историй, которых уже нет (истекли/удалены)
   db.run(`DELETE FROM story_views WHERE storyId NOT IN (SELECT id FROM stories)`);
   db.run(`DELETE FROM story_comments WHERE storyId NOT IN (SELECT id FROM stories)`);
+  db.run(`DELETE FROM story_likes WHERE storyId NOT IN (SELECT id FROM stories)`);
 }
+
+// Счётчики истории — одинаковые для ленты, профиля и «моих историй»
+const STORY_COUNTS_SQL = `
+           (SELECT COUNT(*) FROM story_views v WHERE v.storyId=s.id) AS viewCount,
+           (SELECT COUNT(*) FROM story_views v WHERE v.storyId=s.id AND v.reaction<>'') AS reactionCount,
+           (SELECT COUNT(*) FROM story_likes l WHERE l.storyId=s.id AND l.value=1) AS likeCount,
+           (SELECT COUNT(*) FROM story_likes l WHERE l.storyId=s.id AND l.value=-1) AS dislikeCount,
+           (SELECT COUNT(*) FROM story_comments sc WHERE sc.storyId=s.id) AS commentCount,
+           (SELECT COUNT(*) FROM stories r WHERE r.repostOfId=s.id) AS repostCount`;
 setInterval(cleanupStories, 60 * 1000);
 
 // ---------------- SIMPLE RATE LIMITER ----------------
@@ -1089,6 +1112,8 @@ async function wipeUserData(u) {
   await dbRun(`DELETE FROM story_views WHERE viewer=?`, [u]);
   await dbRun(`DELETE FROM story_comments WHERE storyId IN (SELECT id FROM stories WHERE owner=?)`, [u]);
   await dbRun(`DELETE FROM story_comments WHERE username=?`, [u]);
+  await dbRun(`DELETE FROM story_likes WHERE storyId IN (SELECT id FROM stories WHERE owner=?)`, [u]);
+  await dbRun(`DELETE FROM story_likes WHERE username=?`, [u]);
   await dbRun(`DELETE FROM stories WHERE owner=?`, [u]);
   await dbRun(`DELETE FROM group_members WHERE username=?`, [u]);
   await dbRun(`DELETE FROM friends WHERE owner=? OR friend=?`, [u, u]);
@@ -1162,6 +1187,9 @@ app.post("/api/me/username", verifyAuth, rateLimit(3, 60 * 60 * 1000), async (re
     await dbRun(`UPDATE messages SET forwardedFrom=? WHERE forwardedFrom=?`, [newUsername, old]);
     await dbRun(`UPDATE stories SET owner=? WHERE owner=?`, [newUsername, old]);
     await dbRun(`UPDATE story_views SET viewer=? WHERE viewer=?`, [newUsername, old]);
+    await dbRun(`UPDATE story_comments SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE story_likes SET username=? WHERE username=?`, [newUsername, old]);
+    await dbRun(`UPDATE stories SET repostOfOwner=? WHERE repostOfOwner=?`, [newUsername, old]);
     await dbRun(`UPDATE groups SET owner=? WHERE owner=?`, [newUsername, old]);
     await dbRun(`UPDATE group_members SET username=? WHERE username=?`, [newUsername, old]);
     await dbRun(`UPDATE group_bans SET username=? WHERE username=?`, [newUsername, old]);
@@ -2291,7 +2319,8 @@ app.get("/api/stories", verifyAuth, async (req, res) => {
     `
     SELECT s.*, u.displayName, u.avatarUrl, u.verified, u.settings AS ownerSettings,
            COALESCE(sv.reaction, '') AS myReaction,
-           (SELECT COUNT(*) FROM story_comments sc WHERE sc.storyId=s.id) AS commentCount
+           COALESCE((SELECT value FROM story_likes ml WHERE ml.storyId=s.id AND ml.username=?), 0) AS myLike,
+           ${STORY_COUNTS_SQL}
     FROM stories s
     LEFT JOIN users u ON u.username=s.owner
     LEFT JOIN story_views sv ON sv.storyId=s.id AND sv.viewer=?
@@ -2299,7 +2328,7 @@ app.get("/api/stories", verifyAuth, async (req, res) => {
     ORDER BY s.createdAt DESC
     LIMIT 200
     `,
-    [me, now()]
+    [me, me, now()]
   );
 
   const visible = [];
@@ -2326,13 +2355,14 @@ app.get("/api/stories/user/:username", verifyAuth, async (req, res) => {
   const rows = await dbAll(
     `
     SELECT s.*, COALESCE(sv.reaction, '') AS myReaction,
-           (SELECT COUNT(*) FROM story_comments sc WHERE sc.storyId=s.id) AS commentCount
+           COALESCE((SELECT value FROM story_likes ml WHERE ml.storyId=s.id AND ml.username=?), 0) AS myLike,
+           ${STORY_COUNTS_SQL}
     FROM stories s
     LEFT JOIN story_views sv ON sv.storyId=s.id AND sv.viewer=?
     WHERE s.owner=? AND s.expiresAt > ?
     ORDER BY s.createdAt DESC LIMIT 50
     `,
-    [me, u, now()]
+    [me, me, u, now()]
   );
   res.json({ ok: true, stories: rows });
 });
@@ -2340,9 +2370,8 @@ app.get("/api/stories/user/:username", verifyAuth, async (req, res) => {
 app.get("/api/stories/mine", verifyAuth, async (req, res) => {
   const rows = await dbAll(
     `
-    SELECT s.*,
-           (SELECT COUNT(*) FROM story_views sv WHERE sv.storyId=s.id) AS viewCount,
-           (SELECT COUNT(*) FROM story_views sv WHERE sv.storyId=s.id AND sv.reaction<>'') AS reactionCount
+    SELECT s.*, 0 AS myLike,
+           ${STORY_COUNTS_SQL}
     FROM stories s
     WHERE s.owner=? ORDER BY s.createdAt DESC LIMIT 500
     `,
@@ -2350,6 +2379,37 @@ app.get("/api/stories/mine", verifyAuth, async (req, res) => {
   );
   const withStatus = rows.map(s => ({ ...s, active: s.expiresAt > now() }));
   res.json({ ok: true, stories: withStatus });
+});
+
+// Общая аналитика по всем моим историям (вкладка «Профиль»)
+app.get("/api/stories/mine/stats", verifyAuth, async (req, res) => {
+  const me = req.user.username;
+  const mine = `(SELECT id FROM stories WHERE owner=?)`;
+  const one = async (sql, params) => Number(((await dbGet(sql, params)) || {}).c || 0);
+
+  const [storiesCount, views, uniqueViewers, likes, dislikes, comments, reposts, reactions] = await Promise.all([
+    one(`SELECT COUNT(*) AS c FROM stories WHERE owner=?`, [me]),
+    one(`SELECT COUNT(*) AS c FROM story_views WHERE storyId IN ${mine}`, [me]),
+    one(`SELECT COUNT(DISTINCT viewer) AS c FROM story_views WHERE storyId IN ${mine}`, [me]),
+    one(`SELECT COUNT(*) AS c FROM story_likes WHERE value=1 AND storyId IN ${mine}`, [me]),
+    one(`SELECT COUNT(*) AS c FROM story_likes WHERE value=-1 AND storyId IN ${mine}`, [me]),
+    one(`SELECT COUNT(*) AS c FROM story_comments WHERE storyId IN ${mine}`, [me]),
+    one(`SELECT COUNT(*) AS c FROM stories WHERE repostOfId IN ${mine}`, [me]),
+    one(`SELECT COUNT(*) AS c FROM story_views WHERE reaction<>'' AND storyId IN ${mine}`, [me])
+  ]);
+
+  const top = await dbGet(
+    `SELECT s.id, s.text, s.mediaType, s.mediaUrl, s.createdAt,
+            (SELECT COUNT(*) FROM story_views v WHERE v.storyId=s.id) AS viewCount
+     FROM stories s WHERE s.owner=? ORDER BY viewCount DESC, s.createdAt DESC LIMIT 1`,
+    [me]
+  );
+
+  res.json({
+    ok: true,
+    stats: { storiesCount, views, uniqueViewers, likes, dislikes, comments, reposts, reactions },
+    top: top && top.viewCount > 0 ? top : null
+  });
 });
 
 app.delete("/api/stories/:id", verifyAuth, async (req, res) => {
@@ -2360,6 +2420,8 @@ app.delete("/api/stories/:id", verifyAuth, async (req, res) => {
 
   await dbRun(`DELETE FROM stories WHERE id=?`, [id]);
   await dbRun(`DELETE FROM story_views WHERE storyId=?`, [id]);
+  await dbRun(`DELETE FROM story_comments WHERE storyId=?`, [id]);
+  await dbRun(`DELETE FROM story_likes WHERE storyId=?`, [id]);
   res.json({ ok: true });
 });
 
@@ -2450,6 +2512,97 @@ app.get("/api/stories/:id/viewers", verifyAuth, async (req, res) => {
     [id]
   );
   res.json({ ok: true, viewers: rows, count: rows.length });
+});
+
+// ---------------- ЛАЙКИ / ДИЗЛАЙКИ ИСТОРИЙ ----------------
+// value: 1 — лайк, -1 — дизлайк. Повторное нажатие на то же самое — снять оценку.
+app.post("/api/stories/:id/like", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  const value = Number(req.body.value) === -1 ? -1 : 1;
+
+  const story = await dbGet(`SELECT id, owner FROM stories WHERE id=? AND expiresAt > ?`, [id, now()]);
+  if (!story) return res.status(404).json({ ok: false, error: "История не найдена или уже истекла" });
+
+  const existing = await dbGet(`SELECT value FROM story_likes WHERE storyId=? AND username=?`, [id, me]);
+  let myLike = value;
+  if (existing && existing.value === value) {
+    await dbRun(`DELETE FROM story_likes WHERE storyId=? AND username=?`, [id, me]);
+    myLike = 0;
+  } else {
+    await dbRun(
+      `INSERT INTO story_likes (storyId, username, value, createdAt) VALUES (?,?,?,?)
+       ON CONFLICT(storyId, username) DO UPDATE SET value=excluded.value, createdAt=excluded.createdAt`,
+      [id, me, value, now()]
+    );
+  }
+
+  const counts = await dbGet(
+    `SELECT COALESCE(SUM(CASE WHEN value=1 THEN 1 ELSE 0 END),0) AS likeCount,
+            COALESCE(SUM(CASE WHEN value=-1 THEN 1 ELSE 0 END),0) AS dislikeCount
+     FROM story_likes WHERE storyId=?`,
+    [id]
+  );
+
+  if (myLike !== 0 && story.owner !== me) {
+    wsSendToUser(story.owner, { type: "storyLike", storyId: id, from: me, value: myLike });
+    if (myLike === 1) {
+      sendPushToUser(story.owner, {
+        title: "Лайк на историю",
+        body: `👍 @${me} оценил(а) твою историю`,
+        url: "/chat.html"
+      }).catch(() => {});
+    }
+  }
+
+  res.json({ ok: true, myLike, likeCount: Number(counts.likeCount), dislikeCount: Number(counts.dislikeCount) });
+});
+
+// Полная статистика истории — видит только автор:
+// кто посмотрел, кто лайкнул / дизлайкнул, кто прокомментировал, кто репостнул.
+app.get("/api/stories/:id/stats", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+
+  const story = await dbGet(`SELECT id, owner FROM stories WHERE id=?`, [id]);
+  if (!story) return res.status(404).json({ ok: false, error: "Не найдена" });
+  if (story.owner !== me) return res.status(403).json({ ok: false, error: "Статистику видит только автор истории" });
+
+  const [viewers, likes, comments, reposts] = await Promise.all([
+    dbAll(
+      `SELECT sv.viewer AS username, sv.viewedAt, sv.reaction, u.displayName, u.avatarUrl, u.verified
+       FROM story_views sv LEFT JOIN users u ON u.username=sv.viewer
+       WHERE sv.storyId=? ORDER BY (sv.reaction <> '') DESC, sv.viewedAt DESC`,
+      [id]
+    ),
+    dbAll(
+      `SELECT l.username, l.value, l.createdAt, u.displayName, u.avatarUrl, u.verified
+       FROM story_likes l LEFT JOIN users u ON u.username=l.username
+       WHERE l.storyId=? ORDER BY l.createdAt DESC`,
+      [id]
+    ),
+    dbAll(
+      `SELECT sc.id, sc.username, sc.text, sc.createdAt, u.displayName, u.avatarUrl, u.verified
+       FROM story_comments sc LEFT JOIN users u ON u.username=sc.username
+       WHERE sc.storyId=? ORDER BY sc.createdAt DESC LIMIT 300`,
+      [id]
+    ),
+    dbAll(
+      `SELECT r.owner AS username, r.createdAt, u.displayName, u.avatarUrl, u.verified
+       FROM stories r LEFT JOIN users u ON u.username=r.owner
+       WHERE r.repostOfId=? ORDER BY r.createdAt DESC`,
+      [id]
+    )
+  ]);
+
+  res.json({
+    ok: true,
+    viewers,
+    likes: likes.filter(l => l.value === 1),
+    dislikes: likes.filter(l => l.value === -1),
+    comments,
+    reposts
+  });
 });
 
 // ---------------- КОММЕНТАРИИ К ИСТОРИЯМ ----------------
