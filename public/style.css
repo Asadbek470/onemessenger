@@ -2023,6 +2023,6 @@ button.reel-act:active i{transform:scale(.88)}
 .reelcomments-list{padding:6px 14px 12px}
 .reelcomments-inputrow{padding:10px 14px 14px}
 .reel-promo{
-  display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:4px 10px;border-radius:999px;
+  display:flex;width:max-content;align-items:center;gap:6px;margin:0 0 10px;padding:4px 10px;border-radius:999px;
   font-size:12px;font-weight:700;color:#fff;background:linear-gradient(90deg,#ff8a3d,#ff4d6d);
 }
