@@ -1,4 +1,10 @@
 // ================== AUTH ==================
+// Ссылка-приглашение в группу (?invite=код) — запоминаем, чтобы не потерять её при входе в аккаунт
+try {
+  const inviteParam = new URLSearchParams(location.search).get("invite");
+  if (inviteParam) localStorage.setItem("pendingInvite", inviteParam);
+} catch (e) {}
+
 const token = localStorage.getItem("token");
 if (!token) location.href = "index.html";
 
@@ -646,6 +652,7 @@ async function initApp() {
   setupRealPushNotifications();
 
   switchTab("chats");
+  checkPendingInvite();
 
   // обновляем «был(а) N мин. назад» в шапке раз в минуту
   setInterval(() => { if (isPrivateChat(currentChat)) updateHeader(); }, 60 * 1000);
@@ -969,6 +976,12 @@ function connectWS() {
 
     if (data.type === "storyLike") {
       toast(data.value === 1 ? `👍 @${data.from} лайкнул(а) твою историю` : `👎 @${data.from} поставил(а) дизлайк твоей истории`);
+      return;
+    }
+
+    if (data.type === "groupOwner") {
+      toast(`👑 Тебе передали права владельца: ${data.groupName || "группа"}`);
+      refreshChats();
       return;
     }
 
@@ -2263,6 +2276,16 @@ async function openGroupInfo() {
 
   const canManage = d.myRole === "owner" || d.myRole === "admin";
   const isOwner = d.myRole === "owner";
+
+  document.getElementById("groupInfoAvatar").innerHTML = d.group.avatarUrl
+    ? `<img src="${esc(d.group.avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+    : `<span class="headicon act-orange"><i class="fa-solid ${d.group.isChannel ? "fa-bullhorn" : "fa-users"}"></i></span>`;
+  const kind = d.group.isChannel ? "канал" : "группа";
+  document.getElementById("groupInfoSub").innerHTML =
+    `<i class="fa-solid ${d.group.discoverable ? "fa-earth-americas" : "fa-lock"}"></i> ` +
+    `${d.group.discoverable ? "Публичн" : "Приватн"}${d.group.isChannel ? "ый" : "ая"} ${kind} · ${d.members.length} ${d.group.isChannel ? "подписч." : "участн."}`;
+
+  renderGroupManage(groupId, d, canManage, isOwner);
   const list = document.getElementById("groupMembersList");
   list.innerHTML = d.members.map(mem => {
     mergeUserInfo(mem.username, mem);
@@ -2272,6 +2295,9 @@ async function openGroupInfo() {
       ? (mem.role === "admin"
           ? `<button class="iconbtn" onclick="event.stopPropagation(); setGroupMemberRole('${groupId}','${esc(mem.username)}','member')" title="Снять админку"><i class="fa-solid fa-user-minus"></i></button>`
           : `<button class="iconbtn" onclick="event.stopPropagation(); setGroupMemberRole('${groupId}','${esc(mem.username)}','admin')" title="Сделать админом (модератор)"><i class="fa-solid fa-user-shield"></i></button>`)
+      : "";
+    const transferButton = (isOwner && !isSelf)
+      ? `<button class="iconbtn" onclick="event.stopPropagation(); transferGroupOwner('${groupId}','${esc(mem.username)}')" title="Передать права владельца"><i class="fa-solid fa-crown"></i></button>`
       : "";
     const removeButton = (canManage && mem.role !== "owner" && !isSelf && !outranked)
       ? `<button class="iconbtn" onclick="event.stopPropagation(); removeGroupMember('${groupId}','${esc(mem.username)}')" title="Убрать"><i class="fa-solid fa-user-xmark"></i></button>`
@@ -2286,7 +2312,7 @@ async function openGroupInfo() {
           <div class="name">${nameHtml(mem)}</div>
           <div class="preview">@${esc(mem.username)} · ${mem.role === "owner" ? "владелец" : mem.role === "admin" ? "админ (модератор)" : "участник"}</div>
         </div>
-        ${roleButtons}${removeButton}${banButton}
+        ${roleButtons}${transferButton}${removeButton}${banButton}
       </div>
     `;
   }).join("");
@@ -2317,6 +2343,228 @@ async function openGroupInfo() {
   deleteBtn.textContent = d.group.isChannel ? t("group.deleteChannel") : t("group.deleteGroup");
   deleteBtn.onclick = () => deleteGroup(groupId, d.group.isChannel);
 }
+// ---------------- УПРАВЛЕНИЕ ГРУППОЙ: редактирование, приватность, ссылки-приглашения ----------------
+function inviteUrl(code) {
+  return `${location.origin}/chat.html?invite=${encodeURIComponent(code)}`;
+}
+
+function renderGroupManage(groupId, d, canManage, isOwner) {
+  const box = document.getElementById("groupManageBox");
+  box.classList.toggle("hidden", !canManage);
+  if (!canManage) { box.innerHTML = ""; return; }
+  const g = d.group;
+
+  box.innerHTML = `
+    <details class="grpsection">
+      <summary><i class="fa-solid fa-pen"></i> Редактировать ${g.isChannel ? "канал" : "группу"}</summary>
+      <div class="grpsection-body">
+        <label>Название</label>
+        <input id="grpEditName" maxlength="60" value="${esc(g.name)}">
+        <label>Описание</label>
+        <input id="grpEditDesc" maxlength="300" value="${esc(g.description || "")}">
+        ${isOwner ? `
+        <label>Кто может вступить</label>
+        <select id="grpEditPublic">
+          <option value="1" ${g.discoverable ? "selected" : ""}>Публичная — видна в «Популярном», вступить может любой</option>
+          <option value="0" ${g.discoverable ? "" : "selected"}>Приватная — только по ссылке-приглашению</option>
+        </select>` : ""}
+        <div class="row">
+          <button class="btn ghost" onclick="document.getElementById('grpAvatarFile').click()"><i class="fa-solid fa-image"></i> Сменить аватар</button>
+          <button class="btn primary" onclick="saveGroupEdit('${groupId}')">Сохранить</button>
+        </div>
+        <input id="grpAvatarFile" type="file" accept="image/*" style="display:none" onchange="uploadGroupAvatar('${groupId}', this)">
+      </div>
+    </details>
+
+    <details class="grpsection" open>
+      <summary><i class="fa-solid fa-link"></i> Ссылки-приглашения</summary>
+      <div class="grpsection-body">
+        <div id="grpInvitesList"><div class="hint">${t("common.loading")}</div></div>
+        <div class="row grpinvite-new">
+          <select id="grpInviteExpire" title="Срок действия">
+            <option value="0">Бессрочная</option>
+            <option value="1">1 час</option>
+            <option value="24">1 день</option>
+            <option value="168">7 дней</option>
+          </select>
+          <select id="grpInviteMax" title="Сколько человек может вступить">
+            <option value="0">Без лимита</option>
+            <option value="1">1 человек</option>
+            <option value="10">10 человек</option>
+            <option value="100">100 человек</option>
+          </select>
+        </div>
+        <button class="btn ghost full" onclick="createGroupInvite('${groupId}')"><i class="fa-solid fa-plus"></i> Создать ссылку</button>
+      </div>
+    </details>
+  `;
+  loadGroupInvites(groupId);
+}
+
+async function saveGroupEdit(groupId) {
+  const body = {
+    name: document.getElementById("grpEditName").value.trim(),
+    description: document.getElementById("grpEditDesc").value.trim()
+  };
+  const pub = document.getElementById("grpEditPublic");
+  if (pub) body.discoverable = pub.value === "1";
+  if (!body.name) return alert("Название обязательно");
+
+  const r = await fetch(`/api/groups/${groupId}`, {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast("Сохранено ✅");
+  await afterGroupChanged(groupId);
+}
+
+async function uploadGroupAvatar(groupId, input) {
+  const file = input.files && input.files[0];
+  input.value = "";
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch(`/api/groups/${groupId}/avatar`, { method: "POST", headers: authHeaders(), body: fd });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast("Аватар обновлён ✅");
+  await afterGroupChanged(groupId);
+}
+
+// после изменения группы — обновить шапку чата, список чатов и окно информации
+async function afterGroupChanged(groupId) {
+  await refreshChats();
+  if (currentChat === `group:${groupId}`) {
+    const r = await fetch(`/api/groups/${groupId}`, { headers: authHeaders() });
+    const d = await r.json();
+    if (d.ok) currentGroupMeta = { ...d.group, memberCount: d.members.length, myRole: d.myRole };
+    updateHeader();
+    openGroupInfo();
+  }
+}
+
+async function transferGroupOwner(groupId, username) {
+  if (!confirm(`Передать права владельца @${username}? Ты останешься админом, вернуть права сможет только новый владелец.`)) return;
+  const r = await fetch(`/api/groups/${groupId}/transfer`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ username })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  toast(`👑 @${username} теперь владелец`);
+  await afterGroupChanged(groupId);
+}
+
+async function loadGroupInvites(groupId) {
+  const box = document.getElementById("grpInvitesList");
+  if (!box) return;
+  const r = await fetch(`/api/groups/${groupId}/invites`, { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) { box.innerHTML = `<div class="hint">${esc(d.error || t("common.error"))}</div>`; return; }
+  if (!d.invites.length) { box.innerHTML = `<div class="hint">Ссылок пока нет — создай первую</div>`; return; }
+
+  box.innerHTML = d.invites.map(inv => {
+    const parts = [`вступили: ${inv.uses}${inv.maxUses ? " из " + inv.maxUses : ""}`];
+    if (inv.expiresAt) parts.push("до " + new Date(inv.expiresAt).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }));
+    else parts.push("бессрочная");
+    if (!inv.valid) parts.push("не действует");
+    return `
+      <div class="grpinvite ${inv.valid ? "" : "dead"}">
+        <div class="grpinvite-meta">
+          <div class="grpinvite-link">${esc(inviteUrl(inv.code))}</div>
+          <div class="preview">${parts.join(" · ")}</div>
+        </div>
+        <button class="iconbtn" onclick="copyInvite('${inv.code}')" title="Скопировать"><i class="fa-solid fa-copy"></i></button>
+        <button class="iconbtn" onclick="openInviteQr('${inv.code}')" title="QR-код"><i class="fa-solid fa-qrcode"></i></button>
+        <button class="iconbtn danger" onclick="revokeGroupInvite('${groupId}','${inv.code}')" title="Отозвать"><i class="fa-solid fa-trash"></i></button>
+      </div>`;
+  }).join("");
+}
+
+async function createGroupInvite(groupId) {
+  const r = await fetch(`/api/groups/${groupId}/invites`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      expiresInHours: Number(document.getElementById("grpInviteExpire").value),
+      maxUses: Number(document.getElementById("grpInviteMax").value)
+    })
+  });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  await loadGroupInvites(groupId);
+  copyInvite(d.code);
+}
+
+async function revokeGroupInvite(groupId, code) {
+  if (!confirm("Отозвать ссылку? По ней больше никто не сможет вступить.")) return;
+  await fetch(`/api/groups/${groupId}/invites/${encodeURIComponent(code)}`, { method: "DELETE", headers: authHeaders() });
+  loadGroupInvites(groupId);
+}
+
+async function copyInvite(code) {
+  const url = inviteUrl(code);
+  try { await navigator.clipboard.writeText(url); toast("Ссылка скопирована ✅"); }
+  catch { prompt("Скопируй ссылку:", url); }
+}
+
+function openInviteQr(code) {
+  const url = inviteUrl(code);
+  const box = document.getElementById("inviteQrBox");
+  box.innerHTML = "";
+  if (window.QRCode) new QRCode(box, { text: url, width: 220, height: 220 });
+  else box.textContent = "QR-код недоступен";
+  document.getElementById("inviteQrLink").textContent = url;
+  document.getElementById("inviteQrCopy").onclick = () => copyInvite(code);
+  document.getElementById("inviteQrModal").classList.remove("hidden");
+}
+function closeInviteQr() {
+  document.getElementById("inviteQrModal").classList.add("hidden");
+}
+
+// Открыли приложение по ссылке-приглашению — показываем группу и кнопку «Вступить»
+async function checkPendingInvite() {
+  let code = null;
+  try { code = localStorage.getItem("pendingInvite"); localStorage.removeItem("pendingInvite"); } catch (e) {}
+  if (!code) return;
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+
+  const r = await fetch(`/api/invite/${encodeURIComponent(code)}`, { headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ссылка недействительна");
+
+  const g = d.group;
+  if (d.alreadyMember) { openChat(`group:${g.id}`); return; }
+
+  document.getElementById("inviteJoinAvatar").innerHTML = g.avatarUrl
+    ? `<img src="${esc(g.avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+    : `<span class="headicon act-orange"><i class="fa-solid ${g.isChannel ? "fa-bullhorn" : "fa-users"}"></i></span>`;
+  document.getElementById("inviteJoinName").textContent = g.name;
+  document.getElementById("inviteJoinSub").textContent =
+    `${g.isChannel ? "Канал" : "Группа"} · ${g.memberCount} ${g.isChannel ? "подписч." : "участн."}`;
+  document.getElementById("inviteJoinDesc").textContent = g.description || "";
+  const btn = document.getElementById("inviteJoinBtn");
+  btn.textContent = g.isChannel ? "Подписаться" : "Вступить";
+  btn.onclick = () => joinByInvite(code);
+  document.getElementById("inviteJoinModal").classList.remove("hidden");
+}
+function closeInviteJoin() {
+  document.getElementById("inviteJoinModal").classList.add("hidden");
+}
+async function joinByInvite(code) {
+  const r = await fetch(`/api/invite/${encodeURIComponent(code)}/join`, { method: "POST", headers: authHeaders() });
+  const d = await r.json();
+  if (!d.ok) return alert(d.error || "Ошибка");
+  closeInviteJoin();
+  await refreshChats();
+  openChat(`group:${d.groupId}`);
+  toast("Добро пожаловать! 🎉");
+}
+
 async function setGroupMemberRole(groupId, username, role) {
   const r = await fetch(`/api/groups/${groupId}/members/${encodeURIComponent(username)}/role`, {
     method: "POST",
@@ -2390,6 +2638,7 @@ async function removeGroupMember(groupId, username, isSelf = false) {
     closeGroupInfo();
     await refreshChats();
     openChat("global");
+    if (d.deleted) toast("Ты был(а) единственным участником — группа удалена");
   } else {
     openGroupInfo();
   }
