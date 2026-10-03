@@ -211,6 +211,24 @@ function serveIcon(size) {
   };
 }
 
+// ---- для поисковых систем ----
+// Индексируется только главная страница; сам мессенджер и админка закрыты от поиска.
+function siteOrigin(req) {
+  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0];
+  return `${proto}://${req.headers.host}`;
+}
+app.get("/robots.txt", (req, res) => {
+  res.type("text/plain").send(
+    `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin.html\nDisallow: /chat.html\n\nSitemap: ${siteOrigin(req)}/sitemap.xml\n`
+  );
+});
+app.get("/sitemap.xml", (req, res) => {
+  res.type("application/xml").send(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    `  <url><loc>${siteOrigin(req)}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>\n</urlset>\n`
+  );
+});
+
 app.get("/icon-192.png", serveIcon(192));
 app.get("/icon-512.png", serveIcon(512));
 app.get("/favicon.ico", serveIcon(64));
@@ -1903,17 +1921,31 @@ function validE2EBackup(raw) {
   try {
     const j = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!j || j.v !== 1 || !j.salt || !j.iv || !j.ct) return null;
-    const out = JSON.stringify({ v: 1, salt: String(j.salt), iv: String(j.iv), ct: String(j.ct), iter: Number(j.iter) || 0, keyId: String(j.keyId || "") });
+    const out = JSON.stringify({
+      v: 1, salt: String(j.salt), iv: String(j.iv), ct: String(j.ct), iter: Number(j.iter) || 0, keyId: String(j.keyId || ""),
+      auto: !!j.auto, autoSalt: String(j.autoSalt || "") // auto — копия закрыта паролем аккаунта (выводится на устройстве)
+    });
     return out.length <= 4000 ? out : null;
   } catch { return null; }
 }
+
+// Проверка пароля аккаунта (нужна, чтобы закрыть им резервную копию ключа шифрования).
+// Сам пароль нигде не сохраняется — только сверяется с хэшем.
+app.post("/api/auth/check-password", verifyAuth, rateLimit(8, 60 * 1000), async (req, res) => {
+  const password = String(req.body.password || "").trim();
+  const ok = !!password && (await bcrypt.compare(password, req.user.passwordHash || ""));
+  res.json({ ok, google: !!req.user.googleSub, error: ok ? undefined : "Неверный пароль" });
+});
 
 app.get("/api/e2e/me", verifyAuth, async (req, res) => {
   const u = await dbGet(`SELECT e2eKeyId, e2eBackup FROM users WHERE username=?`, [req.user.username]);
   const key = u && u.e2eKeyId
     ? await dbGet(`SELECT publicKey FROM e2e_keys WHERE username=? AND keyId=?`, [req.user.username, u.e2eKeyId])
     : null;
-  res.json({ ok: true, keyId: (u && u.e2eKeyId) || "", publicKey: key ? key.publicKey : "", backup: (u && u.e2eBackup) || "" });
+  res.json({
+    ok: true, keyId: (u && u.e2eKeyId) || "", publicKey: key ? key.publicKey : "", backup: (u && u.e2eBackup) || "",
+    google: !!req.user.googleSub // вход через Google — пароля аккаунта у человека может не быть
+  });
 });
 
 // Устройство создало (или восстановило) ключ — сохраняем открытую часть как текущую
