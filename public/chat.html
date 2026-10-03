@@ -6,8 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Zumo — мессенджер</title>
   <meta name="robots" content="noindex" />
-  <link rel="stylesheet" href="style.css?v=7" />
-  <link rel="stylesheet" href="features.css" />
+  <link rel="stylesheet" href="style.css?v=8" />
   <link rel="icon" href="/icon-192.png?v=3" />
   <link rel="apple-touch-icon" href="/icon-192.png?v=3" />
   <link rel="manifest" href="/manifest.json" />
@@ -16,7 +15,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" />
-  <link rel="stylesheet" href="zumo-theme.css?v=1" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
@@ -156,12 +154,11 @@
           </button>
           <div class="categorybody">
             <div class="settingsblock">
-              <div class="blocktitle" data-i18n="settings.profileBlock">Профиль</div>
               <div class="formgrid">
-                <label data-i18n="settings.displayName">Display name</label>
+                <label data-i18n="settings.displayName">Имя</label>
                 <input id="setDisplayName" data-i18n-placeholder="settings.displayName" placeholder="Имя" />
 
-                <label data-i18n="settings.bio">Bio</label>
+                <label data-i18n="settings.bio">О себе</label>
                 <input id="setBio" data-i18n-placeholder="settings.bio" placeholder="О себе" />
 
                 <label data-i18n="settings.birthDate">Дата рождения (YYYY-MM-DD)</label>
@@ -475,36 +472,7 @@
   </div>
 
   <!-- ЗАПИСЬ ВИДЕОСООБЩЕНИЯ (кружочек, как в Telegram) -->
-  <div id="roundRecorderModal" class="roundrec hidden">
-    <div class="roundrec-stage">
-      <div class="roundrec-circle">
-        <video id="roundLiveVideo" autoplay playsinline muted class="roundsrc"></video>
-        <canvas id="roundCanvas" width="480" height="480"></canvas>
-        <svg class="roundrec-ring" viewBox="0 0 100 100" aria-hidden="true">
-          <circle class="track" cx="50" cy="50" r="49"></circle>
-          <circle id="roundRing" class="fill" cx="50" cy="50" r="49"></circle>
-        </svg>
-      </div>
-      <div id="roundHint" class="roundrec-hint">Нажми на красную кнопку, чтобы начать запись</div>
-    </div>
-
-    <div class="roundrec-side">
-      <div id="roundOnceTip" class="roundrec-tip hidden">Получатель сможет просмотреть сообщение только один раз.</div>
-      <button id="roundOnceBtn" class="roundrec-sidebtn" onclick="toggleRoundOnce()" title="Один просмотр">1</button>
-      <button id="roundPauseBtn" class="roundrec-sidebtn hidden" onclick="toggleRoundPause()" title="Пауза"><i class="fa-solid fa-pause"></i></button>
-    </div>
-
-    <button id="roundFlipBtn" class="roundrec-flip" onclick="flipRoundCamera()" data-i18n-title="round.flip" title="Перевернуть камеру">
-      <i class="fa-solid fa-camera-rotate"></i>
-    </button>
-
-    <div class="roundrec-bar">
-      <div class="roundrec-time"><span class="roundrec-dot"></span><span id="roundTimer">0:00,0</span></div>
-      <button class="roundrec-cancel" onclick="closeRoundRecorder()">Отмена</button>
-      <button id="roundRecordBtn" class="roundrec-main rec" onclick="startRoundRecording()" data-i18n-title="round.record" title="Записать"></button>
-      <button id="roundSendBtn" class="roundrec-main send hidden" onclick="finishRoundAndSend()" title="Отправить"><i class="fa-solid fa-arrow-up"></i></button>
-    </div>
-  </div>
+  <div id="roundRecorderModal" class="roundrec hidden"></div>
 
   <!-- MESSAGE ACTIONS (долгое нажатие на сообщение) -->
   <div id="msgActionsSheet" class="modal hidden" onclick="if(event.target===this) closeMsgActions()">
@@ -854,7 +822,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=14"></script>
+  <script src="app.js?v=16"></script>
   <script src="e2e.js?v=4"></script>
   <script src="calls-client.js?v=3"></script>
 </body>
