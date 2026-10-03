@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="google-site-verification" content="DrhRAp88TUKCKXi76zqCO7jqeZJkP5PuIU8Kpn59bQI" />
+  <script src="splash.js"></script>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Zumo (Зумо) — мессенджер без номера телефона</title>
+  <meta name="description" content="Zumo (Зумо) — бесплатный мессенджер без номера телефона. Вход по @username, личные чаты со сквозным шифрованием, группы, каналы, сторис, аудио- и видеозвонки. Zumo messenjeri — telefon raqamisiz muloqot." />
+  <meta name="keywords" content="Zumo, Зумо, зумо мессенджер, Zumo messenger, Zumo messenjer, мессенджер без номера телефона, uzmessenger" />
+  <meta name="application-name" content="Zumo" />
+  <meta name="apple-mobile-web-app-title" content="Zumo" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Zumo" />
+  <meta property="og:title" content="Zumo (Зумо) — мессенджер без номера телефона" />
+  <meta property="og:description" content="Бесплатный мессенджер Zumo: вход по @username, шифрование личных чатов, группы, каналы, сторис и звонки." />
+  <meta property="og:image" content="/icon-512.png?v=3" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Zumo",
+    "alternateName": ["Зумо", "Zumo Messenger", "Зумо мессенджер", "Zumo messenjeri"],
+    "applicationCategory": "CommunicationApplication",
+    "operatingSystem": "Web, Android, iOS",
+    "description": "Zumo (Зумо) — бесплатный мессенджер без номера телефона: личные чаты со сквозным шифрованием, группы, каналы, сторис, аудио- и видеозвонки.",
+    "inLanguage": ["ru", "uz", "en"],
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "founder": { "@type": "Person", "name": "Асадбек Абдумаликов" }
+  }
+  </script>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="features.css" />
+  <link rel="icon" href="/icon-192.png?v=3" />
+  <link rel="manifest" href="/manifest.json" />
+  <style>
+    /* Колонка: карточка входа, под ней текст. Центрируем через margin:auto, а не justify-content —
+       иначе на невысоком экране верх карточки уезжает за край и до него нельзя докрутить. */
+    html,body.auth{height:auto}
+    body.auth{flex-direction:column;justify-content:flex-start;gap:18px;min-height:100vh;box-sizing:border-box}
+    body.auth > .auth-card{margin-top:auto;flex:none}
+    body.auth > .seoabout{margin-bottom:auto;flex:none}
+    .savedaccs{margin-bottom:14px}
+    .savedaccs-title{font-size:12px;color:#8fa3bd;margin:0 0 8px}
+    .savedacc{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;margin-bottom:8px;border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#eaf2ff;cursor:pointer;font:inherit;text-align:left}
+    .savedacc-ava{width:38px;height:38px;border-radius:50%;overflow:hidden;flex:none;display:grid;place-items:center;
+      font-weight:800;background:linear-gradient(135deg,#2a9df4,#6a5cff)}
+    .savedacc-ava img{width:100%;height:100%;object-fit:cover}
+    .savedacc-name{display:flex;flex-direction:column;font-weight:700;font-size:14px;min-width:0}
+    .savedacc-name small{font-weight:500;color:#8fa3bd;font-size:12px}
+    .seoabout{width:min(420px,100%);padding:0 6px 20px;text-align:center;color:#8fa3bd;font-size:13px;line-height:1.55}
+    .seoabout h2{font-size:15px;margin:0 0 8px;color:#cdd9ea}
+    .seoabout p{margin:0 0 8px}
+    .seoabout-founder{font-size:12px;opacity:.8}
+  </style>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body class="auth">
+  <div class="auth-card" id="authCard">
+    <div class="brand">
+      <div class="logo">Z</div>
+      <div>
+        <h1>Zumo</h1>
+        <p>Мессенджер Зумо — без номера телефона. Вход по @username</p>
+      </div>
+    </div>
+
+    <!-- аккаунты, в которые уже входили на этом устройстве -->
+    <div id="savedAccounts" class="savedaccs" style="display:none"></div>
+
+    <div class="tabs" id="authTabs">
+      <button class="tab active" id="tabLogin" onclick="switchTab('login')">Вход</button>
+      <button class="tab" id="tabReg" onclick="switchTab('reg')">Регистрация</button>
+    </div>
+
+    <div class="form" id="authForm">
+      <label>@username</label>
+      <input id="identifier" placeholder="@asadbek000" autocomplete="username" />
+
+      <label>Пароль</label>
+      <input id="password" type="password" placeholder="••••" autocomplete="current-password" />
+
+      <label class="checkrow" style="align-items:flex-start;margin-top:2px">
+        <input type="checkbox" id="acceptTermsBox">
+        <span>Я согласен(на) с <a href="#" onclick="openLegalModal('terms');return false;">Условиями использования</a> и <a href="#" onclick="openLegalModal('privacy');return false;">Политикой конфиденциальности</a></span>
+      </label>
+
+      <button class="btn primary full" onclick="submitAuth()">Продолжить</button>
+      <div class="hint">Юзернейм: 4–20 символов (a-z, 0-9, _). Пароль: минимум 6 символов.</div>
+
+      <!-- ===== Вход через Google ===== -->
+      <div id="googleLoginBox" style="margin-top:14px;display:flex;flex-direction:column;align-items:center;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px;width:100%;color:#7f92a8;font-size:12.5px">
+          <div style="flex:1;height:1px;background:rgba(255,255,255,.12)"></div>
+          или
+          <div style="flex:1;height:1px;background:rgba(255,255,255,.12)"></div>
+        </div>
+        <div id="googleBtnContainer"></div>
+      </div>
+    </div>
+
+    <!-- Shown instead of the form when the account has 2FA enabled -->
+    <div class="form hidden" id="twoFAForm">
+      <label>Код из приложения-аутентификатора</label>
+      <input id="twoFACode" inputmode="numeric" maxlength="6" placeholder="000000" autofocus />
+
+      <button class="btn primary full" onclick="submit2FA()">Войти</button>
+      <button class="btn ghost full" onclick="cancel2FA()">Назад</button>
+      <div class="hint">Открой Google Authenticator / Authy и введи текущий 6-значный код.</div>
+    </div>
+  </div>
+
+  <!-- Коротко о приложении — этот текст читают люди и поисковые системы -->
+  <section class="seoabout">
+    <h2>Zumo (Зумо) — мессенджер без номера телефона</h2>
+    <p>Zumo — бесплатный мессенджер, в котором не нужен номер телефона: достаточно придумать @username.
+       В Зумо есть личные чаты со сквозным шифрованием, группы и каналы, сторис с лентой рекомендаций,
+       голосовые и видеосообщения, аудио- и видеозвонки.</p>
+    <p>Zumo messenjeri — telefon raqamisiz bepul muloqot: shaxsiy chatlar, guruhlar, kanallar, hikoyalar va qo'ng'iroqlar.</p>
+    <p>Zumo Messenger — free messaging without a phone number: encrypted private chats, groups, channels, stories and calls.</p>
+    <p class="seoabout-founder">Основатель — Асадбек Абдумаликов</p>
+  </section>
+
+  <!-- Условия использования / Политика конфиденциальности -->
+  <div id="legalModal" class="modal hidden" style="position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);">
+    <div class="auth-card" style="max-height:82vh;overflow-y:auto;width:min(520px,92vw)">
+      <div class="tabs" id="legalLangTabs" style="margin-bottom:8px">
+        <button class="tab" id="legalLangRu" onclick="switchLegalLang('ru')">Русский</button>
+        <button class="tab" id="legalLangUz" onclick="switchLegalLang('uz')">O'zbekcha</button>
+        <button class="tab" id="legalLangEn" onclick="switchLegalLang('en')">English</button>
+      </div>
+      <div class="tabs" id="legalTabs">
+        <button class="tab active" id="legalTabTerms" onclick="switchLegalTab('terms')">Условия использования</button>
+        <button class="tab" id="legalTabPrivacy" onclick="switchLegalTab('privacy')">Конфиденциальность</button>
+      </div>
+      <div id="legalTermsBody" class="hint" style="white-space:pre-wrap;line-height:1.55;margin-top:12px"></div>
+      <div id="legalPrivacyBody" class="hint hidden" style="white-space:pre-wrap;line-height:1.55;margin-top:12px"></div>
+      <button class="btn primary full" style="margin-top:16px" onclick="closeLegalModal()">Закрыть</button>
+    </div>
+  </div>
+
+  <script>
+    const LEGAL_TEXT = {
+      ru: {
+        terms: `Условия использования Zumo
+
+1. Общие положения
+Zumo — мессенджер для обмена сообщениями, звонков и медиа. Регистрируясь, ты подтверждаешь, что тебе не менее 13 лет и ты принимаешь эти условия.
+
+2. Аккаунт
+Юзернейм и пароль придумываешь сам(а). Ты несёшь ответственность за сохранность пароля и за всё, что происходит через твой аккаунт. Рекомендуем включить двухфакторную аутентификацию в Настройках.
+
+3. Правила поведения
+Запрещены: спам и массовая рассылка нежелательных сообщений, угрозы и травля, публикация незаконного контента, выдача себя за другого человека, попытки взлома сервиса. За нарушение администрация вправе удалить контент, ограничить (мут) или заблокировать (бан) аккаунт без предупреждения.
+
+4. Разрешения устройства
+Приложение может запрашивать доступ к камере и микрофону — для фото/видео-сообщений, круглых видеосообщений и аудио/видеозвонков; к уведомлениям — чтобы присылать пуш-уведомления о новых сообщениях и входящих звонках (по аналогии с экраном входящего вызова, как в FaceTime); к геолокации — только когда ты сам(а) решаешь отправить точку на карте. Ничего из этого не включается без действия, инициированного тобой, и ты в любой момент можешь отозвать разрешения в настройках браузера/устройства.
+
+5. Контент
+Ты сохраняешь права на публикуемый контент, но несёшь за него полную ответственность. Администрация может удалить отдельное сообщение или весь аккаунт при нарушении правил.
+
+6. Ограничение ответственности
+Сервис предоставляется «как есть». Мы стараемся обеспечивать стабильную работу, но не гарантируем отсутствие сбоев или потери данных.
+
+7. Изменения условий
+Мы можем обновлять эти условия. О существенных изменениях сообщим через уведомление в приложении.
+
+8. Контакты
+По любым вопросам — через раздел «Поддержка» внутри приложения.`,
+        privacy: `Политика конфиденциальности Zumo
+
+1. Какие данные мы собираем
+Юзернейм, отображаемое имя, био, дата рождения (опционально), аватар; текст и медиа (фото, видео, голосовые, файлы, геометки) отправляемых сообщений; служебные данные — время отправки/прочтения, IP-адрес и user-agent сессий входа (для защиты аккаунта).
+
+2. Как мы используем данные
+Для работы функций мессенджера (доставка сообщений, звонки, уведомления, сторис), для защиты аккаунта от несанкционированного доступа и для ответа на обращения в поддержку.
+
+3. Хранение медиа
+Фото, видео и голосовые сообщения хранятся на сервере и доступны только участникам переписки.
+
+4. Доступ администрации
+Модераторы не могут открыть профиль или переписку пользователя без отдельного, дополнительного кода подтверждения — обычного входа в панель администратора для этого недостаточно.
+
+5. Передача третьим лицам
+Мы не продаём и не передаём твои данные третьим лицам, за исключением случаев, прямо предусмотренных законом.
+
+6. Твои права
+В любой момент можно скачать список своих данных через поддержку или полностью удалить аккаунт со всеми данными — Настройки → Аккаунт → Удалить аккаунт. Удаление необратимо.
+
+7. Безопасность
+Пароли хранятся в хэшированном виде (bcrypt), доступна двухфакторная аутентификация (TOTP).
+
+8. Возрастные ограничения
+Сервисом могут пользоваться лица не младше 13 лет либо старше возраста, установленного законодательством страны проживания.
+
+9. Изменения политики
+Мы можем обновлять эту политику. О существенных изменениях сообщим через уведомление в приложении.
+
+10. Контакты
+По вопросам, связанным с персональными данными — через раздел «Поддержка» внутри приложения.`
+      },
+      uz: {
+        terms: `Zumo foydalanish shartlari
+
+1. Umumiy qoidalar
+Zumo — xabar almashish, qo'ng'iroqlar va media uchun messenjer. Ro'yxatdan o'tish orqali siz kamida 13 yoshda ekaningizni va ushbu shartlarni qabul qilishingizni tasdiqlaysiz.
+
+2. Hisob
+Foydalanuvchi nomi va parolni o'zingiz tanlaysiz. Parolning xavfsizligi va hisobingiz orqali sodir bo'ladigan barcha harakatlar uchun javobgarlik sizda. Sozlamalarda ikki bosqichli autentifikatsiyani yoqishni tavsiya qilamiz.
+
+3. Xatti-harakat qoidalari
+Taqiqlangan: spam va keraksiz xabarlar yuborish, tahdid va bezorilik, noqonuniy kontent joylashtirish, boshqa shaxs sifatida ko'rinish, xizmatni buzishga urinish. Qoidabuzarlik uchun administratsiya ogohlantirishsiz kontentni o'chirish, hisobni cheklash (mute) yoki bloklash (ban) huquqiga ega.
+
+4. Qurilma ruxsatlari
+Ilova kamera va mikrofonga kirishni so'rashi mumkin — foto/video xabarlar, doira shaklidagi video xabarlar hamda audio/video qo'ng'iroqlar uchun; bildirishnomalarga — yangi xabarlar va kiruvchi qo'ng'iroqlar haqida push-bildirishnoma yuborish uchun (FaceTime kabi kiruvchi qo'ng'iroq ekraniga o'xshash); geolokatsiyaga — faqat siz xaritada nuqta yuborishga qaror qilganingizda. Bularning hech biri sizning bevosita amalingizsiz yoqilmaydi va istalgan vaqtda brauzer/qurilma sozlamalarida ruxsatlarni bekor qilishingiz mumkin.
+
+5. Kontent
+Siz joylashtirgan kontentga bo'lgan huquqlaringiz sizda qoladi, ammo unga to'liq javobgarlik ham sizda. Administratsiya qoidabuzarlik yuz berganda alohida xabarni yoki butun hisobni o'chirishi mumkin.
+
+6. Javobgarlikni cheklash
+Xizmat "bor holicha" taqdim etiladi. Biz barqaror ishlashga harakat qilamiz, biroq nosozliklar yoki ma'lumot yo'qolishining oldini to'liq kafolatlay olmaymiz.
+
+7. Shartlardagi o'zgarishlar
+Biz ushbu shartlarni yangilashimiz mumkin. Muhim o'zgarishlar haqida ilova ichida bildirishnoma orqali xabar beramiz.
+
+8. Aloqa
+Har qanday savol bo'yicha — ilovadagi «Qo'llab-quvvatlash» bo'limi orqali.`,
+        privacy: `Zumo maxfiylik siyosati
+
+1. Biz qanday ma'lumotlarni to'playmiz
+Foydalanuvchi nomi, ko'rsatiladigan ism, bio, tug'ilgan sana (ixtiyoriy), avatar; yuborilgan xabarlarning matni va mediasi (foto, video, ovozli xabarlar, fayllar, geometkalar); xizmat ma'lumotlari — yuborilgan/o'qilgan vaqti, kirish seanslarining IP-manzili va user-agent (hisobni himoya qilish uchun).
+
+2. Ma'lumotlardan qanday foydalanamiz
+Messenjer funksiyalarining ishlashi (xabarlarni yetkazish, qo'ng'iroqlar, bildirishnomalar, hikoyalar) uchun, hisobni ruxsatsiz kirishdan himoya qilish va qo'llab-quvvatlash xizmatiga javob berish uchun.
+
+3. Media saqlash
+Foto, video va ovozli xabarlar serverda saqlanadi va faqat yozishma ishtirokchilariga ochiq.
+
+4. Administratsiya kirishi
+Moderatorlar alohida, qo'shimcha tasdiqlash kodisiz foydalanuvchi profili yoki yozishmasini ocha olmaydi — administrator panelga oddiy kirish buning uchun yetarli emas.
+
+5. Uchinchi shaxslarga uzatish
+Biz sizning ma'lumotlaringizni sotmaymiz va qonun tomonidan aniq belgilangan holatlar bundan mustasno, uchinchi shaxslarga uzatmaymiz.
+
+6. Sizning huquqlaringiz
+Istalgan vaqtda qo'llab-quvvatlash orqali o'z ma'lumotlaringiz ro'yxatini so'rashingiz yoki hisobingizni barcha ma'lumotlar bilan butunlay o'chirishingiz mumkin — Sozlamalar → Hisob → Hisobni o'chirish. O'chirish qaytarib bo'lmaydi.
+
+7. Xavfsizlik
+Parollar xeshlangan holda saqlanadi (bcrypt), ikki bosqichli autentifikatsiya (TOTP) mavjud.
+
+8. Yosh cheklovi
+Xizmatdan kamida 13 yoshli yoki yashash mamlakati qonunchiligida belgilangan yoshdan katta shaxslar foydalanishi mumkin.
+
+9. Siyosatdagi o'zgarishlar
+Biz ushbu siyosatni yangilashimiz mumkin. Muhim o'zgarishlar haqida ilova ichida bildirishnoma orqali xabar beramiz.
+
+10. Aloqa
+Shaxsiy ma'lumotlar bilan bog'liq savollar bo'yicha — ilovadagi «Qo'llab-quvvatlash» bo'limi orqali.`
+      },
+      en: {
+        terms: `Zumo Terms of Use
+
+1. General
+Zumo is a messenger app for chatting, calls and media sharing. By registering, you confirm you are at least 13 years old and accept these terms.
+
+2. Account
+You choose your own username and password. You are responsible for keeping your password safe and for everything that happens through your account. We recommend enabling two-factor authentication in Settings.
+
+3. Rules of conduct
+Prohibited: spam and mass unwanted messaging, threats and harassment, posting illegal content, impersonating another person, attempting to hack the service. For violations, the administration may remove content, restrict (mute) or block (ban) an account without prior notice.
+
+4. Device permissions
+The app may request access to the camera and microphone — for photo/video messages, round video messages and audio/video calls; to notifications — to send push notifications about new messages and incoming calls (similar to an incoming-call screen, like FaceTime); to location — only when you choose to send a location pin. None of this is enabled without an action initiated by you, and you can revoke permissions at any time in your browser/device settings.
+
+5. Content
+You retain rights to the content you post, but you are fully responsible for it. The administration may remove an individual message or an entire account for rule violations.
+
+6. Limitation of liability
+The service is provided "as is". We strive for stable operation but do not guarantee against outages or data loss.
+
+7. Changes to these terms
+We may update these terms. We'll notify you of significant changes via an in-app notification.
+
+8. Contact
+For any questions — via the "Support" section inside the app.`,
+        privacy: `Zumo Privacy Policy
+
+1. What data we collect
+Username, display name, bio, birth date (optional), avatar; the text and media (photos, videos, voice messages, files, location pins) of messages you send; service data — send/read timestamps, IP address and user-agent of login sessions (for account security).
+
+2. How we use your data
+To operate the messenger's features (delivering messages, calls, notifications, stories), to protect your account from unauthorized access, and to respond to support requests.
+
+3. Media storage
+Photos, videos and voice messages are stored on the server and are only accessible to the participants of that conversation.
+
+4. Administration access
+Moderators cannot open a user's profile or conversation without a separate, additional confirmation code — a regular login to the admin panel is not enough.
+
+5. Sharing with third parties
+We do not sell or share your data with third parties, except where explicitly required by law.
+
+6. Your rights
+At any time you can request a list of your data via Support, or permanently delete your account along with all data — Settings → Account → Delete account. Deletion is irreversible.
+
+7. Security
+Passwords are stored hashed (bcrypt); two-factor authentication (TOTP) is available.
+
+8. Age restriction
+The service may be used by individuals at least 13 years old, or older where required by the laws of their country of residence.
+
+9. Changes to this policy
+We may update this policy. We'll notify you of significant changes via an in-app notification.
+
+10. Contact
+For questions related to personal data — via the "Support" section inside the app.`
+      }
+    };
+
+    let legalLang = localStorage.getItem("legalLang") || "ru";
+    let legalTab = "terms";
+
+    function openLegalModal(tab) {
+      legalTab = tab || "terms";
+      renderLegalBody();
+      document.getElementById("legalModal").classList.remove("hidden");
+    }
+    function closeLegalModal() {
+      document.getElementById("legalModal").classList.add("hidden");
+    }
+    function switchLegalTab(tab) {
+      legalTab = tab;
+      renderLegalBody();
+    }
+    function switchLegalLang(lang) {
+      legalLang = lang;
+      localStorage.setItem("legalLang", lang);
+      renderLegalBody();
+    }
+    function renderLegalBody() {
+      const t = LEGAL_TEXT[legalLang] || LEGAL_TEXT.ru;
+      document.getElementById("legalTermsBody").textContent = t.terms;
+      document.getElementById("legalPrivacyBody").textContent = t.privacy;
+      document.getElementById("legalTabTerms").classList.toggle("active", legalTab === "terms");
+      document.getElementById("legalTabPrivacy").classList.toggle("active", legalTab === "privacy");
+      document.getElementById("legalTermsBody").classList.toggle("hidden", legalTab !== "terms");
+      document.getElementById("legalPrivacyBody").classList.toggle("hidden", legalTab !== "privacy");
+      document.getElementById("legalLangRu").classList.toggle("active", legalLang === "ru");
+      document.getElementById("legalLangUz").classList.toggle("active", legalLang === "uz");
+      document.getElementById("legalLangEn").classList.toggle("active", legalLang === "en");
+    }
+
+    let mode = "login";
+    let pendingToken = null;
+
+    function switchTab(m){
+      mode = m;
+      document.getElementById("tabLogin").classList.toggle("active", m==="login");
+      document.getElementById("tabReg").classList.toggle("active", m==="reg");
+    }
+
+    function show2FAStep(token){
+      pendingToken = token;
+      document.getElementById("authTabs").classList.add("hidden");
+      document.getElementById("authForm").classList.add("hidden");
+      document.getElementById("twoFAForm").classList.remove("hidden");
+    }
+
+    function cancel2FA(){
+      pendingToken = null;
+      document.getElementById("twoFACode").value = "";
+      document.getElementById("authTabs").classList.remove("hidden");
+      document.getElementById("authForm").classList.remove("hidden");
+      document.getElementById("twoFAForm").classList.add("hidden");
+    }
+
+    // ===== Сквозное шифрование: ключ для резервной копии выводится из пароля прямо здесь =====
+    // Сам пароль дальше страницы входа не уходит: в браузере остаётся только производный секрет,
+    // которым закрыта резервная копия ключа. Благодаря этому переписка открывается на новом
+    // устройстве сразу после обычного входа — без отдельных паролей и настроек.
+    let e2ePassword = "";
+    async function prepareE2E(token, password) {
+      try {
+        if (!password || !window.crypto || !crypto.subtle) return;
+        const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const fromB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+        const r = await fetch("/api/e2e/me", { headers: { Authorization: "Bearer " + token } });
+        const d = await r.json();
+        let salt = "";
+        try { const b = JSON.parse(d.backup || "{}"); if (b.auto && b.autoSalt) salt = b.autoSalt; } catch {}
+        if (!salt) salt = toB64(crypto.getRandomValues(new Uint8Array(16)));
+
+        const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+        const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: fromB64(salt), iterations: 200000, hash: "SHA-256" }, base, 256);
+        localStorage.setItem("zumoE2EAutoPending", JSON.stringify({ secret: toB64(bits), salt }));
+      } catch {}
+    }
+
+    // ===== Несколько аккаунтов: возврат в уже вошедший аккаунт одним нажатием =====
+    (function () {
+      let list = [];
+      try { list = JSON.parse(localStorage.getItem("zumoAccounts") || "[]"); } catch {}
+      if (!Array.isArray(list) || !list.length) return;
+      const box = document.getElementById("savedAccounts");
+      const safe = (v) => String(v || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      box.style.display = "block";
+      box.innerHTML = '<div class="savedaccs-title">Вернуться в аккаунт</div>' + list.map((a, i) =>
+        `<button type="button" class="savedacc" data-i="${i}">
+           <span class="savedacc-ava">${a.avatarUrl ? `<img src="${safe(a.avatarUrl)}" alt="">` : safe((a.displayName || a.username || "?")[0].toUpperCase())}</span>
+           <span class="savedacc-name">${safe(a.displayName || a.username)}<small>@${safe(a.username)}</small></span>
+         </button>`).join("") + '<div class="savedaccs-title">или войди в другой</div>';
+      box.querySelectorAll(".savedacc").forEach((b) => b.onclick = () => {
+        localStorage.setItem("token", list[Number(b.dataset.i)].token);
+        location.href = "chat.html";
+      });
+    })();
+
+    async function submitAuth(){
+      const identifier = document.getElementById("identifier").value.trim();
+      const password = document.getElementById("password").value.trim();
+      if(!identifier || !password) return alert("Заполни поля");
+
+      const accepted = document.getElementById("acceptTermsBox").checked;
+      if (mode === "reg" && !accepted) {
+        return alert("Нужно согласиться с Условиями использования и Политикой конфиденциальности");
+      }
+
+      const url = mode === "login" ? "/api/auth/login" : "/api/auth/register";
+      const body = mode === "login"
+        ? { identifier, password }
+        : { username: identifier, password, acceptedTerms: accepted };
+
+      const r = await fetch(url, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(body)
+      });
+      const d = await r.json();
+      if(!d.ok) return alert(d.error || "Ошибка");
+
+      if (d.need2FA) {
+        e2ePassword = password;
+        show2FAStep(d.pendingToken);
+        return;
+      }
+
+      localStorage.setItem("token", d.token);
+      await prepareE2E(d.token, password);
+      location.href = "chat.html";
+    }
+
+    async function submit2FA(){
+      const code = document.getElementById("twoFACode").value.trim();
+      if (!/^\d{6}$/.test(code)) return alert("Введи 6-значный код");
+
+      const r = await fetch("/api/auth/2fa-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pendingToken, code })
+      });
+      const d = await r.json();
+      if (!d.ok) return alert(d.error || "Ошибка");
+
+      localStorage.setItem("token", d.token);
+      await prepareE2E(d.token, e2ePassword);
+      e2ePassword = "";
+      location.href = "chat.html";
+    }
+
+    // ===== Вход через Google =====
+    (async function () {
+      try {
+        const r = await fetch("/api/oauth/google-client-id");
+        const d = await r.json();
+        if (!d.ok || !d.clientId) {
+          document.getElementById("googleLoginBox").style.display = "none";
+          return;
+        }
+
+        function initGoogle() {
+          google.accounts.id.initialize({
+            client_id: d.clientId,
+            callback: onGoogleCredential
+          });
+          google.accounts.id.renderButton(
+            document.getElementById("googleBtnContainer"),
+            { theme: "filled_black", size: "large", shape: "pill", text: "continue_with", width: 280 }
+          );
+        }
+
+        if (window.google && window.google.accounts) initGoogle();
+        else {
+          const check = setInterval(() => {
+            if (window.google && window.google.accounts) { clearInterval(check); initGoogle(); }
+          }, 100);
+        }
+      } catch {
+        document.getElementById("googleLoginBox").style.display = "none";
+      }
+    })();
+
+    async function onGoogleCredential(response) {
+      try {
+        const accepted = document.getElementById("acceptTermsBox").checked;
+        const r = await fetch("/api/auth/google", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ credential: response.credential, acceptedTerms: accepted })
+        });
+        const d = await r.json();
+        if (!d.ok) { alert(d.error || "Не получилось войти через Google"); return; }
+        localStorage.setItem("token", d.token);
+        location.href = "chat.html";
+      } catch {
+        alert("Ошибка входа через Google");
+      }
+    }
+  </script>
+</body>
+</html>
