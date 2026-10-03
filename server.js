@@ -170,8 +170,8 @@ function buildIcon(S) {
   const px = Buffer.alloc(S * S * 4);
   const radius = S * 0.23;
   const AA = 3;
-  const c1 = [42, 157, 244];
-  const c2 = [106, 92, 255];
+  const c1 = [78, 150, 255];   // синий, как у Telegram: чуть светлее сверху
+  const c2 = [44, 116, 240];   // и чуть глубже снизу
 
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
@@ -239,11 +239,11 @@ app.get("/manifest.json", (req, res) => {
     short_name: "Zumo",
     start_url: "/chat.html",
     display: "standalone",
-    background_color: "#0b1420",
-    theme_color: "#0b1420",
+    background_color: "#0b132b",
+    theme_color: "#0b132b",
     icons: [
-      { src: "/icon-192.png?v=3", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png?v=3", sizes: "512x512", type: "image/png", purpose: "any" }
+      { src: "/icon-192.png?v=4", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png?v=4", sizes: "512x512", type: "image/png", purpose: "any" }
     ]
   });
 });
@@ -811,7 +811,7 @@ function safeUser(u) {
 const SUPPORT_CARD = {
   username: "support",
   displayName: "Поддержка Zumo",
-  avatarUrl: "/icon-192.png?v=3",
+  avatarUrl: "/icon-192.png?v=4",
   verified: true,
   emojiStatus: "",
   birthdayToday: false
