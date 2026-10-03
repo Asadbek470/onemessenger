@@ -85,12 +85,30 @@
     localStorage.setItem(storeKey(), JSON.stringify({ kid: E2E.kid, priv: E2E.privJwk, pub: E2E.pubJwk }));
   }
 
+  // «Связка» всех ключей, которые когда-либо были на этом устройстве: по ней читаются
+  // старые сообщения, даже если основной ключ потом сменился.
+  const ringStore = () => "zumoE2ERing:" + me.username;
+  const ringJwk = {};          // kid -> закрытый ключ (JWK)
+  const ringKeys = new Map();  // kid -> CryptoKey
+  function loadRing() {
+    try { Object.assign(ringJwk, JSON.parse(localStorage.getItem(ringStore()) || "{}")); } catch {}
+  }
+  async function ringPriv(kid) {
+    if (ringKeys.has(kid)) return ringKeys.get(kid);
+    if (!ringJwk[kid]) return null;
+    const k = await importPriv(ringJwk[kid]);
+    ringKeys.set(kid, k);
+    return k;
+  }
+
   async function adopt(privJwk) {
     E2E.privJwk = privJwk;
     E2E.pubJwk = pubOnly(privJwk);
     E2E.priv = await importPriv(privJwk);
     E2E.kid = await kidOf(E2E.pubJwk);
-    E2E.aes.clear();
+    ringJwk[E2E.kid] = privJwk;
+    ringKeys.set(E2E.kid, E2E.priv);
+    try { localStorage.setItem(ringStore(), JSON.stringify(ringJwk)); } catch {}
     saveLocal();
   }
 
@@ -115,13 +133,46 @@
       base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
     );
   }
-  async function makeBackup(password) {
+  async function makeBackup(password, iter, extra) {
+    iter = iter || PBKDF2_ITER;
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const key = await wrapKeyFromPassword(password, salt, PBKDF2_ITER);
+    const key = await wrapKeyFromPassword(password, salt, iter);
     const ct = await subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(JSON.stringify(E2E.privJwk)));
-    return { v: 1, salt: b64(salt), iv: b64(iv), ct: b64(ct), iter: PBKDF2_ITER, keyId: E2E.kid };
+    return Object.assign({ v: 1, salt: b64(salt), iv: b64(iv), ct: b64(ct), iter, keyId: E2E.kid }, extra || {});
   }
+
+  // ---------------- автоматическая копия, закрытая паролем аккаунта ----------------
+  // На странице входа из пароля выводится секрет (PBKDF2, 200 000 итераций) и кладётся в браузер.
+  // Этим секретом шифруется резервная копия ключа — человеку ничего настраивать не нужно:
+  // вошёл с новым устройством обычным паролем, и переписка открылась.
+  const AUTO_ITER = 200000;
+  const autoStore = () => "zumoE2EAuto:" + me.username;
+
+  async function deriveAuto(password, saltB64) {
+    const base = await subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+    const bits = await subtle.deriveBits({ name: "PBKDF2", salt: unb64(saltB64), iterations: AUTO_ITER, hash: "SHA-256" }, base, 256);
+    return b64(bits);
+  }
+  function loadAuto() {
+    try {
+      const pending = localStorage.getItem("zumoE2EAutoPending"); // оставлено страницей входа
+      if (pending) { localStorage.setItem(autoStore(), pending); localStorage.removeItem("zumoE2EAutoPending"); }
+      const a = JSON.parse(localStorage.getItem(autoStore()) || "null");
+      return a && a.secret && a.salt ? a : null;
+    } catch { return null; }
+  }
+  function saveAuto(a) { localStorage.setItem(autoStore(), JSON.stringify(a)); E2E.auto = a; }
+
+  const makeAutoBackup = () => makeBackup(E2E.auto.secret, 1000, { auto: true, autoSalt: E2E.auto.salt });
+
+  async function saveAutoBackup() {
+    const backup = await makeAutoBackup();
+    const d = await api("/api/e2e/backup", "PUT", { backup });
+    if (!d.ok) throw new Error(d.error || "backup");
+    E2E.serverBackup = JSON.stringify(backup);
+  }
+  const backupInfo = () => { try { return JSON.parse(E2E.serverBackup || "null"); } catch { return null; } };
   async function openBackup(backupStr, password) {
     const b = JSON.parse(backupStr);
     const key = await wrapKeyFromPassword(password, unb64(b.salt), b.iter || PBKDF2_ITER);
@@ -133,7 +184,7 @@
   async function peerCurrentKey(username) {
     if (username === me.username && E2E.state === "ready") return { keyId: E2E.kid, publicKey: E2E.pubJwk };
     const c = E2E.peerCurrent.get(username);
-    if (c && Date.now() - c.at < 60000) return c;
+    if (c && Date.now() - c.at < 20000) return c;
     const d = await api("/api/e2e/key/" + encodeURIComponent(username));
     const rec = { at: Date.now(), keyId: (d.ok && d.keyId) || "", publicKey: d.ok && d.publicKey ? JSON.parse(d.publicKey) : null };
     E2E.peerCurrent.set(username, rec);
@@ -144,7 +195,7 @@
     const id = username + ":" + kid;
     if (E2E.peerByKid.has(id)) return E2E.peerByKid.get(id);
     let jwk = null;
-    if (username === me.username && kid === E2E.kid) jwk = E2E.pubJwk;
+    if (username === me.username && ringJwk[kid]) jwk = pubOnly(ringJwk[kid]);
     else {
       const cur = E2E.peerCurrent.get(username);
       if (cur && cur.keyId === kid) jwk = cur.publicKey;
@@ -159,10 +210,13 @@
     return key;
   }
 
-  async function aesFor(username, kid) {
-    const id = username + ":" + kid;
+  async function aesFor(username, kid, myKid) {
+    myKid = myKid || E2E.kid;
+    const id = myKid + "|" + username + ":" + kid;
     if (E2E.aes.has(id)) return E2E.aes.get(id);
-    const bits = await subtle.deriveBits({ name: "ECDH", public: await peerPub(username, kid) }, E2E.priv, 256);
+    const priv = await ringPriv(myKid);
+    if (!priv) throw new Error("нет своего ключа");
+    const bits = await subtle.deriveBits({ name: "ECDH", public: await peerPub(username, kid) }, priv, 256);
     const hk = await subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);
     const key = await subtle.deriveKey(
       { name: "HKDF", hash: "SHA-256", salt: enc.encode("zumo-e2e-v1"), info: new Uint8Array(0) },
@@ -194,22 +248,25 @@
     if (p.length !== 6) throw new Error("формат");
     const myKid = iAmSender ? p[2] : p[3];
     const peerKid = iAmSender ? p[3] : p[2];
-    const selfChat = peer === me.username;
-    if (!selfChat && myKid !== E2E.kid) throw new Error("другой ключ");
-    if (selfChat && p[2] !== E2E.kid && p[3] !== E2E.kid) throw new Error("другой ключ");
-    const key = await aesFor(peer, selfChat ? E2E.kid : peerKid);
+    if (!ringJwk[myKid]) throw new Error("другой ключ"); // зашифровано ключом, которого на этом устройстве не было
+    const key = await aesFor(peer, peerKid, myKid);
     const plain = await subtle.decrypt({ name: "AES-GCM", iv: unb64(p[4]) }, key, unb64(p[5]));
     return dec.decode(plain);
   }
 
-  const FAIL_TEXT = "🔒 Сообщение зашифровано ключом, которого нет на этом устройстве";
+  const FAIL_TEXT = "🔒 Зашифрованное сообщение";
 
   // Расшифровать текст сообщения «на месте». peer — второй участник личного чата.
   async function openOne(obj, peer, iAmSender) {
     if (!obj || !isCipher(obj.text)) return;
     obj.e2e = true;
     obj.e2eRaw = obj.text;
-    if (E2E.state !== "ready") { obj.text = FAIL_TEXT; obj.e2eFail = true; return; }
+    // собеседник пишет уже новым ключом — забываем его старый, чтобы отвечать правильным
+    if (!iAmSender) {
+      const senderKid = obj.text.split(":")[2];
+      const cur = E2E.peerCurrent.get(peer);
+      if (cur && cur.keyId !== senderKid) E2E.peerCurrent.delete(peer);
+    }
     try { obj.text = await decryptText(obj.text, peer, iAmSender); }
     catch { obj.text = FAIL_TEXT; obj.e2eFail = true; }
   }
@@ -242,19 +299,14 @@
     let pk;
     try { pk = await peerCurrentKey(chat); } catch { pk = { keyId: "" }; }
 
-    if (E2E.state !== "ready") {
-      if (E2E.state === "unsupported") return text;
-      if (!pk.keyId && chat !== me.username) return text; // собеседник без ключа — шифровать нечем
-      alert("На этом устройстве нет твоего ключа шифрования. Восстанови его, чтобы писать в личные чаты.");
-      showKeyModal();
-      return null;
-    }
+    // Общение важнее шифрования: если зашифровать нечем (нет ключа у меня или у собеседника,
+    // сбой сети) — сообщение уходит обычным текстом, отправка никогда не блокируется.
+    if (E2E.state !== "ready" || !pk.keyId) return text;
     try {
       const c = await encryptFor(chat, text);
       return c == null ? text : c;
     } catch {
-      alert("Не удалось зашифровать сообщение. Проверь соединение и попробуй ещё раз.");
-      return null;
+      return text;
     }
   };
 
@@ -262,11 +314,13 @@
   window.e2eChatHint = async function (chat) {
     if (!subtle || !isE2EChat(chat)) return "";
     if (E2E.state !== "ready") {
-      return E2E.state === "unsupported" ? "" :
-        `<div class="e2ehint warn" onclick="e2eShowKeyModal()">🔑 На этом устройстве нет ключа шифрования — нажми, чтобы восстановить</div>`;
+      if (E2E.state === "unsupported") return "";
+      return E2E.state === "need-restore"
+        ? `<div class="e2ehint warn" onclick="e2eShowKeyModal()">🔑 Часть сообщений зашифрована. Нажми сюда и введи пароль, чтобы их открыть</div>`
+        : `<div class="e2ehint warn" onclick="e2eShowKeyModal()">🔑 Часть сообщений зашифрована на другом твоём устройстве. Нажми, чтобы узнать, как их открыть</div>`;
     }
     let pk; try { pk = await peerCurrentKey(chat); } catch { return ""; }
-    if (!pk.keyId) return `<div class="e2ehint warn">Собеседник ещё не открывал обновлённое приложение — пока сообщения не шифруются</div>`;
+    if (!pk.keyId) return ""; // у собеседника ещё нет ключа — просто общаемся как раньше
     return `<div class="e2ehint">🔒 Сообщения в этом чате защищены сквозным шифрованием — их видите только вы</div>`;
   };
 
@@ -280,9 +334,15 @@
       const srv = await api("/api/e2e/me");
       if (!srv.ok) throw new Error("server");
       E2E.serverBackup = srv.backup || "";
+      E2E.google = !!srv.google;
 
+      loadRing();
       const local = loadLocal();
-      if (local && local.priv) await adopt(local.priv);
+      const hadLocalKey = !!(local && local.priv);
+      if (hadLocalKey) await adopt(local.priv);
+
+      E2E.auto = loadAuto();
+      let fresh = false;
 
       if (E2E.priv && srv.keyId === E2E.kid) {
         E2E.state = "ready";
@@ -293,16 +353,45 @@
         await generate();
         await publish();
         E2E.state = "ready";
-        setTimeout(() => showBackupModal(true), 1200); // первый запуск — сразу предлагаем резервную копию
+        fresh = true;
       } else {
         // на сервере другой ключ: он создан на другом устройстве (или наш устарел)
-        E2E.priv = null; E2E.kid = ""; E2E.aes.clear();
-        E2E.state = srv.backup ? "need-restore" : "need-reset";
-        setTimeout(showKeyModal, 800);
+        E2E.priv = null; E2E.kid = "";
+        const b = backupInfo();
+        if (b && b.auto && E2E.auto && E2E.auto.salt === b.autoSalt) {
+          // обычный случай «вошёл с нового телефона»: копия открывается сама, без вопросов
+          try { await adopt(await openBackup(E2E.serverBackup, E2E.auto.secret)); E2E.state = "ready"; } catch {}
+        }
+        if (E2E.state !== "ready") {
+          E2E.priv = null; E2E.kid = "";
+          if (srv.backup) {
+            // копию можно открыть паролем — но никаких окон сами не показываем:
+            // писать можно и так, а подсказка «открыть переписку» есть в самом чате
+            E2E.state = "need-restore";
+          } else if (hadLocalKey) {
+            // здесь остался прежний ключ, а новый создан на другом устройстве и копии у него нет.
+            // Сами ничего не пересоздаём (иначе два устройства будут бесконечно сбрасывать ключ друг другу).
+            E2E.state = "need-reset";
+          } else {
+            // новое устройство, открыть нечем — тихо создаём новый ключ, чтобы здесь всё работало
+            await generate();
+            await publish();
+            E2E.state = "ready";
+          }
+        }
+      }
+
+      if (E2E.state === "ready") {
+        if (!E2E.serverBackup && E2E.auto) {
+          try { await saveAutoBackup(); } catch {}
+        }
+        if (fresh) setTimeout(() => toast("🔒 Личные чаты теперь защищены шифрованием"), 1500);
+        // Никаких окон с вопросами: шифрование — это бонус, оно не должно мешать общаться.
+        // Сохранить ключ для других устройств можно в Настройки → Безопасность.
       }
     } catch (e) {
       console.warn("[E2E] init:", e && e.message);
-      if (E2E.state === "init") E2E.state = E2E.priv ? "ready" : "need-reset";
+      if (E2E.state === "init") E2E.state = E2E.priv ? "ready" : "unsupported"; // нет связи — просто работаем без шифрования
     }
     renderSettings();
   };
@@ -330,13 +419,18 @@
     color:#fff;font-size:15px;outline:none}
   .e2ecard .e2eerr{color:#ff8a8a;font-size:13px;min-height:16px}
   .e2ecard .e2ebtns{display:flex;flex-direction:column;gap:8px}
+  .e2emore{border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:10px 12px}
+  .e2emore summary{cursor:pointer;font-size:13px;font-weight:700;color:#9fb6d3}
+  .e2emore[open] summary{margin-bottom:8px}
+  .e2emore > *{margin-top:8px}
   .e2efp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;letter-spacing:.5px;color:#9fc4ee;overflow-wrap:anywhere}
   `;
+
+  const st = document.createElement("style"); st.textContent = CSS; document.head.appendChild(st);
 
   let modalEl = null;
   function modal(html) {
     if (!modalEl) {
-      const st = document.createElement("style"); st.textContent = CSS; document.head.appendChild(st);
       modalEl = document.createElement("div");
       modalEl.className = "e2emodal hidden";
       document.body.appendChild(modalEl);
@@ -349,29 +443,81 @@
   function closeModal() { if (modalEl) modalEl.classList.add("hidden"); }
   window.e2eCloseModal = closeModal;
 
+  // Один раз просим пароль от аккаунта, чтобы закрыть им резервную копию ключа.
+  // Не чаще раза в неделю; у кого вход только через Google — можно пропустить.
+  function maybeAskAccountPassword() {
+    try {
+      const last = Number(localStorage.getItem("zumoE2EAskedAt:" + me.username) || 0);
+      if (Date.now() - last < 7 * 24 * 3600 * 1000) return;
+      localStorage.setItem("zumoE2EAskedAt:" + me.username, String(Date.now()));
+    } catch {}
+    // Кто входит через Google, пароля от аккаунта Zumo не имеет — ему предлагаем придумать свой
+    if (E2E.google) showBackupModal(true); else showAccountPwModal();
+  }
+
+  function showAccountPwModal() {
+    if (E2E.state !== "ready") return;
+    modal(`
+      <h3>🔒 Защита переписки</h3>
+      <p>Твои личные сообщения теперь шифруются. Чтобы они открывались на любом твоём устройстве, подтверди пароль от аккаунта Zumo — больше ничего настраивать не нужно.</p>
+      <input id="e2eAccPw" type="password" placeholder="Пароль от аккаунта" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter') e2eConfirmAccountPw()">
+      <div class="e2eerr" id="e2eErr"></div>
+      <div class="e2ebtns">
+        <button class="btn primary full" onclick="e2eConfirmAccountPw()">Подтвердить</button>
+        <button class="btn ghost full" onclick="e2eShowBackupModal(true)">У меня нет пароля — я вхожу через Google</button>
+        <button class="btn ghost full" onclick="e2eCloseModal()">Позже</button>
+      </div>
+    `);
+  }
+  window.e2eShowAccountPwModal = showAccountPwModal;
+
+  window.e2eConfirmAccountPw = async function () {
+    const err = document.getElementById("e2eErr");
+    const pw = document.getElementById("e2eAccPw").value.trim();
+    if (!pw) return;
+    err.textContent = "Проверяем...";
+    try {
+      const d = await api("/api/auth/check-password", "POST", { password: pw });
+      if (!d.ok) {
+        err.textContent = d.google
+          ? "Неверный пароль. Пароль от Google сюда не подходит — нажми кнопку «У меня нет пароля» ниже."
+          : "Неверный пароль";
+        return;
+      }
+      const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
+      saveAuto({ secret: await deriveAuto(pw, salt), salt });
+      await saveAutoBackup();
+      closeModal();
+      toast("Готово — переписка защищена ✅");
+      renderSettings();
+    } catch (e) { err.textContent = "Не получилось, попробуй ещё раз"; }
+  };
+
   // Создание / смена резервной копии
   function showBackupModal(firstRun) {
     if (E2E.state !== "ready") return;
     modal(`
-      <h3>🔒 ${firstRun ? "Сквозное шифрование включено" : "Резервная копия ключа"}</h3>
-      <p>${firstRun ? "Личные сообщения теперь шифруются на твоём устройстве — их не видит никто, кроме тебя и собеседника. " : ""}
-         Придумай пароль для резервной копии ключа. Он понадобится, чтобы читать переписку на новом телефоне или после очистки браузера.</p>
-      <p><b>Если забыть пароль и потерять устройство — старые сообщения прочитать будет нельзя.</b> Восстановить его не сможет никто, включая поддержку.</p>
-      <input id="e2ePw1" type="password" placeholder="Пароль (минимум 8 символов)" autocomplete="new-password">
+      <h3>🔒 ${firstRun ? "Защита переписки" : "Пароль защиты переписки"}</h3>
+      <p>${firstRun ? "Твои личные сообщения теперь шифруются. " : ""}
+         Придумай новый пароль для защиты переписки. <b>Это не пароль от Google</b> — просто любой пароль, который ты запомнишь.
+         Его нужно будет ввести один раз на новом телефоне, чтобы открыть переписку.</p>
+      <p>Если забыть его и потерять устройство — старые сообщения прочитать будет нельзя.</p>
+      <input id="e2ePw1" type="password" placeholder="Новый пароль (минимум 6 символов)" autocomplete="new-password">
       <input id="e2ePw2" type="password" placeholder="Повтори пароль" autocomplete="new-password">
       <div class="e2eerr" id="e2eErr"></div>
       <div class="e2ebtns">
-        <button class="btn primary full" onclick="e2eSaveBackup()">Сохранить резервную копию</button>
-        <button class="btn ghost full" onclick="e2eCloseModal()">${firstRun ? "Позже" : "Отмена"}</button>
+        <button class="btn primary full" onclick="e2eSaveBackup()">Сохранить</button>
+        <button class="btn ghost full" onclick="e2eCloseModal()">Отмена</button>
       </div>
     `);
   }
-  window.e2eShowBackupModal = () => showBackupModal(false);
+  window.e2eShowBackupModal = (first) => showBackupModal(!!first);
 
   window.e2eSaveBackup = async function () {
     const p1 = document.getElementById("e2ePw1").value, p2 = document.getElementById("e2ePw2").value;
     const err = document.getElementById("e2eErr");
-    if (p1.length < 8) { err.textContent = "Пароль слишком короткий — минимум 8 символов"; return; }
+    if (p1.length < 6) { err.textContent = "Пароль слишком короткий — минимум 6 символов"; return; }
     if (p1 !== p2) { err.textContent = "Пароли не совпадают"; return; }
     err.textContent = "Шифруем...";
     try {
@@ -380,7 +526,7 @@
       if (!d.ok) throw new Error(d.error);
       E2E.serverBackup = JSON.stringify(backup);
       closeModal();
-      toast("Резервная копия ключа сохранена ✅");
+      toast("Готово — переписка защищена ✅");
       renderSettings();
     } catch (e) { err.textContent = (e && e.message) || "Не удалось сохранить"; }
   };
@@ -390,26 +536,26 @@
     if (E2E.state === "need-restore") {
       modal(`
         <h3>🔑 Восстановление ключа шифрования</h3>
-        <p>Твои личные чаты защищены сквозным шифрованием. Чтобы читать их на этом устройстве, введи пароль резервной копии ключа.</p>
-        <input id="e2ePw" type="password" placeholder="Пароль резервной копии" autocomplete="current-password"
+        <p>Твои личные чаты защищены шифрованием. Чтобы читать их на этом устройстве, введи ${(backupInfo() || {}).auto ? "пароль от аккаунта Zumo" : "пароль защиты переписки, который ты придумал(а) раньше (не пароль от Google)"}.</p>
+        <input id="e2ePw" type="password" placeholder="Пароль" autocomplete="current-password"
                onkeydown="if(event.key==='Enter') e2eRestore()">
         <div class="e2eerr" id="e2eErr"></div>
         <div class="e2ebtns">
           <button class="btn primary full" onclick="e2eRestore()">Восстановить</button>
           <button class="btn ghost full" onclick="e2eCloseModal()">Позже</button>
-          <button class="btn danger full" onclick="e2eResetKey()">Не помню пароль — создать новый ключ</button>
+          <button class="btn danger full" onclick="e2eResetKey()">Не помню пароль — начать заново</button>
         </div>
       `);
     } else if (E2E.state === "need-reset") {
       modal(`
-        <h3>🔑 Ключ шифрования на другом устройстве</h3>
-        <p>Ключ от твоих личных чатов хранится на устройстве, где ты входил(а) раньше, и резервной копии у него нет.</p>
-        <p>Открой Zumo на том устройстве → Настройки → Безопасность → «Сквозное шифрование» → создай резервную копию, а потом вернись сюда.</p>
-        <p>Либо создай новый ключ здесь — но тогда <b>прежние зашифрованные сообщения перестанут читаться</b> на всех устройствах.</p>
+        <h3>🔑 Сообщения зашифрованы на другом устройстве</h3>
+        <p>Ты недавно вошёл(ла) в Zumo с другого устройства, и защита переписки теперь настроена там. Писать сообщения можно и здесь — всё работает.</p>
+        <p>Чтобы и здесь читать зашифрованные сообщения: открой Zumo на том устройстве → Настройки → Безопасность → задай пароль защиты. Потом обнови страницу здесь и введи его.</p>
+        <p>Либо сделай основным это устройство — новые сообщения будут открываться здесь, но прежние зашифрованные прочитать не получится.</p>
         <div class="e2eerr" id="e2eErr"></div>
         <div class="e2ebtns">
-          <button class="btn ghost full" onclick="e2eCloseModal()">Понятно, вернусь позже</button>
-          <button class="btn danger full" onclick="e2eResetKey()">Создать новый ключ</button>
+          <button class="btn ghost full" onclick="e2eCloseModal()">Понятно</button>
+          <button class="btn danger full" onclick="e2eResetKey()">Сделать основным это устройство</button>
         </div>
       `);
     }
@@ -422,7 +568,16 @@
     if (!pw) return;
     err.textContent = "Проверяем...";
     try {
-      const privJwk = await openBackup(E2E.serverBackup, pw);
+      const b = backupInfo();
+      let privJwk;
+      if (b && b.auto) {
+        // копия закрыта паролем аккаунта
+        const secret = await deriveAuto(pw.trim(), b.autoSalt);
+        privJwk = await openBackup(E2E.serverBackup, secret);
+        saveAuto({ secret, salt: b.autoSalt });
+      } else {
+        privJwk = await openBackup(E2E.serverBackup, pw);
+      }
       await adopt(privJwk);
       const srv = await api("/api/e2e/me");
       if (srv.keyId !== E2E.kid) await publish(JSON.parse(E2E.serverBackup)); // копия от прежнего ключа — делаем его текущим
@@ -437,16 +592,17 @@
   };
 
   window.e2eResetKey = async function () {
-    if (!confirm("Создать новый ключ шифрования? Прежние зашифрованные сообщения перестанут читаться. Это нельзя отменить.")) return;
+    if (!confirm("Начать с новым ключом? Новые сообщения будут работать как обычно, но прежние зашифрованные открыть уже не получится.")) return;
     try {
       await generate();
       E2E.serverBackup = "";
       await publish();
       E2E.state = "ready";
+      if (E2E.auto) { try { await saveAutoBackup(); } catch {} }
       closeModal();
       toast("Создан новый ключ шифрования");
       await afterKeyChanged();
-      setTimeout(() => showBackupModal(false), 600);
+
     } catch (e) {
       alert((e && e.message) || "Не удалось создать ключ");
     }
@@ -466,17 +622,22 @@
         <button class="btn primary full" onclick="e2eShowKeyModal()"><i class="fa-solid fa-key"></i> Восстановить ключ</button>`;
       return;
     }
-    const hasBackup = !!E2E.serverBackup;
+    const info = backupInfo();
+    const status = !info
+      ? "⚠️ Ключ хранится только на этом устройстве. Задай пароль, чтобы переписка открывалась и на других."
+      : info.auto
+        ? "✅ Всё настроено: на новом устройстве переписка откроется сама после обычного входа с паролем."
+        : "✅ Всё настроено: на новом устройстве нужно будет один раз ввести пароль защиты переписки.";
     box.innerHTML = `
       <div class="hint">🔒 Личные чаты и «Избранное» шифруются на твоём устройстве. Сервер хранит только шифр и прочитать его не может.</div>
-      <div class="hint">Отпечаток твоего ключа:<br><span class="e2efp">${fingerprint(E2E.kid)}</span></div>
-      <div class="hint">${hasBackup
-        ? "✅ Резервная копия ключа создана — на новом устройстве понадобится её пароль."
-        : "⚠️ Резервной копии нет. Если очистить браузер или сменить телефон, переписка станет нечитаемой."}</div>
-      <button class="btn ${hasBackup ? "ghost" : "primary"} full" onclick="e2eShowBackupModal()">
-        <i class="fa-solid fa-shield-halved"></i> ${hasBackup ? "Сменить пароль резервной копии" : "Создать резервную копию ключа"}
-      </button>
-      <button class="btn danger full" onclick="e2eResetKey()"><i class="fa-solid fa-rotate"></i> Создать новый ключ</button>`;
+      <div class="hint">${status}</div>
+      ${!info ? `<button class="btn primary full" onclick="${E2E.google ? "e2eShowBackupModal(true)" : "e2eShowAccountPwModal()"}"><i class="fa-solid fa-shield-halved"></i> ${E2E.google ? "Придумать пароль защиты" : "Подтвердить пароль аккаунта"}</button>` : ""}
+      <details class="e2emore">
+        <summary>Дополнительно</summary>
+        <div class="hint">Отпечаток твоего ключа:<br><span class="e2efp">${fingerprint(E2E.kid)}</span></div>
+        <button class="btn ghost full" onclick="e2eShowBackupModal()"><i class="fa-solid fa-key"></i> Задать отдельный пароль защиты</button>
+        <button class="btn danger full" onclick="e2eResetKey()"><i class="fa-solid fa-rotate"></i> Создать новый ключ</button>
+      </details>`;
   }
   window.e2eRenderSettings = renderSettings;
 })();
