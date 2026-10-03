@@ -41,6 +41,15 @@
     body.auth{flex-direction:column;justify-content:flex-start;gap:18px;min-height:100vh;box-sizing:border-box}
     body.auth > .auth-card{margin-top:auto;flex:none}
     body.auth > .seoabout{margin-bottom:auto;flex:none}
+    .savedaccs{margin-bottom:14px}
+    .savedaccs-title{font-size:12px;color:#8fa3bd;margin:0 0 8px}
+    .savedacc{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;margin-bottom:8px;border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#eaf2ff;cursor:pointer;font:inherit;text-align:left}
+    .savedacc-ava{width:38px;height:38px;border-radius:50%;overflow:hidden;flex:none;display:grid;place-items:center;
+      font-weight:800;background:linear-gradient(135deg,#2a9df4,#6a5cff)}
+    .savedacc-ava img{width:100%;height:100%;object-fit:cover}
+    .savedacc-name{display:flex;flex-direction:column;font-weight:700;font-size:14px;min-width:0}
+    .savedacc-name small{font-weight:500;color:#8fa3bd;font-size:12px}
     .seoabout{width:min(420px,100%);padding:0 6px 20px;text-align:center;color:#8fa3bd;font-size:13px;line-height:1.55}
     .seoabout h2{font-size:15px;margin:0 0 8px;color:#cdd9ea}
     .seoabout p{margin:0 0 8px}
@@ -57,6 +66,9 @@
         <p>Мессенджер Зумо — без номера телефона. Вход по @username</p>
       </div>
     </div>
+
+    <!-- аккаунты, в которые уже входили на этом устройстве -->
+    <div id="savedAccounts" class="savedaccs" style="display:none"></div>
 
     <div class="tabs" id="authTabs">
       <button class="tab active" id="tabLogin" onclick="switchTab('login')">Вход</button>
@@ -386,6 +398,25 @@ For questions related to personal data — via the "Support" section inside the 
         localStorage.setItem("zumoE2EAutoPending", JSON.stringify({ secret: toB64(bits), salt }));
       } catch {}
     }
+
+    // ===== Несколько аккаунтов: возврат в уже вошедший аккаунт одним нажатием =====
+    (function () {
+      let list = [];
+      try { list = JSON.parse(localStorage.getItem("zumoAccounts") || "[]"); } catch {}
+      if (!Array.isArray(list) || !list.length) return;
+      const box = document.getElementById("savedAccounts");
+      const safe = (v) => String(v || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      box.style.display = "block";
+      box.innerHTML = '<div class="savedaccs-title">Вернуться в аккаунт</div>' + list.map((a, i) =>
+        `<button type="button" class="savedacc" data-i="${i}">
+           <span class="savedacc-ava">${a.avatarUrl ? `<img src="${safe(a.avatarUrl)}" alt="">` : safe((a.displayName || a.username || "?")[0].toUpperCase())}</span>
+           <span class="savedacc-name">${safe(a.displayName || a.username)}<small>@${safe(a.username)}</small></span>
+         </button>`).join("") + '<div class="savedaccs-title">или войди в другой</div>';
+      box.querySelectorAll(".savedacc").forEach((b) => b.onclick = () => {
+        localStorage.setItem("token", list[Number(b.dataset.i)].token);
+        location.href = "chat.html";
+      });
+    })();
 
     async function submitAuth(){
       const identifier = document.getElementById("identifier").value.trim();
