@@ -30,7 +30,7 @@ self.addEventListener("push", (event) => {
       await closeCallNotifications();
       if (d.missed) {
         await self.registration.showNotification(d.title || "Пропущенный звонок", {
-          body: d.body || "", icon: "/icon-192.png?v=3", badge: "/icon-192.png?v=3",
+          body: d.body || "", icon: "/icon-192.png?v=4", badge: "/icon-192.png?v=4",
           tag: "om-missed", data: { url: d.url || "/chat.html" }
         });
       }
@@ -43,8 +43,8 @@ self.addEventListener("push", (event) => {
     if (d.type === "call") {
       await self.registration.showNotification(d.title || "Звонок", {
         body: d.body || "",
-        icon: "/icon-192.png?v=3",
-        badge: "/icon-192.png?v=3",
+        icon: "/icon-192.png?v=4",
+        badge: "/icon-192.png?v=4",
         tag: "om-call",
         renotify: true,
         requireInteraction: true,
@@ -62,8 +62,8 @@ self.addEventListener("push", (event) => {
     if (d.type === "group-call") {
       await self.registration.showNotification(d.title || "Групповой звонок", {
         body: d.body || "",
-        icon: "/icon-192.png?v=3",
-        badge: "/icon-192.png?v=3",
+        icon: "/icon-192.png?v=4",
+        badge: "/icon-192.png?v=4",
         tag: "om-group-" + (d.groupId || ""),
         requireInteraction: true,
         vibrate: [300, 150, 300],
@@ -74,8 +74,8 @@ self.addEventListener("push", (event) => {
 
     await self.registration.showNotification(d.title, {
       body: d.body,
-      icon: "/icon-192.png?v=3",
-      badge: "/icon-192.png?v=3",
+      icon: "/icon-192.png?v=4",
+      badge: "/icon-192.png?v=4",
       data: { url: d.url || "/chat.html" }
     });
   })());
