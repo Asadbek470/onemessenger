@@ -1,3 +1,104 @@
+// Стили, без которых не работают запись кружочков, одноразовые кружочки, поиск и список аккаунтов.
+// Они встроены прямо сюда, чтобы эти функции всегда выглядели правильно — независимо от остальных файлов.
+(function () {
+  const st = document.createElement("style");
+  st.id = "zumoCoreCss";
+  st.textContent = `
+#chatList.searching > .chatitem, #chatList.searching > #privateChats{display:none}
+.searchhead{padding:14px 12px 6px;font-size:13px;font-weight:700;color:var(--z-muted,#8fa3bd)}
+.searchempty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:36px 16px;color:var(--z-muted,#8fa3bd);text-align:center;font-size:14px}
+#searchResults .avatar.storyring{padding:2px;background:linear-gradient(var(--z-ink,#0e1621),var(--z-ink,#0e1621)) padding-box, var(--z-grad,linear-gradient(135deg,#1fd5f9,#3b82f6 48%,#7c5cff)) border-box;border:2px solid transparent}
+#searchResults .avatar.circle{display:grid;place-items:center;overflow:hidden}
+.rounddur{
+  position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
+  padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#fff;background:rgba(0,0,0,.5);
+}
+.roundmsg.once{display:grid;place-items:center;background:var(--z-raised,#182533);cursor:pointer}
+.roundmsg.once.opened{cursor:default;opacity:.65}
+.roundonce{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--z-text,#eaf2ff);font-size:13px;font-weight:600;text-align:center;padding:0 18px}
+.roundonce b{
+  width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:20px;
+  background:var(--z-grad,linear-gradient(135deg,#1fd5f9,#3b82f6 48%,#7c5cff));color:#fff;box-shadow:var(--z-glow,0 10px 30px -10px rgba(59,130,246,.75));
+}
+.roundmsg.once.opened .roundonce b{background:rgba(150,175,255,.18);box-shadow:none}
+.onceviewer{
+  position:fixed;inset:0;z-index:400;background:rgba(3,5,12,.94);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;cursor:pointer;
+}
+.onceviewer-circle{width:min(84vw,56vh);aspect-ratio:1;border-radius:50%;overflow:hidden;box-shadow:0 0 0 3px rgba(255,255,255,.25)}
+.onceviewer-circle video{width:100%;height:100%;object-fit:cover;display:block}
+.onceviewer-note{color:#cfd8f5;font-size:14px;display:flex;align-items:center;gap:8px}
+.onceviewer-note b{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--z-grad,linear-gradient(135deg,#1fd5f9,#3b82f6 48%,#7c5cff));color:#fff;font-size:13px}
+.roundrec{
+  position:fixed;inset:0;z-index:260;overflow:hidden;
+  display:flex;justify-content:center;
+  background:rgba(5,8,18,.80);
+  backdrop-filter:blur(26px) saturate(140%);-webkit-backdrop-filter:blur(26px) saturate(140%);
+  color:#ecf1ff;font-family:inherit;
+  animation:zRecIn .22s ease both;
+}
+@keyframes zRecIn{from{opacity:0}to{opacity:1}}
+.roundrec.hidden{display:none}
+.roundrec-col{position:relative;width:100%;max-width:480px;height:100%;display:flex;flex-direction:column}
+.roundrec-stage{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:28px 20px 8px}
+.roundrec-circle{
+  position:relative;width:min(100%,50vh,400px);aspect-ratio:1;border-radius:50%;
+  box-shadow:0 30px 80px -30px rgba(31,213,249,.55), 0 0 0 1px rgba(150,175,255,.14);
+}
+.roundrec-circle video.roundsrc{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.roundrec-circle canvas{width:100%;height:100%;display:block;border-radius:50%;background:#0d1326}
+.roundrec-ring{position:absolute;inset:-10px;width:calc(100% + 20px);height:calc(100% + 20px);transform:rotate(-90deg);pointer-events:none;overflow:visible}
+.roundrec-ring circle{fill:none;stroke-width:1.1}
+.roundrec-ring .track{stroke:rgba(150,175,255,.18)}
+.roundrec-ring .fill{stroke:#1fd5f9;stroke-linecap:round;stroke-dasharray:307.9;stroke-dashoffset:307.9;transition:stroke-dashoffset .1s linear;filter:drop-shadow(0 0 3px rgba(31,213,249,.9))}
+.roundrec-hint{font-size:14px;line-height:1.4;color:#9aa6cc;text-align:center}
+.roundrec-hint.hidden{visibility:hidden}
+.roundrec-tools{display:flex;align-items:flex-end;justify-content:space-between;padding:0 16px 12px;min-height:106px}
+.roundrec-side{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px}
+.roundrec-sidebtn{
+  width:46px;height:46px;border-radius:50%;cursor:pointer;padding:0;
+  display:grid;place-items:center;font-size:16px;font-weight:800;font-family:inherit;line-height:1;
+  background:rgba(22,30,60,.9);color:#ecf1ff;border:1px solid rgba(150,175,255,.2);
+  transition:background .15s ease,color .15s ease,transform .1s ease;
+}
+.roundrec-sidebtn:active{transform:scale(.94)}
+.roundrec-sidebtn.hidden{display:none}
+.roundrec-sidebtn.on{background:linear-gradient(135deg,#2a9df4,#3b82f6 45%,#7c5cff);border-color:transparent;color:#fff;box-shadow:0 8px 22px -8px rgba(59,130,246,.9)}
+.roundrec-tip{
+  position:absolute;right:56px;bottom:0;width:220px;padding:10px 12px;border-radius:14px;
+  background:#1a2346;border:1px solid rgba(150,175,255,.2);color:#ecf1ff;font-size:13px;line-height:1.35;text-align:left;
+}
+.roundrec-tip.hidden{display:none}
+.roundrec-bar{
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;
+  margin:0 12px calc(14px + env(safe-area-inset-bottom,0px));padding:8px 8px 8px 18px;border-radius:999px;
+  background:rgba(18,25,52,.92);border:1px solid rgba(150,175,255,.16);
+  box-shadow:0 20px 50px -18px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.05);
+}
+.roundrec-time{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;color:#ecf1ff}
+.roundrec-dot{width:9px;height:9px;border-radius:50%;background:#5c678f;flex:none}
+.roundrec.recording .roundrec-dot{background:#ff4d5a;box-shadow:0 0 10px rgba(255,77,90,.9);animation:zRecBlink 1s steps(2,start) infinite}
+.roundrec.paused .roundrec-dot{animation:none;background:#ffb020;box-shadow:none}
+@keyframes zRecBlink{50%{opacity:.25}}
+.roundrec-cancel{border:none;background:none;color:#7cc4ff;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;padding:10px 14px;border-radius:999px}
+.roundrec-cancel:active{background:rgba(124,196,255,.12)}
+.roundrec-main{
+  justify-self:end;width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;padding:0;
+  display:grid;place-items:center;color:#fff;font-size:20px;transition:transform .1s ease;
+}
+.roundrec-main.hidden{display:none}
+.roundrec-main.rec{background:#ff4d5a;box-shadow:inset 0 0 0 4px rgba(18,25,52,.92), 0 0 0 2px #ff4d5a}
+.roundrec-main.send{background:linear-gradient(135deg,#2a9df4,#3b82f6 45%,#7c5cff);box-shadow:0 10px 26px -8px rgba(59,130,246,.95)}
+.roundrec-main:active{transform:scale(.94)}
+@media (max-height:560px){ .roundrec-stage{gap:10px;padding-top:12px} .roundrec-hint{display:none} .roundrec-tools{min-height:0} }
+@media (prefers-reduced-motion:reduce){ .roundrec,.roundrec.recording .roundrec-dot{animation:none} }
+.accrow{border-bottom:none!important;padding:10px 12px!important;border-radius:16px;background:rgba(150,175,255,.05);margin-bottom:8px}
+.accrow .avatar{width:42px;height:42px;border-radius:50%;overflow:hidden;flex:none}
+.accrow-on{color:#3de8a0;font-size:18px}
+`;
+  document.head.appendChild(st);
+})();
+
 // ================== AUTH ==================
 // Ссылка-приглашение в группу (?invite=код) — запоминаем, чтобы не потерять её при входе в аккаунт
 try {
@@ -242,7 +343,7 @@ const LANG = {
     "chats.support": "Поддержка", "chats.supportSub": "Zumo Support",
     "profile.title": "Профиль", "profile.editProfile": "Редактировать профиль", "profile.myStories": "Мои истории",
     "settings.title": "Настройки", "settings.profileBlock": "Профиль",
-    "settings.displayName": "Display name", "settings.bio": "Bio", "settings.birthDate": "Дата рождения",
+    "settings.displayName": "Имя", "settings.bio": "О себе", "settings.birthDate": "Дата рождения",
     "settings.avatar": "Аватар", "settings.fromGallery": "Из галереи", "settings.saveProfile": "Сохранить профиль",
     "settings.appearance": "Оформление", "settings.language": "Язык",
     "settings.privacy": "Приватность", "settings.friends": "Друзья",
@@ -1353,20 +1454,6 @@ function renderMessage(m) {
       : `<div class="mtext">${formatText(text)}</div>`;
   }
 
-  const actions = [];
-  if (["image", "video", "round", "audio", "file"].includes(m.mediaType) && m.mediaUrl && !m.viewOnce) {
-    const dlName = esc(m.fileName || m.mediaType);
-    // у кружочков и голосовых ссылки «скачать» нет — они просто проигрываются в чате
-    if (m.mediaType !== "round" && m.mediaType !== "audio") {
-      actions.push(`<a class="mact" href="${esc(m.mediaUrl)}" download="${dlName}" title="Скачать"><i class="fa-solid fa-download"></i></a>`);
-    }
-    actions.push(`<button class="mact" onclick="openForwardPicker(${m.id})" title="Переслать"><i class="fa-solid fa-share"></i></button>`);
-  }
-  if (!isSelfChat(currentChat) && m.chatType !== "support") {
-    actions.push(`<button class="mact" onclick="saveToFavorites(${m.id})" title="В избранное"><i class="fa-regular fa-star"></i></button>`);
-  }
-  if (mine) actions.push(`<button class="mact trash" onclick="deleteMsg(${m.id})" title="Удалить"><i class="fa-solid fa-trash"></i></button>`);
-
   const showName = (m.chatType === "global" || m.chatType === "group") && !mine;
   const senderLine = showName
     ? `<div class="who clickable" onclick="openProfile('${esc(m.sender)}', false)">${nameHtml(info)}</div>`
@@ -1385,6 +1472,9 @@ function renderMessage(m) {
     ? `<span class="ticks ${m.readCount > 0 ? "read" : ""}"><i class="fa-solid fa-check"></i><i class="fa-solid fa-check"></i></span>`
     : "";
 
+  // кружочки и большие эмодзи показываются без «пузыря»
+  const bare = m.mediaType === "round" || (m.mediaType === "text" && EMOJI_ONLY_RE.test((m.text || "").trim()));
+
   const row = document.createElement("div");
   row.className = "mrow " + (mine ? "mine" : "other");
   row.dataset.mid = String(m.id);
@@ -1392,11 +1482,8 @@ function renderMessage(m) {
 
   row.innerHTML = `
     ${avatar}
-    <div class="bubble pop">
-      <div class="btop">
-        ${senderLine}
-        <div class="mactions">${actions.join("")}</div>
-      </div>
+    <div class="bubble pop${bare ? " bare" : ""}${m.mediaType === "round" ? " bare-round" : ""}">
+      <div class="btop">${senderLine}</div>
       ${fwd}
       ${reply}
       ${body}
@@ -1704,6 +1791,17 @@ function attachLongPress(el, id) {
   el.addEventListener("contextmenu", (e) => { e.preventDefault(); openMsgActions(id); });
 }
 
+function downloadMsgMedia(id) {
+  const m = messageCache.get(id);
+  if (!m || !m.mediaUrl) return;
+  const a = document.createElement("a");
+  a.href = m.mediaUrl;
+  a.download = m.fileName || m.mediaType;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function openMsgActions(id) {
   const m = messageCache.get(id);
   if (!m) return;
@@ -1714,7 +1812,13 @@ function openMsgActions(id) {
   if (m.mediaType === "text" && m.text) {
     items.push({ icon: "fa-copy", label: t("msgact.copy"), fn: `copyMsgText(${id}); closeMsgActions();` });
   }
-  items.push({ icon: "fa-share", label: t("msgact.forward"), fn: `openForwardPicker(${id}); closeMsgActions();` });
+  if (!m.viewOnce) items.push({ icon: "fa-share", label: t("msgact.forward"), fn: `openForwardPicker(${id}); closeMsgActions();` });
+  if (!isSelfChat(currentChat) && m.chatType !== "support" && !m.viewOnce) {
+    items.push({ icon: "fa-star", label: "В избранное", fn: `saveToFavorites(${id}); closeMsgActions();` });
+  }
+  if (["image", "video", "file"].includes(m.mediaType) && m.mediaUrl) {
+    items.push({ icon: "fa-download", label: "Скачать", fn: `downloadMsgMedia(${id}); closeMsgActions();` });
+  }
   if (mine && m.mediaType === "text") {
     items.push({ icon: "fa-pen", label: t("msgact.edit"), fn: `startEdit(${id}); closeMsgActions();` });
   }
@@ -1879,10 +1983,49 @@ async function openCameraStream(facing) {
   return navigator.mediaDevices.getUserMedia(opts);
 }
 
+// Окно записи кружочка собирается здесь, а не в chat.html — так оно всегда совпадает со стилями выше
+function ensureRoundDom() {
+  let m = document.getElementById("roundRecorderModal");
+  if (!m) { m = document.createElement("div"); m.id = "roundRecorderModal"; m.className = "roundrec hidden"; document.body.appendChild(m); }
+  if (m.dataset.built === "2") return m;
+  m.dataset.built = "2";
+  m.className = "roundrec hidden";
+  m.innerHTML = `
+    <div class="roundrec-col">
+      <div class="roundrec-stage">
+        <div class="roundrec-circle">
+          <video id="roundLiveVideo" autoplay playsinline muted class="roundsrc"></video>
+          <canvas id="roundCanvas" width="480" height="480"></canvas>
+          <svg class="roundrec-ring" viewBox="0 0 100 100" aria-hidden="true">
+            <circle class="track" cx="50" cy="50" r="49"></circle>
+            <circle id="roundRing" class="fill" cx="50" cy="50" r="49"></circle>
+          </svg>
+        </div>
+        <div id="roundHint" class="roundrec-hint">Нажми красную кнопку — начнётся запись</div>
+      </div>
+      <div class="roundrec-tools">
+        <button id="roundFlipBtn" class="roundrec-sidebtn" onclick="flipRoundCamera()" title="Перевернуть камеру" aria-label="Перевернуть камеру"><i class="fa-solid fa-camera-rotate"></i></button>
+        <div class="roundrec-side">
+          <div id="roundOnceTip" class="roundrec-tip hidden">Получатель сможет посмотреть это сообщение только один раз.</div>
+          <button id="roundOnceBtn" class="roundrec-sidebtn" onclick="toggleRoundOnce()" title="Один просмотр" aria-label="Один просмотр">1</button>
+          <button id="roundPauseBtn" class="roundrec-sidebtn hidden" onclick="toggleRoundPause()" title="Пауза" aria-label="Пауза"><i class="fa-solid fa-pause"></i></button>
+        </div>
+      </div>
+      <div class="roundrec-bar">
+        <div class="roundrec-time"><span class="roundrec-dot"></span><span id="roundTimer">0:00,0</span></div>
+        <button class="roundrec-cancel" onclick="closeRoundRecorder()">Отмена</button>
+        <button id="roundRecordBtn" class="roundrec-main rec" onclick="startRoundRecording()" title="Записать" aria-label="Начать запись"></button>
+        <button id="roundSendBtn" class="roundrec-main send hidden" onclick="finishRoundAndSend()" title="Отправить" aria-label="Отправить"><i class="fa-solid fa-arrow-up"></i></button>
+      </div>
+    </div>`;
+  return m;
+}
+
 async function openRoundRecorder() {
   if (currentChat === "support") return alert("В поддержку видеосообщения отправлять нельзя");
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return alert("Этот браузер не поддерживает запись видео");
 
+  ensureRoundDom();
   resetRoundUI();
   // «один просмотр» доступен только в личном чате с другим человеком
   document.getElementById("roundOnceBtn").classList.toggle("hidden", !isPrivateChat(currentChat));
