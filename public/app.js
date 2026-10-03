@@ -4,21 +4,27 @@
   const st = document.createElement("style");
   st.id = "zumoCoreCss";
   st.textContent = `
+:root{
+  --z-accent:#3a86ff;--z-accent-rgb:58,134,255;--z-accent-hi:#5e9cff;--z-accent-lo:#2f6fe6;--z-on-accent:#fff;
+  --z-ink:#0b132b;--z-surface:#111b3a;--z-raised:#18254c;--z-line:rgba(160,185,255,.14);--z-text:#eef3ff;--z-muted:#8d9bc4;
+  --z-grad:linear-gradient(135deg,var(--z-accent-hi) 0%,var(--z-accent) 50%,var(--z-accent-lo) 100%);
+  --z-glow:0 10px 28px -12px rgba(var(--z-accent-rgb),.8);
+}
 #chatList.searching > .chatitem, #chatList.searching > #privateChats{display:none}
-.searchhead{padding:14px 12px 6px;font-size:13px;font-weight:700;color:var(--z-muted,#8fa3bd)}
-.searchempty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:36px 16px;color:var(--z-muted,#8fa3bd);text-align:center;font-size:14px}
-#searchResults .avatar.storyring{padding:2px;background:linear-gradient(var(--z-ink,#0e1621),var(--z-ink,#0e1621)) padding-box, var(--z-grad,linear-gradient(135deg,#1fd5f9,#3b82f6 48%,#7c5cff)) border-box;border:2px solid transparent}
+.searchhead{padding:14px 12px 6px;font-size:13px;font-weight:700;color:var(--z-muted)}
+.searchempty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:36px 16px;color:var(--z-muted);text-align:center;font-size:14px}
+#searchResults .avatar.storyring{padding:2px;background:linear-gradient(var(--z-ink),var(--z-ink)) padding-box, var(--z-grad) border-box;border:2px solid transparent}
 #searchResults .avatar.circle{display:grid;place-items:center;overflow:hidden}
 .rounddur{
   position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
   padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#fff;background:rgba(0,0,0,.5);
 }
-.roundmsg.once{display:grid;place-items:center;background:var(--z-raised,#182533);cursor:pointer}
+.roundmsg.once{display:grid;place-items:center;background:var(--z-raised);cursor:pointer}
 .roundmsg.once.opened{cursor:default;opacity:.65}
-.roundonce{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--z-text,#eaf2ff);font-size:13px;font-weight:600;text-align:center;padding:0 18px}
+.roundonce{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--z-text);font-size:13px;font-weight:600;text-align:center;padding:0 18px}
 .roundonce b{
   width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:20px;
-  background:var(--z-grad,linear-gradient(135deg,#1fd5f9,#3b82f6 48%,#7c5cff));color:#fff;box-shadow:var(--z-glow,0 10px 30px -10px rgba(59,130,246,.75));
+  background:var(--z-grad);color:#fff;box-shadow:var(--z-glow);
 }
 .roundmsg.once.opened .roundonce b{background:rgba(150,175,255,.18);box-shadow:none}
 .onceviewer{
@@ -28,11 +34,11 @@
 .onceviewer-circle{width:min(84vw,56vh);aspect-ratio:1;border-radius:50%;overflow:hidden;box-shadow:0 0 0 3px rgba(255,255,255,.25)}
 .onceviewer-circle video{width:100%;height:100%;object-fit:cover;display:block}
 .onceviewer-note{color:#cfd8f5;font-size:14px;display:flex;align-items:center;gap:8px}
-.onceviewer-note b{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--z-grad,linear-gradient(135deg,#1fd5f9,#3b82f6 48%,#7c5cff));color:#fff;font-size:13px}
+.onceviewer-note b{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--z-grad);color:#fff;font-size:13px}
 .roundrec{
   position:fixed;inset:0;z-index:260;overflow:hidden;
   display:flex;justify-content:center;
-  background:rgba(5,8,18,.80);
+  background:rgba(7,12,28,.82);
   backdrop-filter:blur(26px) saturate(140%);-webkit-backdrop-filter:blur(26px) saturate(140%);
   color:#ecf1ff;font-family:inherit;
   animation:zRecIn .22s ease both;
@@ -43,14 +49,14 @@
 .roundrec-stage{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:28px 20px 8px}
 .roundrec-circle{
   position:relative;width:min(100%,50vh,400px);aspect-ratio:1;border-radius:50%;
-  box-shadow:0 30px 80px -30px rgba(31,213,249,.55), 0 0 0 1px rgba(150,175,255,.14);
+  box-shadow:0 30px 80px -30px rgba(var(--z-accent-rgb),.55), 0 0 0 1px rgba(150,175,255,.14);
 }
 .roundrec-circle video.roundsrc{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
-.roundrec-circle canvas{width:100%;height:100%;display:block;border-radius:50%;background:#0d1326}
+.roundrec-circle canvas{width:100%;height:100%;display:block;border-radius:50%;background:#111b3a}
 .roundrec-ring{position:absolute;inset:-10px;width:calc(100% + 20px);height:calc(100% + 20px);transform:rotate(-90deg);pointer-events:none;overflow:visible}
 .roundrec-ring circle{fill:none;stroke-width:1.1}
 .roundrec-ring .track{stroke:rgba(150,175,255,.18)}
-.roundrec-ring .fill{stroke:#1fd5f9;stroke-linecap:round;stroke-dasharray:307.9;stroke-dashoffset:307.9;transition:stroke-dashoffset .1s linear;filter:drop-shadow(0 0 3px rgba(31,213,249,.9))}
+.roundrec-ring .fill{stroke:var(--z-accent-hi);stroke-linecap:round;stroke-dasharray:307.9;stroke-dashoffset:307.9;transition:stroke-dashoffset .1s linear;filter:drop-shadow(0 0 3px rgba(var(--z-accent-rgb),.9))}
 .roundrec-hint{font-size:14px;line-height:1.4;color:#9aa6cc;text-align:center}
 .roundrec-hint.hidden{visibility:hidden}
 .roundrec-tools{display:flex;align-items:flex-end;justify-content:space-between;padding:0 16px 12px;min-height:106px}
@@ -58,21 +64,21 @@
 .roundrec-sidebtn{
   width:46px;height:46px;border-radius:50%;cursor:pointer;padding:0;
   display:grid;place-items:center;font-size:16px;font-weight:800;font-family:inherit;line-height:1;
-  background:rgba(22,30,60,.9);color:#ecf1ff;border:1px solid rgba(150,175,255,.2);
+  background:rgba(24,37,76,.92);color:#ecf1ff;border:1px solid rgba(150,175,255,.2);
   transition:background .15s ease,color .15s ease,transform .1s ease;
 }
 .roundrec-sidebtn:active{transform:scale(.94)}
 .roundrec-sidebtn.hidden{display:none}
-.roundrec-sidebtn.on{background:linear-gradient(135deg,#2a9df4,#3b82f6 45%,#7c5cff);border-color:transparent;color:#fff;box-shadow:0 8px 22px -8px rgba(59,130,246,.9)}
+.roundrec-sidebtn.on{background:var(--z-grad);border-color:transparent;color:var(--z-on-accent);box-shadow:0 8px 22px -8px rgba(var(--z-accent-rgb),.9)}
 .roundrec-tip{
   position:absolute;right:56px;bottom:0;width:220px;padding:10px 12px;border-radius:14px;
-  background:#1a2346;border:1px solid rgba(150,175,255,.2);color:#ecf1ff;font-size:13px;line-height:1.35;text-align:left;
+  background:#18254c;border:1px solid rgba(150,175,255,.2);color:#ecf1ff;font-size:13px;line-height:1.35;text-align:left;
 }
 .roundrec-tip.hidden{display:none}
 .roundrec-bar{
   display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;
   margin:0 12px calc(14px + env(safe-area-inset-bottom,0px));padding:8px 8px 8px 18px;border-radius:999px;
-  background:rgba(18,25,52,.92);border:1px solid rgba(150,175,255,.16);
+  background:rgba(17,27,58,.94);border:1px solid rgba(150,175,255,.16);
   box-shadow:0 20px 50px -18px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.05);
 }
 .roundrec-time{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;color:#ecf1ff}
@@ -80,15 +86,15 @@
 .roundrec.recording .roundrec-dot{background:#ff4d5a;box-shadow:0 0 10px rgba(255,77,90,.9);animation:zRecBlink 1s steps(2,start) infinite}
 .roundrec.paused .roundrec-dot{animation:none;background:#ffb020;box-shadow:none}
 @keyframes zRecBlink{50%{opacity:.25}}
-.roundrec-cancel{border:none;background:none;color:#7cc4ff;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;padding:10px 14px;border-radius:999px}
+.roundrec-cancel{border:none;background:none;color:var(--z-accent-hi);font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;padding:10px 14px;border-radius:999px}
 .roundrec-cancel:active{background:rgba(124,196,255,.12)}
 .roundrec-main{
   justify-self:end;width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;padding:0;
   display:grid;place-items:center;color:#fff;font-size:20px;transition:transform .1s ease;
 }
 .roundrec-main.hidden{display:none}
-.roundrec-main.rec{background:#ff4d5a;box-shadow:inset 0 0 0 4px rgba(18,25,52,.92), 0 0 0 2px #ff4d5a}
-.roundrec-main.send{background:linear-gradient(135deg,#2a9df4,#3b82f6 45%,#7c5cff);box-shadow:0 10px 26px -8px rgba(59,130,246,.95)}
+.roundrec-main.rec{background:#ff4d5a;box-shadow:inset 0 0 0 4px rgba(17,27,58,.94), 0 0 0 2px #ff4d5a}
+.roundrec-main.send{background:var(--z-grad);box-shadow:0 10px 26px -8px rgba(var(--z-accent-rgb),.95)}
 .roundrec-main:active{transform:scale(.94)}
 @media (max-height:560px){ .roundrec-stage{gap:10px;padding-top:12px} .roundrec-hint{display:none} .roundrec-tools{min-height:0} }
 @media (prefers-reduced-motion:reduce){ .roundrec,.roundrec.recording .roundrec-dot{animation:none} }
@@ -96,8 +102,30 @@
 .accrow .avatar{width:42px;height:42px;border-radius:50%;overflow:hidden;flex:none}
 .accrow-on{color:#3de8a0;font-size:18px}
 `;
-  document.head.appendChild(st);
+  document.head.insertBefore(st, document.head.firstChild); // первым, чтобы style.css мог дополнять
+
 })();
+
+// ================== АКЦЕНТНЫЙ ЦВЕТ ==================
+// Один выбранный цвет перекрашивает весь интерфейс: сообщения, нижнее меню, кнопки, значки, шапку профиля.
+const DEFAULT_ACCENT = "#3a86ff";
+function setAccent(hex) {
+  if (!/^#[0-9a-f]{6}$/i.test(hex || "")) hex = DEFAULT_ACCENT;
+  const n = parseInt(hex.slice(1), 16);
+  const rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const mix = (to, k) => "#" + rgb.map((v, i) => Math.round(v + (to[i] - v) * k).toString(16).padStart(2, "0")).join("");
+  // светлые цвета (жёлтый, салатовый) — тёмный текст поверх, иначе белый
+  const lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+  const root = document.documentElement.style;
+  root.setProperty("--z-accent", hex);
+  root.setProperty("--z-accent-rgb", rgb.join(","));
+  root.setProperty("--z-accent-hi", mix([255, 255, 255], 0.18));
+  root.setProperty("--z-accent-lo", mix([11, 19, 43], 0.2));
+  root.setProperty("--z-on-accent", lum > 0.66 ? "#0b132b" : "#ffffff");
+  root.setProperty("--blue", hex);
+  try { localStorage.setItem("zumoAccent", hex); } catch (e) {}
+}
+try { setAccent(localStorage.getItem("zumoAccent") || DEFAULT_ACCENT); } catch (e) { setAccent(DEFAULT_ACCENT); }
 
 // ================== AUTH ==================
 // Ссылка-приглашение в группу (?invite=код) — запоминаем, чтобы не потерять её при входе в аккаунт
@@ -142,7 +170,7 @@ let lastSentText = "";               // чтобы подставить текс
 let activeTagFilter = null;          // фильтр по #тегу в Избранном
 let pendingTagFilter = null;
 
-const OM_ICON = "/icon-192.png?v=3";
+const OM_ICON = "/icon-192.png?v=4";
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 function esc(s = "") {
@@ -989,7 +1017,7 @@ function updateHeader() {
   if (currentChat === "global") {
     title.textContent = "Общий чат";
     sub.textContent = "общение со всеми";
-    ava.innerHTML = `<span class="headicon act-blue"><i class="fa-solid fa-earth-americas"></i></span>`;
+    ava.innerHTML = `<span class="headicon"><i class="fa-solid fa-earth-americas"></i></span>`;
   } else if (currentChat === "support") {
     title.innerHTML = `Поддержка${verifiedBadge(true)}`;
     sub.textContent = "Zumo Support";
@@ -997,14 +1025,14 @@ function updateHeader() {
   } else if (isSelfChat(currentChat)) {
     title.innerHTML = `Избранное`;
     sub.textContent = "сохранённые сообщения и #теги";
-    ava.innerHTML = `<span class="headicon act-violet"><i class="fa-solid fa-bookmark"></i></span>`;
+    ava.innerHTML = `<span class="headicon"><i class="fa-solid fa-bookmark"></i></span>`;
   } else if (isGroupChat(currentChat)) {
     const g = currentGroupMeta;
     title.innerHTML = (g ? esc(g.name) : "Группа") + (g && g.isChannel ? ` <i class="fa-solid fa-bullhorn" title="Канал"></i>` : "");
     sub.textContent = g ? (g.isChannel ? "канал" : `${g.memberCount || ""} участников`.trim()) : "";
     ava.innerHTML = g && g.avatarUrl
       ? `<img src="${esc(g.avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
-      : `<span class="headicon act-orange"><i class="fa-solid ${g && g.isChannel ? "fa-bullhorn" : "fa-users"}"></i></span>`;
+      : `<span class="headicon"><i class="fa-solid ${g && g.isChannel ? "fa-bullhorn" : "fa-users"}"></i></span>`;
   } else {
     const info = userInfoCache.get(currentChat) || { username: currentChat, displayName: currentChat };
     title.innerHTML = nameHtml(info);
@@ -2644,7 +2672,7 @@ async function openGroupInfo() {
 
   document.getElementById("groupInfoAvatar").innerHTML = d.group.avatarUrl
     ? `<img src="${esc(d.group.avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
-    : `<span class="headicon act-orange"><i class="fa-solid ${d.group.isChannel ? "fa-bullhorn" : "fa-users"}"></i></span>`;
+    : `<span class="headicon"><i class="fa-solid ${d.group.isChannel ? "fa-bullhorn" : "fa-users"}"></i></span>`;
   const kind = d.group.isChannel ? "канал" : "группа";
   document.getElementById("groupInfoSub").innerHTML =
     `<i class="fa-solid ${d.group.discoverable ? "fa-earth-americas" : "fa-lock"}"></i> ` +
@@ -2907,7 +2935,7 @@ async function checkPendingInvite() {
 
   document.getElementById("inviteJoinAvatar").innerHTML = g.avatarUrl
     ? `<img src="${esc(g.avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
-    : `<span class="headicon act-orange"><i class="fa-solid ${g.isChannel ? "fa-bullhorn" : "fa-users"}"></i></span>`;
+    : `<span class="headicon"><i class="fa-solid ${g.isChannel ? "fa-bullhorn" : "fa-users"}"></i></span>`;
   document.getElementById("inviteJoinName").textContent = g.name;
   document.getElementById("inviteJoinSub").textContent =
     `${g.isChannel ? "Канал" : "Группа"} · ${g.memberCount} ${g.isChannel ? "подписч." : "участн."}`;
@@ -4056,7 +4084,7 @@ const WALLPAPER_PRESETS = [
   { id: "lavender", label: "Лаванда" },
   { id: "mint", label: "Мята" }
 ];
-const ACCENT_PRESETS = ["#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff", "#f5c542", "#00c2c7", "#ff5c5c", "#7c8cff", "#8bd450"];
+const ACCENT_PRESETS = ["#3a86ff", "#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff", "#f5c542", "#00c2c7", "#ff5c5c", "#7c8cff", "#8bd450"];
 const STATUS_EMOJIS = ["😎", "🔥", "⭐", "💎", "👑", "🎮", "🎧", "📚", "💼", "✈️", "🏖️", "❤️", "🌙", "☕", "🚀", "⚽", "🎨", "💻", "🤔", "😴", "🎉", "🍀", "🌸", "🐱", "🦁", "⚡", "🌈", "🎵"];
 
 function applyTheme(settings) {
@@ -4068,13 +4096,13 @@ function applyTheme(settings) {
     document.body.dataset.wallpaper = wp;
     document.documentElement.style.removeProperty("--custom-wp");
   }
-  if (settings.accent) document.documentElement.style.setProperty("--blue", settings.accent);
+  setAccent(settings.accent || DEFAULT_ACCENT);
 }
 
 function renderWallpaperSection() {
   const box = document.getElementById("wallpaperSection");
   const current = (me.settings || {}).wallpaper || "default";
-  const currentAccent = (me.settings || {}).accent || "#2a9df4";
+  const currentAccent = (me.settings || {}).accent || DEFAULT_ACCENT;
   const isCustom = current.startsWith("/media/");
 
   box.innerHTML = `
@@ -4142,7 +4170,7 @@ async function pickAccent(color) {
 }
 
 // ---------------- ШАПКА ПРОФИЛЯ: настройки ----------------
-const HEADER_COLOR_PRESETS = ["#6a5cff", "#4b8bff", "#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff", "#f5c542", "#00c2c7", "#ff5c5c", "#0e1621", "#7c8cff"];
+const HEADER_COLOR_PRESETS = ["#3a86ff", "#6a5cff", "#4b8bff", "#2a9df4", "#29d17d", "#ff8a3d", "#ff4d9d", "#a06bff", "#f5c542", "#00c2c7", "#ff5c5c", "#0e1621", "#7c8cff"];
 const HEADER_PATTERN_PRESETS = [
   { e: "", label: "Точки (по умолчанию)" },
   { e: "⭐", label: "Звёзды" },
@@ -4159,8 +4187,8 @@ function renderProfileHeaderSection() {
   const box = document.getElementById("profileHeaderSection");
   if (!box) return;
   const s = (me.settings || {});
-  const top = s.headerTop || "#6a5cff";
-  const bottom = s.headerBottom || "#2a9df4";
+  const top = s.headerTop || "";
+  const bottom = s.headerBottom || "";
   const pattern = s.headerPattern || "";
 
   box.innerHTML = `
