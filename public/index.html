@@ -5,11 +5,42 @@
   <meta name="google-site-verification" content="DrhRAp88TUKCKXi76zqCO7jqeZJkP5PuIU8Kpn59bQI" />
   <script src="splash.js"></script>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Zumo | Login</title>
+  <title>Zumo (Зумо) — мессенджер без номера телефона</title>
+  <meta name="description" content="Zumo (Зумо) — бесплатный мессенджер без номера телефона. Вход по @username, личные чаты со сквозным шифрованием, группы, каналы, сторис, аудио- и видеозвонки. Zumo messenjeri — telefon raqamisiz muloqot." />
+  <meta name="keywords" content="Zumo, Зумо, зумо мессенджер, Zumo messenger, Zumo messenjer, мессенджер без номера телефона, uzmessenger" />
+  <meta name="application-name" content="Zumo" />
+  <meta name="apple-mobile-web-app-title" content="Zumo" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Zumo" />
+  <meta property="og:title" content="Zumo (Зумо) — мессенджер без номера телефона" />
+  <meta property="og:description" content="Бесплатный мессенджер Zumo: вход по @username, шифрование личных чатов, группы, каналы, сторис и звонки." />
+  <meta property="og:image" content="/icon-512.png?v=3" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Zumo",
+    "alternateName": ["Зумо", "Zumo Messenger", "Зумо мессенджер", "Zumo messenjeri"],
+    "applicationCategory": "CommunicationApplication",
+    "operatingSystem": "Web, Android, iOS",
+    "description": "Zumo (Зумо) — бесплатный мессенджер без номера телефона: личные чаты со сквозным шифрованием, группы, каналы, сторис, аудио- и видеозвонки.",
+    "inLanguage": ["ru", "uz", "en"],
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "founder": { "@type": "Person", "name": "Асадбек Абдумаликов" }
+  }
+  </script>
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="features.css" />
   <link rel="icon" href="/icon-192.png?v=3" />
   <link rel="manifest" href="/manifest.json" />
+  <style>
+    body.auth{flex-direction:column;gap:18px;min-height:100vh;overflow-y:auto}
+    .seoabout{width:min(420px,100%);padding:0 6px 20px;text-align:center;color:#8fa3bd;font-size:13px;line-height:1.55}
+    .seoabout h2{font-size:15px;margin:0 0 8px;color:#cdd9ea}
+    .seoabout p{margin:0 0 8px}
+    .seoabout-founder{font-size:12px;opacity:.8}
+  </style>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="auth">
@@ -18,7 +49,7 @@
       <div class="logo">Z</div>
       <div>
         <h1>Zumo</h1>
-        <p>Без номера телефона. Вход по @username</p>
+        <p>Мессенджер Зумо — без номера телефона. Вход по @username</p>
       </div>
     </div>
 
@@ -63,6 +94,17 @@
       <div class="hint">Открой Google Authenticator / Authy и введи текущий 6-значный код.</div>
     </div>
   </div>
+
+  <!-- Коротко о приложении — этот текст читают люди и поисковые системы -->
+  <section class="seoabout">
+    <h2>Zumo (Зумо) — мессенджер без номера телефона</h2>
+    <p>Zumo — бесплатный мессенджер, в котором не нужен номер телефона: достаточно придумать @username.
+       В Зумо есть личные чаты со сквозным шифрованием, группы и каналы, сторис с лентой рекомендаций,
+       голосовые и видеосообщения, аудио- и видеозвонки.</p>
+    <p>Zumo messenjeri — telefon raqamisiz bepul muloqot: shaxsiy chatlar, guruhlar, kanallar, hikoyalar va qo'ng'iroqlar.</p>
+    <p>Zumo Messenger — free messaging without a phone number: encrypted private chats, groups, channels, stories and calls.</p>
+    <p class="seoabout-founder">Основатель — Асадбек Абдумаликов</p>
+  </section>
 
   <!-- Условия использования / Политика конфиденциальности -->
   <div id="legalModal" class="modal hidden" style="position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);">
@@ -317,6 +359,29 @@ For questions related to personal data — via the "Support" section inside the 
       document.getElementById("twoFAForm").classList.add("hidden");
     }
 
+    // ===== Сквозное шифрование: ключ для резервной копии выводится из пароля прямо здесь =====
+    // Сам пароль дальше страницы входа не уходит: в браузере остаётся только производный секрет,
+    // которым закрыта резервная копия ключа. Благодаря этому переписка открывается на новом
+    // устройстве сразу после обычного входа — без отдельных паролей и настроек.
+    let e2ePassword = "";
+    async function prepareE2E(token, password) {
+      try {
+        if (!password || !window.crypto || !crypto.subtle) return;
+        const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const fromB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+        const r = await fetch("/api/e2e/me", { headers: { Authorization: "Bearer " + token } });
+        const d = await r.json();
+        let salt = "";
+        try { const b = JSON.parse(d.backup || "{}"); if (b.auto && b.autoSalt) salt = b.autoSalt; } catch {}
+        if (!salt) salt = toB64(crypto.getRandomValues(new Uint8Array(16)));
+
+        const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+        const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: fromB64(salt), iterations: 200000, hash: "SHA-256" }, base, 256);
+        localStorage.setItem("zumoE2EAutoPending", JSON.stringify({ secret: toB64(bits), salt }));
+      } catch {}
+    }
+
     async function submitAuth(){
       const identifier = document.getElementById("identifier").value.trim();
       const password = document.getElementById("password").value.trim();
@@ -341,11 +406,13 @@ For questions related to personal data — via the "Support" section inside the 
       if(!d.ok) return alert(d.error || "Ошибка");
 
       if (d.need2FA) {
+        e2ePassword = password;
         show2FAStep(d.pendingToken);
         return;
       }
 
       localStorage.setItem("token", d.token);
+      await prepareE2E(d.token, password);
       location.href = "chat.html";
     }
 
@@ -362,6 +429,8 @@ For questions related to personal data — via the "Support" section inside the 
       if (!d.ok) return alert(d.error || "Ошибка");
 
       localStorage.setItem("token", d.token);
+      await prepareE2E(d.token, e2ePassword);
+      e2ePassword = "";
       location.href = "chat.html";
     }
 
