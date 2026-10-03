@@ -35,7 +35,12 @@
   <link rel="icon" href="/icon-192.png?v=3" />
   <link rel="manifest" href="/manifest.json" />
   <style>
-    body.auth{flex-direction:column;gap:18px;min-height:100vh;overflow-y:auto}
+    /* Колонка: карточка входа, под ней текст. Центрируем через margin:auto, а не justify-content —
+       иначе на невысоком экране верх карточки уезжает за край и до него нельзя докрутить. */
+    html,body.auth{height:auto}
+    body.auth{flex-direction:column;justify-content:flex-start;gap:18px;min-height:100vh;box-sizing:border-box}
+    body.auth > .auth-card{margin-top:auto;flex:none}
+    body.auth > .seoabout{margin-bottom:auto;flex:none}
     .seoabout{width:min(420px,100%);padding:0 6px 20px;text-align:center;color:#8fa3bd;font-size:13px;line-height:1.55}
     .seoabout h2{font-size:15px;margin:0 0 8px;color:#cdd9ea}
     .seoabout p{margin:0 0 8px}
