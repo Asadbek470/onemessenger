@@ -490,6 +490,11 @@ async function initSchema() {
   await addColumn("messages", "forwardedFrom", "TEXT NOT NULL DEFAULT ''");
   await addColumn("messages", "replyTo", "INTEGER NOT NULL DEFAULT 0");
   await addColumn("messages", "edited", "INTEGER NOT NULL DEFAULT 0");
+  // длительность голосового / кружочка в секундах (считает устройство при записи)
+  await addColumn("messages", "duration", "INTEGER NOT NULL DEFAULT 0");
+  // кружочек «на один просмотр»: после просмотра получателем файл удаляется с сервера
+  await addColumn("messages", "viewOnce", "INTEGER NOT NULL DEFAULT 0");
+  await addColumn("messages", "viewOnceOpened", "INTEGER NOT NULL DEFAULT 0");
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS message_reads (
@@ -1808,6 +1813,55 @@ app.get("/api/users/search", verifyAuth, async (req, res) => {
   res.json({ ok: true, users: rows.map(userCardFromRow) });
 });
 
+// ---------------- ОБЩИЙ ПОИСК: люди, группы, каналы, истории ----------------
+// Ищет по части слова, без «@». Люди — по юзернейму, имени и по тому, как они записаны в моих контактах.
+app.get("/api/search", verifyAuth, async (req, res) => {
+  const me = req.user.username;
+  const q = String(req.query.q || "").trim().replace(/^@+/, "").toLowerCase().slice(0, 60);
+  if (!q) return res.json({ ok: true, users: [], groups: [], stories: [] });
+  const like = `%${q.replace(/[%_]/g, "")}%`;
+
+  // SQLite не умеет LOWER() для кириллицы, поэтому имена сравниваем уже в коде
+  const has = (v) => String(v || "").toLowerCase().includes(q);
+
+  const [userRows, contactRows, groupRows] = await Promise.all([
+    dbAll(
+      `SELECT username, displayName, bio, avatarUrl, verified, settings, birthDate
+       FROM users WHERE banned=0 AND username != ? ORDER BY username ASC LIMIT 3000`,
+      [me]
+    ),
+    dbAll(`SELECT username, name FROM contacts WHERE owner=?`, [me]),
+    dbAll(
+      `SELECT g.id, g.name, g.description, g.avatarUrl, g.isChannel, g.discoverable,
+              (SELECT COUNT(*) FROM group_members gm2 WHERE gm2.groupId=g.id) AS memberCount,
+              (SELECT role FROM group_members gm3 WHERE gm3.groupId=g.id AND gm3.username=?) AS myRole
+       FROM groups g
+       WHERE g.discoverable=1 OR g.id IN (SELECT groupId FROM group_members WHERE username=?)
+       LIMIT 3000`,
+      [me, me]
+    )
+  ]);
+
+  const contactName = new Map(contactRows.map(c => [c.username, c.name]));
+  const users = userRows
+    .filter(u => u.username.includes(q) || has(u.displayName) || has(contactName.get(u.username)))
+    .sort((a, b) => (b.username.startsWith(q) ? 1 : 0) - (a.username.startsWith(q) ? 1 : 0))
+    .slice(0, 20)
+    .map(userCardFromRow);
+
+  const groups = groupRows
+    .filter(g => has(g.name) || has(g.description))
+    .sort((a, b) => (b.myRole ? 1 : 0) - (a.myRole ? 1 : 0) || b.memberCount - a.memberCount)
+    .slice(0, 20)
+    .map(g => ({ ...g, isMember: !!g.myRole }));
+
+  const stories = (await fetchVisibleStories(me))
+    .filter(s => has(s.text) || s.owner.includes(q) || has(s.displayName))
+    .slice(0, 12);
+
+  res.json({ ok: true, users, groups, stories });
+});
+
 app.get("/api/users/:username", verifyAuth, async (req, res) => {
   const u = String(req.params.username || "").replace(/^@+/, "").toLowerCase();
   if (u === "support") return res.json({ ok: true, user: { ...SUPPORT_CARD, bio: "Официальная поддержка Zumo", online: true, canMessage: true, dmGated: false } });
@@ -2461,6 +2515,25 @@ app.get("/api/messages/:id/reads", verifyAuth, async (req, res) => {
   res.json({ ok: true, reads: rows });
 });
 
+// Получатель открыл кружочек «на один просмотр»: файл удаляется, второй раз его не посмотреть
+app.post("/api/messages/:id/view-once", verifyAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const me = req.user.username;
+  const row = await dbGet(`SELECT * FROM messages WHERE id=?`, [id]);
+  if (!row || !row.viewOnce || row.chatType !== "private" || row.receiver !== me) {
+    return res.status(404).json({ ok: false, error: "Сообщение не найдено" });
+  }
+  if (row.viewOnceOpened) return res.json({ ok: true });
+
+  await dbRun(`UPDATE messages SET viewOnceOpened=1, mediaUrl='' WHERE id=?`, [id]);
+  const m = /^\/media\/(.+)$/.exec(row.mediaUrl || "");
+  if (m) await dbRun(`DELETE FROM media_blobs WHERE id=?`, [m[1]]);
+
+  wsSendToUser(row.sender, { type: "viewOnceOpened", id });
+  wsSendToUser(me, { type: "viewOnceOpened", id });
+  res.json({ ok: true });
+});
+
 // Редактирование своего текстового сообщения
 app.put("/api/messages/:id", verifyAuth, async (req, res) => {
   const id = Number(req.params.id);
@@ -2499,6 +2572,8 @@ app.post("/api/messages/:id/forward", verifyAuth, async (req, res) => {
   const perm = await canPostTo(chatType, to, me);
   if (!perm.canPost) return res.status(403).json({ ok: false, error: perm.error || "Нет доступа" });
 
+  if (row.viewOnce) return res.status(400).json({ ok: false, error: "Сообщение на один просмотр нельзя пересылать" });
+
   // При сквозном шифровании сервер не может сам «переложить» текст в другой чат:
   // клиент расшифровывает его у себя и присылает заново зашифрованным для нового чата.
   if (req.body.text != null && (row.mediaType || "text") === "text") row.text = cleanMsgText(req.body.text);
@@ -2507,11 +2582,12 @@ app.post("/api/messages/:id/forward", verifyAuth, async (req, res) => {
   const createdAt = now();
   const forwardedFrom = row.sender === me ? "" : row.sender;
   const result = await dbRun(
-    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, forwardedFrom)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    [chatType, me, to, row.text || "", row.mediaType || "text", row.mediaUrl || "", createdAt, row.fileName || "", Number(row.fileSize || 0), forwardedFrom]
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, forwardedFrom, duration)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    [chatType, me, to, row.text || "", row.mediaType || "text", row.mediaUrl || "", createdAt, row.fileName || "", Number(row.fileSize || 0), forwardedFrom, Number(row.duration || 0)]
   );
   const msg = {
+    duration: Number(row.duration || 0),
     id: result.lastID, chatType, sender: me, receiver: to, text: row.text || "",
     mediaType: row.mediaType || "text", mediaUrl: row.mediaUrl || "", createdAt,
     fileName: row.fileName || "", fileSize: Number(row.fileSize || 0), forwardedFrom, replyTo: 0
@@ -2602,17 +2678,19 @@ app.post("/api/messages/:id/save", verifyAuth, async (req, res) => {
     }
   }
 
+  if (row.viewOnce) return res.status(400).json({ ok: false, error: "Сообщение на один просмотр нельзя сохранять" });
   if (req.body.text != null && (row.mediaType || "text") === "text") row.text = cleanMsgText(req.body.text);
   else if (isE2EText(row.text)) return res.status(400).json({ ok: false, error: "Обнови страницу, чтобы сохранять зашифрованные сообщения" });
 
   const createdAt = now();
   const forwardedFrom = row.sender === me ? "" : row.sender;
   const result = await dbRun(
-    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, forwardedFrom)
-     VALUES ('private',?,?,?,?,?,?,?,?,?)`,
-    [me, me, row.text || "", row.mediaType || "text", row.mediaUrl || "", createdAt, row.fileName || "", Number(row.fileSize || 0), forwardedFrom]
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, forwardedFrom, duration)
+     VALUES ('private',?,?,?,?,?,?,?,?,?,?)`,
+    [me, me, row.text || "", row.mediaType || "text", row.mediaUrl || "", createdAt, row.fileName || "", Number(row.fileSize || 0), forwardedFrom, Number(row.duration || 0)]
   );
   const msg = {
+    duration: Number(row.duration || 0),
     id: result.lastID, chatType: "private", sender: me, receiver: me, text: row.text || "",
     mediaType: row.mediaType || "text", mediaUrl: row.mediaUrl || "", createdAt,
     fileName: row.fileName || "", fileSize: Number(row.fileSize || 0), forwardedFrom
@@ -2663,14 +2741,19 @@ app.post("/api/upload", verifyAuth, singleUpload("file"), async (req, res) => {
   const fileSize = req.file.size || req.file.buffer.length;
   const mediaUrl = await saveUploadedFile(req.file.buffer, req.file.mimetype, "msg", fileName);
 
+  // длительность записи (сек) — её знает только устройство: в файле webm её часто нет
+  const duration = Math.max(0, Math.min(3600, Math.round(Number(req.body.duration) || 0)));
+  // «один просмотр» — только кружочки в личном чате с другим человеком
+  const viewOnce = String(req.body.viewOnce || "") === "1" && mediaType === "round" && chatType === "private" && receiver !== me ? 1 : 0;
+
   const createdAt = now();
   const result = await dbRun(
-    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-    [chatType, me, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize]
+    `INSERT INTO messages (chatType, sender, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, duration, viewOnce)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    [chatType, me, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, duration, viewOnce]
   );
 
-  const msg = { id: result.lastID, chatType, sender: me, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, forwardedFrom: "" };
+  const msg = { id: result.lastID, chatType, sender: me, receiver, text, mediaType, mediaUrl, createdAt, fileName, fileSize, forwardedFrom: "", duration, viewOnce, viewOnceOpened: 0 };
   await broadcastMessage(msg);
   res.json({ ok: true, message: msg });
 });
