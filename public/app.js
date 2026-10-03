@@ -221,6 +221,7 @@ function renderPasscodeSection() {
 // ================== BOOT ==================
 window.addEventListener("DOMContentLoaded", () => {
   setupStoryGestures();
+  setupVoiceButton();
   if (passcodeEnabled()) {
     document.getElementById("passcodeOverlay").classList.remove("hidden");
     document.getElementById("passcodeInput").focus();
@@ -235,8 +236,8 @@ function boot() { initApp(); }
 const LANG = {
   ru: {
     "nav.chats": "Чаты", "nav.stories": "Сторис", "nav.profile": "Профиль", "nav.settings": "Настройки",
-    "chats.searchPlaceholder": "Поиск @username...",
-    "chats.group": "Группа", "chats.channel": "Канал", "chats.discover": "Популярное", "chats.invite": "Пригласить",
+    "chats.searchPlaceholder": "Поиск: люди, группы, каналы, истории",
+    "chats.group": "Создать группу", "chats.channel": "Создать канал", "chats.discover": "Популярное", "chats.invite": "Пригласить",
     "chats.globalChat": "Общий чат", "chats.globalChatSub": "общение со всеми",
     "chats.support": "Поддержка", "chats.supportSub": "Zumo Support",
     "profile.title": "Профиль", "profile.editProfile": "Редактировать профиль", "profile.myStories": "Мои истории",
@@ -345,8 +346,8 @@ const LANG = {
   },
   en: {
     "nav.chats": "Chats", "nav.stories": "Stories", "nav.profile": "Profile", "nav.settings": "Settings",
-    "chats.searchPlaceholder": "Search @username...",
-    "chats.group": "Group", "chats.channel": "Channel", "chats.discover": "Discover", "chats.invite": "Invite",
+    "chats.searchPlaceholder": "Search people, groups, channels, stories",
+    "chats.group": "Create group", "chats.channel": "Create channel", "chats.discover": "Discover", "chats.invite": "Invite",
     "chats.globalChat": "Global chat", "chats.globalChatSub": "chat with everyone",
     "chats.support": "Support", "chats.supportSub": "Zumo Support",
     "profile.title": "Profile", "profile.editProfile": "Edit profile", "profile.myStories": "My stories",
@@ -455,8 +456,8 @@ const LANG = {
   },
   uz: {
     "nav.chats": "Suhbatlar", "nav.stories": "Hikoyalar", "nav.profile": "Profil", "nav.settings": "Sozlamalar",
-    "chats.searchPlaceholder": "@username qidirish...",
-    "chats.group": "Guruh", "chats.channel": "Kanal", "chats.discover": "Ommabop", "chats.invite": "Taklif qilish",
+    "chats.searchPlaceholder": "Qidiruv: odamlar, guruhlar, kanallar, hikoyalar",
+    "chats.group": "Guruh yaratish", "chats.channel": "Kanal yaratish", "chats.discover": "Ommabop", "chats.invite": "Taklif qilish",
     "chats.globalChat": "Umumiy chat", "chats.globalChatSub": "hamma bilan muloqot",
     "chats.support": "Yordam", "chats.supportSub": "Zumo Support",
     "profile.title": "Profil", "profile.editProfile": "Profilni tahrirlash", "profile.myStories": "Mening hikoyalarim",
@@ -644,6 +645,7 @@ async function initApp() {
   applyLanguage((me.settings && me.settings.language) || currentLang);
   connectWS();
 
+  rememberCurrentAccount();
   await loadContactNamesCache();
   await e2eInit(); // ключи сквозного шифрования — до загрузки чатов, чтобы сразу их расшифровать
   await refreshChats();
@@ -796,7 +798,64 @@ function hideBootError() {
 }
 
 // ================== NAV/UI ==================
+// ================== НЕСКОЛЬКО АККАУНТОВ НА ОДНОМ УСТРОЙСТВЕ ==================
+// В браузере хранится список вошедших аккаунтов (до 5). Активный — тот, чей token лежит в "token".
+function loadAccounts() {
+  try { const l = JSON.parse(localStorage.getItem("zumoAccounts") || "[]"); return Array.isArray(l) ? l : []; }
+  catch { return []; }
+}
+function saveAccounts(list) {
+  try { localStorage.setItem("zumoAccounts", JSON.stringify(list.slice(0, 5))); } catch {}
+}
+function rememberCurrentAccount() {
+  if (!me || !token) return;
+  const list = loadAccounts().filter(a => a.username !== me.username);
+  list.unshift({ username: me.username, displayName: me.displayName || me.username, avatarUrl: me.avatarUrl || "", token });
+  saveAccounts(list);
+}
+// Войти во второй аккаунт: текущий остаётся в списке, открывается страница входа
+function addAccount() {
+  if (loadAccounts().length >= 5) return alert("На одном устройстве можно держать до 5 аккаунтов");
+  rememberCurrentAccount();
+  localStorage.removeItem("token");
+  location.href = "index.html?add=1";
+}
+function switchAccount(username) {
+  const acc = loadAccounts().find(a => a.username === username);
+  if (!acc) return;
+  rememberCurrentAccount();
+  localStorage.setItem("token", acc.token);
+  location.href = "chat.html";
+}
+function renderAccountsSection() {
+  const box = document.getElementById("accountsSection");
+  if (!box || !me) return;
+  const others = loadAccounts().filter(a => a.username !== me.username);
+  const row = (a, current) => `
+    <div class="memberrow accrow ${current ? "" : "clickable"}" ${current ? "" : `onclick="switchAccount('${esc(a.username)}')"`}>
+      <div class="avatar">${avatarHtml(a)}</div>
+      <div class="meta">
+        <div class="name">${esc(a.displayName || a.username)}</div>
+        <div class="preview">@${esc(a.username)}${current ? " — сейчас открыт" : " — нажми, чтобы перейти"}</div>
+      </div>
+      ${current ? `<i class="fa-solid fa-circle-check accrow-on"></i>` : ""}
+    </div>`;
+  box.innerHTML =
+    row({ username: me.username, displayName: me.displayName, avatarUrl: me.avatarUrl }, true) +
+    others.map(a => row(a, false)).join("") +
+    `<button class="btn ghost full" onclick="addAccount()"><i class="fa-solid fa-user-plus"></i> Добавить аккаунт</button>`;
+}
+
+// Выход: убираем текущий аккаунт из списка; если есть другой — переходим в него
 function logout() {
+  const current = localStorage.getItem("token");
+  const rest = loadAccounts().filter(a => a.token !== current);
+  saveAccounts(rest);
+  if (rest.length) {
+    localStorage.setItem("token", rest[0].token);
+    location.href = "chat.html";
+    return;
+  }
   localStorage.removeItem("token");
   location.href = "index.html";
 }
@@ -906,6 +965,8 @@ function connectWS() {
       if (el) el.remove();
       return;
     }
+
+    if (data.type === "viewOnceOpened") { markOnceOpened(data.id); return; }
 
     if (data.type === "messageEdited") {
       const cached = messageCache.get(data.id);
@@ -1293,9 +1354,12 @@ function renderMessage(m) {
   }
 
   const actions = [];
-  if (["image", "video", "round", "audio", "file"].includes(m.mediaType) && m.mediaUrl) {
-    const dlName = esc(m.fileName || (m.mediaType === "round" ? "video_message.webm" : m.mediaType));
-    actions.push(`<a class="mact" href="${esc(m.mediaUrl)}" download="${dlName}" title="Скачать"><i class="fa-solid fa-download"></i></a>`);
+  if (["image", "video", "round", "audio", "file"].includes(m.mediaType) && m.mediaUrl && !m.viewOnce) {
+    const dlName = esc(m.fileName || m.mediaType);
+    // у кружочков и голосовых ссылки «скачать» нет — они просто проигрываются в чате
+    if (m.mediaType !== "round" && m.mediaType !== "audio") {
+      actions.push(`<a class="mact" href="${esc(m.mediaUrl)}" download="${dlName}" title="Скачать"><i class="fa-solid fa-download"></i></a>`);
+    }
     actions.push(`<button class="mact" onclick="openForwardPicker(${m.id})" title="Переслать"><i class="fa-solid fa-share"></i></button>`);
   }
   if (!isSelfChat(currentChat) && m.chatType !== "support") {
@@ -1411,7 +1475,7 @@ function fmtTime(sec) {
 
 function renderVoiceBody(m) {
   return `
-    <div class="voicecard" data-voice-id="${m.id}">
+    <div class="voicecard" data-voice-id="${m.id}" data-dur="${Number(m.duration) || 0}">
       <button class="voiceplay" id="voice-${m.id}-btn" onclick="toggleVoicePlay(${m.id})">
         <i class="fa-solid fa-play" id="voice-${m.id}-icon"></i>
       </button>
@@ -1419,11 +1483,21 @@ function renderVoiceBody(m) {
         <div class="voicetrack" id="voice-${m.id}-track" onclick="seekVoice(event, ${m.id})">
           <div class="voiceprogress" id="voice-${m.id}-progress"></div>
         </div>
-        <div class="voicetime" id="voice-${m.id}-time">0:00</div>
+        <div class="voicetime" id="voice-${m.id}-time">${fmtTime(Number(m.duration) || 0)}</div>
       </div>
       <audio id="voice-${m.id}-audio" src="${esc(m.mediaUrl)}" preload="metadata"></audio>
     </div>
   `;
+}
+
+// Настоящая длительность записи: сначала та, что сохранена при записи,
+// и только если её нет (старые сообщения) — та, что сообщает сам файл.
+function voiceDuration(id) {
+  const audio = document.getElementById(`voice-${id}-audio`);
+  const card = audio && audio.closest(".voicecard");
+  const saved = card ? Number(card.dataset.dur) : 0;
+  if (saved > 0) return saved;
+  return audio && isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
 }
 
 function setupVoicePlayer(id) {
@@ -1433,17 +1507,21 @@ function setupVoicePlayer(id) {
   const time = document.getElementById(`voice-${id}-time`);
   if (!audio) return;
 
-  audio.addEventListener("loadedmetadata", () => {
-    if (isFinite(audio.duration)) time.textContent = fmtTime(audio.duration);
-  });
+  const showTotal = () => { time.textContent = fmtTime(voiceDuration(id)); };
+
+  audio.addEventListener("loadedmetadata", () => { if (audio.paused) showTotal(); });
   audio.addEventListener("timeupdate", () => {
-    if (audio.duration) progress.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+    const total = voiceDuration(id);
+    if (total) progress.style.width = `${Math.min(100, (audio.currentTime / total) * 100)}%`;
     if (!audio.paused) time.textContent = fmtTime(audio.currentTime);
   });
   audio.addEventListener("ended", () => {
     icon.className = "fa-solid fa-play";
     progress.style.width = "0%";
-    time.textContent = isFinite(audio.duration) ? fmtTime(audio.duration) : "0:00";
+    // старые записи без сохранённой длительности: теперь, доиграв до конца, мы её знаем
+    const card = audio.closest(".voicecard");
+    if (card && !(Number(card.dataset.dur) > 0) && audio.currentTime > 0) card.dataset.dur = String(audio.currentTime);
+    showTotal();
   });
   audio.addEventListener("pause", () => { icon.className = "fa-solid fa-play"; });
   audio.addEventListener("play", () => { icon.className = "fa-solid fa-pause"; });
@@ -1463,11 +1541,12 @@ function toggleVoicePlay(id) {
 function seekVoice(evt, id) {
   const audio = document.getElementById(`voice-${id}-audio`);
   const track = document.getElementById(`voice-${id}-track`);
-  if (!audio || !audio.duration) return;
+  const total = voiceDuration(id);
+  if (!audio || !total) return;
 
   const rect = track.getBoundingClientRect();
   const ratio = Math.min(1, Math.max(0, (evt.clientX - rect.left) / rect.width));
-  audio.currentTime = ratio * audio.duration;
+  audio.currentTime = ratio * total;
 }
 
 function renderListBody(m) {
@@ -1805,6 +1884,8 @@ async function openRoundRecorder() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return alert("Этот браузер не поддерживает запись видео");
 
   resetRoundUI();
+  // «один просмотр» доступен только в личном чате с другим человеком
+  document.getElementById("roundOnceBtn").classList.toggle("hidden", !isPrivateChat(currentChat));
   document.getElementById("roundRecorderModal").classList.remove("hidden");
   roundFacing = "user";
 
@@ -1883,6 +1964,18 @@ async function flipRoundCamera() {
   // запись не прерывается — canvas продолжает рисовать уже новую камеру
 }
 
+// состояние записи кружочка
+let roundOnce = false;        // «получатель посмотрит только один раз»
+let roundPaused = false;
+let roundElapsed = 0;         // сколько уже записано до последней паузы, мс
+let roundResumeAt = 0;
+let roundSendOnStop = false;  // true — после остановки отправить, false — запись отменена
+const ROUND_RING_LEN = 2 * Math.PI * 49;
+
+function roundRecordedMs() {
+  return roundElapsed + (roundPaused || !roundResumeAt ? 0 : Date.now() - roundResumeAt);
+}
+
 function startRoundRecording() {
   const canvas = document.getElementById("roundCanvas");
   if (!canvas || !roundStream) return;
@@ -1901,105 +1994,124 @@ function startRoundRecording() {
   roundRecorder.ondataavailable = (e) => { if (e.data && e.data.size) roundChunks.push(e.data); };
   roundRecorder.onstop = onRoundStop;
   roundRecorder.start();
-  roundStartedAt = Date.now();
 
+  roundSendOnStop = false;
+  roundPaused = false;
+  roundElapsed = 0;
+  roundResumeAt = Date.now();
+
+  const modal = document.getElementById("roundRecorderModal");
+  modal.classList.add("recording");
+  modal.classList.remove("paused");
   document.getElementById("roundRecordBtn").classList.add("hidden");
-  document.getElementById("roundStopBtn").classList.remove("hidden");
-  document.getElementById("roundTimer").classList.remove("hidden");
+  document.getElementById("roundSendBtn").classList.remove("hidden");
+  document.getElementById("roundPauseBtn").classList.remove("hidden");
+  document.getElementById("roundHint").classList.add("hidden");
   tickRoundTimer();
-  roundTimerInterval = setInterval(tickRoundTimer, 200);
+  roundTimerInterval = setInterval(tickRoundTimer, 100);
 }
 
 function tickRoundTimer() {
-  const ms = Date.now() - roundStartedAt;
+  const ms = roundRecordedMs();
   const s = Math.floor(ms / 1000);
   document.getElementById("roundTimer").textContent =
-    String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
-  if (ms >= ROUND_MAX_MS) stopRoundRecording();
+    Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + "," + Math.floor((ms % 1000) / 100);
+  const ring = document.getElementById("roundRing");
+  if (ring) ring.style.strokeDashoffset = String(ROUND_RING_LEN * (1 - Math.min(1, ms / ROUND_MAX_MS)));
+  if (ms >= ROUND_MAX_MS) finishRoundAndSend(); // минута — предел, отправляем то, что записано
 }
 
-function stopRoundRecording() {
+function toggleRoundPause() {
+  if (!roundRecorder || roundRecorder.state === "inactive") return;
+  const modal = document.getElementById("roundRecorderModal");
+  const btn = document.getElementById("roundPauseBtn");
+  if (!roundPaused) {
+    roundElapsed = roundRecordedMs();
+    roundPaused = true;
+    try { roundRecorder.pause(); } catch {}
+    btn.innerHTML = '<i class="fa-solid fa-play"></i>';
+  } else {
+    roundPaused = false;
+    roundResumeAt = Date.now();
+    try { roundRecorder.resume(); } catch {}
+    btn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+  }
+  modal.classList.toggle("paused", roundPaused);
+}
+
+function toggleRoundOnce() {
+  roundOnce = !roundOnce;
+  document.getElementById("roundOnceBtn").classList.toggle("on", roundOnce);
+  const tip = document.getElementById("roundOnceTip");
+  tip.classList.toggle("hidden", !roundOnce);
+  clearTimeout(tip._t);
+  if (roundOnce) tip._t = setTimeout(() => tip.classList.add("hidden"), 3500);
+}
+
+// Стрелка «отправить»: останавливаем запись и сразу шлём кружочек в чат
+function finishRoundAndSend() {
+  if (!roundRecorder || roundRecorder.state === "inactive" || roundSendOnStop) return;
+  roundElapsed = roundRecordedMs();
+  roundPaused = true; // таймер больше не идёт
+  roundSendOnStop = true;
   clearInterval(roundTimerInterval);
   roundTimerInterval = null;
-  if (roundRecorder && roundRecorder.state !== "inactive") roundRecorder.stop();
+  roundRecorder.stop();
 }
 
-function onRoundStop() {
-  roundDrawing = false;
-  cancelAnimationFrame(roundDrawRAF);
+async function onRoundStop() {
+  if (!roundSendOnStop) return; // запись отменили
 
-  const mime = (roundRecorder && roundRecorder.mimeType) || "video/webm";
-  roundBlob = new Blob(roundChunks, { type: mime });
-  const url = URL.createObjectURL(roundBlob);
-
-  const v = document.getElementById("roundLiveVideo");
-  v.srcObject = null;
-  v.src = url;
-  v.muted = false;
-  v.loop = true;
-  document.getElementById("roundCanvas").classList.add("hidden");
-  v.classList.remove("roundsrc");
-  v.classList.add("roundpreviewvid");
-  v.play().catch(() => {});
-
-  document.getElementById("roundStopBtn").classList.add("hidden");
-  document.getElementById("roundFlipBtn").classList.add("hidden");
-  document.getElementById("roundTimer").classList.add("hidden");
-  document.getElementById("roundPreviewActions").classList.remove("hidden");
-}
-
-function retakeRound() {
-  roundBlob = null;
-  roundChunks = [];
-  const v = document.getElementById("roundLiveVideo");
-  v.src = "";
-  v.classList.remove("roundpreviewvid");
-  v.classList.add("roundsrc");
-  v.srcObject = roundStream;
-  v.muted = true;
-  v.loop = false;
-  v.play().catch(() => {});
-
-  document.getElementById("roundCanvas").classList.remove("hidden");
-  document.getElementById("roundFlipBtn").classList.remove("hidden");
-  document.getElementById("roundPreviewActions").classList.add("hidden");
-  document.getElementById("roundRecordBtn").classList.remove("hidden");
-
-  roundDrawing = true;
-  roundDrawFrame();
-}
-
-async function sendRoundVideo() {
-  if (!roundBlob) return;
-  const blob = roundBlob;
+  const mime = ((roundRecorder && roundRecorder.mimeType) || "video/webm").split(";")[0];
+  const blob = new Blob(roundChunks, { type: mime });
+  const durMs = roundElapsed;
+  const once = roundOnce;
+  const chat = currentChat;
+  roundSendOnStop = false;
   closeRoundRecorder();
 
+  if (durMs < 800 || !blob.size) return toast("Слишком коротко — запиши кружочек подольше");
+
   const fd = new FormData();
-  fd.append("file", blob, "round.webm");
-  fd.append("receiver", currentChat);
+  fd.append("file", blob, mime.includes("mp4") ? "round.mp4" : "round.webm");
+  fd.append("receiver", chat);
   fd.append("text", "");
   fd.append("kind", "round");
+  fd.append("duration", String(Math.max(1, Math.round(durMs / 1000))));
+  if (once && isPrivateChat(chat)) fd.append("viewOnce", "1");
 
   toast("Отправка видеосообщения...");
-  const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
-  const d = await r.json();
-  if (!d.ok) {
-    if (d.gated) return openContactRequest(currentChat, "");
-    alert(d.error || "Ошибка отправки видеосообщения");
+  try {
+    const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
+    const d = await r.json();
+    if (!d.ok) {
+      if (d.gated) return openContactRequest(chat, "");
+      alert(d.error || "Ошибка отправки видеосообщения");
+    }
+  } catch {
+    alert("Не удалось отправить видеосообщение — проверь соединение");
   }
 }
 
 function resetRoundUI() {
+  roundOnce = false;
+  roundPaused = false;
+  roundElapsed = 0;
+  roundResumeAt = 0;
+  roundSendOnStop = false;
+
+  const modal = document.getElementById("roundRecorderModal");
+  modal.classList.remove("recording", "paused");
   document.getElementById("roundRecordBtn").classList.remove("hidden");
-  document.getElementById("roundStopBtn").classList.add("hidden");
-  document.getElementById("roundFlipBtn").classList.remove("hidden");
-  document.getElementById("roundTimer").classList.add("hidden");
-  document.getElementById("roundTimer").textContent = "00:00";
-  document.getElementById("roundPreviewActions").classList.add("hidden");
-  document.getElementById("roundCanvas").classList.remove("hidden");
-  const v = document.getElementById("roundLiveVideo");
-  v.classList.remove("roundpreviewvid");
-  v.classList.add("roundsrc");
+  document.getElementById("roundSendBtn").classList.add("hidden");
+  document.getElementById("roundPauseBtn").classList.add("hidden");
+  document.getElementById("roundPauseBtn").innerHTML = '<i class="fa-solid fa-pause"></i>';
+  document.getElementById("roundOnceBtn").classList.remove("on");
+  document.getElementById("roundOnceTip").classList.add("hidden");
+  document.getElementById("roundHint").classList.remove("hidden");
+  document.getElementById("roundTimer").textContent = "0:00,0";
+  const ring = document.getElementById("roundRing");
+  if (ring) ring.style.strokeDashoffset = String(ROUND_RING_LEN);
 }
 
 function closeRoundRecorder() {
@@ -2009,6 +2121,7 @@ function closeRoundRecorder() {
   roundDrawing = false;
   cancelAnimationFrame(roundDrawRAF);
 
+  roundSendOnStop = false; // закрытие окна = отмена: ничего не отправляем
   if (roundRecorder && roundRecorder.state !== "inactive") {
     try { roundRecorder.stop(); } catch {}
   }
@@ -2024,13 +2137,67 @@ function closeRoundRecorder() {
 }
 
 function renderRoundBody(m) {
+  // Кружочек «на один просмотр»: сам ролик в чате не показывается
+  if (m.viewOnce) {
+    const mineMsg = me && m.sender === me.username;
+    const opened = !!m.viewOnceOpened || (!mineMsg && !m.mediaUrl);
+    const canOpen = !mineMsg && !opened;
+    const label = opened ? "Просмотрено" : (mineMsg ? "Один просмотр" : "Нажми, чтобы посмотреть");
+    return `
+      <div class="roundmsg once ${opened ? "opened" : ""}" id="round-${m.id}" ${canOpen ? `onclick="openOnceRound(${m.id})"` : ""}>
+        <div class="roundonce"><b>1</b><span>${label}</span></div>
+      </div>
+    `;
+  }
+  const dur = Number(m.duration) || 0;
   return `
-    <div class="roundmsg" onclick="toggleRoundPlay(this)">
+    <div class="roundmsg" id="round-${m.id}" onclick="toggleRoundPlay(this)">
       <video class="roundvid" src="${esc(m.mediaUrl)}" playsinline preload="metadata"
         onended="this.closest('.roundmsg').classList.remove('playing')"></video>
       <div class="roundplay"><i class="fa-solid fa-play"></i></div>
+      ${dur ? `<div class="rounddur">${fmtTime(dur)}</div>` : ""}
     </div>
   `;
+}
+
+// Получатель открывает одноразовый кружочек: скачиваем ролик в память, сообщаем серверу
+// (он тут же удаляет файл) и показываем на весь экран. Второй раз открыть уже нечего.
+let onceOpening = false;
+async function openOnceRound(id) {
+  const m = messageCache.get(id);
+  if (!m || !m.viewOnce || !m.mediaUrl || onceOpening) return;
+  onceOpening = true;
+  try {
+    const resp = await fetch(m.mediaUrl);
+    if (!resp.ok) throw new Error("gone");
+    const blobUrl = URL.createObjectURL(await resp.blob());
+
+    const r = await fetch(`/api/messages/${id}/view-once`, { method: "POST", headers: authHeaders() });
+    const d = await r.json();
+    if (!d.ok) { URL.revokeObjectURL(blobUrl); return alert(d.error || "Не удалось открыть"); }
+    markOnceOpened(id);
+
+    const ov = document.createElement("div");
+    ov.className = "onceviewer";
+    ov.innerHTML = `
+      <div class="onceviewer-circle"><video src="${blobUrl}" autoplay playsinline></video></div>
+      <div class="onceviewer-note"><b>1</b> Сообщение на один просмотр. Нажми, чтобы закрыть</div>`;
+    const close = () => { ov.remove(); URL.revokeObjectURL(blobUrl); };
+    ov.onclick = close;
+    ov.querySelector("video").onended = close;
+    document.body.appendChild(ov);
+  } catch {
+    alert("Не удалось открыть видеосообщение");
+  } finally {
+    onceOpening = false;
+  }
+}
+
+function markOnceOpened(id) {
+  const m = messageCache.get(id);
+  if (m) { m.viewOnceOpened = 1; m.mediaUrl = ""; }
+  const el = document.getElementById(`round-${id}`);
+  if (el && m) el.outerHTML = renderRoundBody(m);
 }
 
 function toggleRoundPlay(wrap) {
@@ -2700,50 +2867,123 @@ async function removeGroupMember(groupId, username, isSelf = false) {
 }
 
 // ================== SEARCH ==================
-async function searchUsers(val) {
-  const qraw = String(val || "").trim();
+// Общий поиск: люди, группы, каналы и истории. «@» писать не нужно.
+let searchTimer = null, searchSeq = 0;
+function searchUsers(val) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => runSearch(val), 220);
+}
+
+function clearSearch() {
+  const input = document.getElementById("searchInput");
+  if (input) input.value = "";
+  document.getElementById("searchResults").innerHTML = "";
+  document.getElementById("chatList").classList.remove("searching");
+}
+
+async function runSearch(val) {
+  const q = String(val || "").trim().replace(/^@+/, "");
   const results = document.getElementById("searchResults");
+  const list = document.getElementById("chatList");
 
-  if (!qraw.startsWith("@") || qraw.length < 2) {
-    results.innerHTML = "";
-    return;
-  }
+  if (!q) { results.innerHTML = ""; list.classList.remove("searching"); return; }
+  list.classList.add("searching"); // пока идёт поиск, обычный список чатов скрыт
 
-  const q = qraw.replace(/^@+/, "");
-  const r = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`, { headers: authHeaders() });
-  const d = await r.json();
-  if (!d.ok) return;
+  const seq = ++searchSeq;
+  let d;
+  try {
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { headers: authHeaders() });
+    d = await r.json();
+  } catch { d = { ok: false }; }
+  if (seq !== searchSeq) return; // уже ищем что-то другое
+  if (!d.ok) { results.innerHTML = `<div class="searchempty">${t("common.error")}</div>`; return; }
+
+  // свои чаты, которых нет среди пользователей: общий чат, поддержка, избранное
+  const ql = q.toLowerCase();
+  const fixed = [
+    { chat: "global", name: "Общий чат", sub: "общение со всеми", icon: "fa-earth-americas" },
+    { chat: "support", name: "Поддержка", sub: "Zumo Support", icon: "fa-headset" },
+    { chat: me.username, name: "Избранное", sub: "сохранённые сообщения", icon: "fa-bookmark" }
+  ].filter(f => f.name.toLowerCase().includes(ql));
 
   results.innerHTML = "";
-
-  if (d.users.length === 0) {
-    results.innerHTML = `
-      <div class="chatitem invite-hint">
-        <div class="meta">
-          <div class="name">@${esc(q)} не найден(а)</div>
-          <div class="preview">Его/её ещё нет в Zumo</div>
-        </div>
-        <button class="btn ghost small" onclick="inviteToMessenger()"><i class="fa-solid fa-user-plus"></i> Пригласить</button>
-      </div>
-    `;
-    return;
-  }
-
-  d.users.forEach(u => {
-    mergeUserInfo(u.username, u);
+  const section = (title) => {
+    const h = document.createElement("div");
+    h.className = "searchhead";
+    h.textContent = title;
+    results.appendChild(h);
+  };
+  const row = (html, onclick) => {
     const btn = document.createElement("button");
     btn.className = "chatitem";
-    btn.onclick = () => { results.innerHTML = ""; document.getElementById("searchInput").value = ""; openChat(u.username); };
-    btn.innerHTML = `
-      <div class="avatar">${avatarHtml(u)}</div>
-      <div class="meta">
-        <div class="name">${nameHtml(u)}</div>
-        <div class="preview">@${esc(u.username)}</div>
-      </div>
-      <span class="dot ${onlineSet.has(u.username) ? "online" : "offline"}"></span>
-    `;
+    btn.innerHTML = html;
+    btn.onclick = () => { clearSearch(); onclick(); };
     results.appendChild(btn);
-  });
+  };
+
+  if (fixed.length) {
+    section("Чаты");
+    fixed.forEach(f => row(`
+      <div class="avatar circle"><i class="fa-solid ${f.icon}"></i></div>
+      <div class="meta"><div class="name">${esc(f.name)}</div><div class="preview">${esc(f.sub)}</div></div>
+    `, () => openChat(f.chat)));
+  }
+
+  if (d.users.length) {
+    section("Люди");
+    d.users.forEach(u => {
+      mergeUserInfo(u.username, u);
+      row(`
+        <div class="avatar">${avatarHtml(u)}</div>
+        <div class="meta">
+          <div class="name">${nameHtml(u)}</div>
+          <div class="preview">@${esc(u.username)}</div>
+        </div>
+        <span class="dot ${onlineSet.has(u.username) ? "online" : "offline"}"></span>
+      `, () => openChat(u.username));
+    });
+  }
+
+  if (d.groups.length) {
+    section("Группы и каналы");
+    d.groups.forEach(g => {
+      const ava = g.avatarUrl
+        ? `<img src="${esc(g.avatarUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+        : `<i class="fa-solid ${g.isChannel ? "fa-bullhorn" : "fa-users"}"></i>`;
+      const kind = g.isChannel ? "канал" : "группа";
+      const count = `${g.memberCount} ${g.isChannel ? "подписч." : "участн."}`;
+      row(`
+        <div class="avatar circle">${ava}</div>
+        <div class="meta">
+          <div class="name">${esc(g.name)}</div>
+          <div class="preview">${kind}, ${count}${g.isMember ? "" : " — нажми, чтобы вступить"}</div>
+        </div>
+      `, () => (g.isMember ? openChat(`group:${g.id}`) : joinDiscoveredGroup(g.id)));
+    });
+  }
+
+  if (d.stories.length) {
+    section("Истории");
+    d.stories.forEach(st => {
+      const info = { username: st.owner, displayName: st.displayName, avatarUrl: st.avatarUrl, verified: st.verified };
+      const what = st.mediaType === "video" ? "🎬 Видео" : st.mediaType === "image" ? "🖼 Фото" : "";
+      row(`
+        <div class="avatar storyring">${avatarHtml(info)}</div>
+        <div class="meta">
+          <div class="name">${nameHtml(info)}</div>
+          <div class="preview">${esc([what, st.text].filter(Boolean).join(" ") || "История")}</div>
+        </div>
+      `, () => viewStory(st));
+    });
+  }
+
+  if (!fixed.length && !d.users.length && !d.groups.length && !d.stories.length) {
+    results.innerHTML = `
+      <div class="searchempty">
+        <div>По запросу «${esc(q)}» ничего не нашлось</div>
+        <button class="btn ghost small" onclick="inviteToMessenger()"><i class="fa-solid fa-user-plus"></i> Пригласить друга в Zumo</button>
+      </div>`;
+  }
 }
 
 // ================== INVITE ==================
@@ -2966,6 +3206,7 @@ function openSettings() {
   renderVerificationSection();
   renderSessionsSection();
   renderLegalSection();
+  renderAccountsSection();
   renderDeleteAccountSection();
 }
 
@@ -4068,59 +4309,110 @@ async function loadMyVerificationRequests() {
 }
 
 // ================== VOICE (HOLD) ==================
-async function startHoldVoice() {
-  if (holding) return;
-  holding = true;
+// Удерживаешь кнопку — идёт запись, отпустил — отправилось. Длительность считает само устройство
+// и передаёт серверу: в файле записи её часто нет, из-за этого время раньше показывалось неверно.
+let voiceRec = null; // { chat, chunks, stream, recorder, startedAt, wantStop, timer }
 
+function voiceUi(on) {
   const btn = document.getElementById("voiceBtn");
-  btn.classList.add("recording");
-  btn.innerHTML = `<i class="fa-solid fa-stop"></i>`;
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    chunks = [];
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-
-    mediaRecorder.onstop = async () => {
-      try {
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        const file = new File([blob], `voice-${Date.now()}.webm`, { type: "audio/webm" });
-
-        const fd = new FormData();
-        fd.append("file", file);
-        fd.append("receiver", currentChat);
-        fd.append("text", "");
-
-        const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
-        const d = await r.json();
-        if (!d.ok) {
-          if (d.gated) openContactRequest(currentChat, "");
-          else alert(d.error || "Ошибка голосового");
-        }
-      } finally {
-        stream.getTracks().forEach(t => t.stop());
-      }
-    };
-
-    mediaRecorder.start();
-  } catch {
-    alert("Не удалось включить микрофон (разрешение?)");
-    stopHoldVoice();
+  const input = document.getElementById("textInput");
+  if (btn) {
+    btn.classList.toggle("recording", on);
+    btn.innerHTML = `<i class="fa-solid ${on ? "fa-stop" : "fa-microphone"}"></i>`;
+  }
+  if (input) {
+    if (on) { input.dataset.ph = input.dataset.ph || input.placeholder; input.placeholder = "● Запись… 0:00"; }
+    else if (input.dataset.ph) { input.placeholder = input.dataset.ph; delete input.dataset.ph; }
   }
 }
 
-function stopHoldVoice() {
-  if (!holding) return;
-  holding = false;
+function voiceCleanup(session) {
+  clearInterval(session.timer);
+  if (session.stream) session.stream.getTracks().forEach(tr => tr.stop());
+  if (voiceRec === session) voiceRec = null;
+  voiceUi(false);
+}
 
-  const btn = document.getElementById("voiceBtn");
-  btn.classList.remove("recording");
-  btn.innerHTML = `<i class="fa-solid fa-microphone"></i>`;
+async function startHoldVoice() {
+  if (voiceRec) return;
+  if (!navigator.mediaDevices || !window.MediaRecorder) return alert("Этот браузер не поддерживает запись голоса");
 
-  if (mediaRecorder && mediaRecorder.state !== "inactive") {
-    mediaRecorder.stop();
+  const session = voiceRec = { chat: currentChat, chunks: [], wantStop: false };
+  voiceUi(true);
+
+  try {
+    session.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+  } catch {
+    voiceCleanup(session);
+    return alert("Не удалось включить микрофон (разрешение?)");
   }
+
+  // кнопку отпустили раньше, чем включился микрофон — ничего не записываем
+  if (session.wantStop) {
+    voiceCleanup(session);
+    return toast("Удерживай кнопку, чтобы записать голосовое");
+  }
+
+  const rec = session.recorder = new MediaRecorder(session.stream);
+  rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) session.chunks.push(e.data); };
+  rec.onstop = () => finishVoice(session);
+  rec.start();
+  session.startedAt = Date.now();
+
+  const input = document.getElementById("textInput");
+  session.timer = setInterval(() => {
+    const sec = Math.floor((Date.now() - session.startedAt) / 1000);
+    if (input) input.placeholder = `● Запись… ${fmtTime(sec)}`;
+    if (sec >= 600) stopHoldVoice(); // не длиннее 10 минут
+  }, 250);
+}
+
+function stopHoldVoice() {
+  const session = voiceRec;
+  if (!session) return;
+  if (!session.recorder) { session.wantStop = true; return; } // микрофон ещё не успел включиться
+  if (session.recorder.state !== "inactive") session.recorder.stop();
+}
+
+async function finishVoice(session) {
+  const durMs = Date.now() - session.startedAt;
+  const mime = (session.recorder.mimeType || "audio/webm").split(";")[0];
+  voiceCleanup(session);
+
+  if (durMs < 700 || !session.chunks.length) return toast("Удерживай кнопку, чтобы записать голосовое");
+
+  const ext = mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "ogg" : "webm";
+  const blob = new Blob(session.chunks, { type: mime });
+  const fd = new FormData();
+  fd.append("file", new File([blob], `voice-${Date.now()}.${ext}`, { type: mime }));
+  fd.append("receiver", session.chat); // тот чат, где начали запись, даже если уже открыли другой
+  fd.append("text", "");
+  fd.append("duration", String(Math.max(1, Math.round(durMs / 1000))));
+
+  try {
+    const r = await fetch("/api/upload", { method: "POST", headers: authHeaders(), body: fd });
+    const d = await r.json();
+    if (!d.ok) {
+      if (d.gated) openContactRequest(session.chat, "");
+      else alert(d.error || "Ошибка голосового");
+    }
+  } catch {
+    alert("Не удалось отправить голосовое — проверь соединение");
+  }
+}
+
+// Кнопка записи: нажал и держишь. Отпускание ловим на всём окне, чтобы запись
+// останавливалась, даже если палец или мышь съехали с кнопки.
+function setupVoiceButton() {
+  const btn = document.getElementById("voiceBtn");
+  if (!btn || btn.dataset.ready) return;
+  btn.dataset.ready = "1";
+  btn.addEventListener("pointerdown", (e) => { e.preventDefault(); startHoldVoice(); });
+  btn.addEventListener("contextmenu", (e) => e.preventDefault());
+  ["pointerup", "pointercancel"].forEach(ev => window.addEventListener(ev, stopHoldVoice));
+  window.addEventListener("blur", stopHoldVoice);
 }
 
 // ================== MY PROFILE TAB ==================
