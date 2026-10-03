@@ -2071,3 +2071,231 @@ button.reel-act:active i{transform:scale(.88)}
 .aboutrow-label{grid-column:1 / -1;font-size:12px;color:var(--muted)}
 .aboutrow-value{font-size:15px;font-weight:700}
 .aboutrow-sub{font-size:14px;color:var(--blue);font-weight:600}
+
+/* ===== ZUMO THEME START ===== */
+/* ================================================================
+   Zumo — оформление «Ночное небо»
+   Этот блок стоит в самом конце style.css и перекрывает старые цвета.
+
+   Идея: глубокий чернильно-синий фон с мягким сиянием в углах.
+   Всё спокойное и матовое, а фирменный градиент (бирюза → синий →
+   фиолет, как в логотипе) отдан только «своим» вещам: моим сообщениям,
+   активной вкладке и главным кнопкам. Нижнее меню — плавающая «док-панель».
+   ================================================================ */
+
+:root{
+  --z-ink:#060914;
+  --z-surface:#0d1326;
+  --z-raised:#151d3a;
+  --z-line:rgba(150,175,255,.13);
+  --z-text:#ecf1ff;
+  --z-muted:#8792b8;
+  --z-cyan:#1fd5f9;
+  --z-blue:#3b82f6;
+  --z-violet:#7c5cff;
+  --z-grad:linear-gradient(135deg,#2a9df4 0%,var(--z-blue) 45%,var(--z-violet) 100%);
+  --z-glow:0 10px 30px -10px rgba(59,130,246,.75);
+
+  /* старые переменные приложения переводим на новую палитру */
+  --bg:var(--z-ink);
+  --panel:var(--z-surface);
+  --panel2:var(--z-surface);
+  --line:var(--z-line);
+  --text:var(--z-text);
+  --muted:var(--z-muted);
+  --tg-bg:var(--z-ink);
+  --tg-card:var(--z-surface);
+  --tg-sep:var(--z-line);
+  --tg-label:var(--z-muted);
+  --tg-link:#7cc4ff;
+  --tg-in:var(--z-raised);
+  --tg-out:#2a56d6;
+  --glass-border:var(--z-line);
+}
+
+html body{
+  font-family:"Onest",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  background:
+    radial-gradient(900px 620px at 8% -8%, rgba(31,213,249,.16), transparent 62%),
+    radial-gradient(900px 700px at 105% 108%, rgba(124,92,255,.20), transparent 60%),
+    var(--z-ink);
+  background-attachment:fixed;
+  letter-spacing:-.005em;
+}
+body button, body input, body select, body textarea{font-family:inherit}
+
+/* рамка приложения на компьютере */
+@media (min-width:641px){
+  body .appshell{
+    border:1px solid var(--z-line);
+    box-shadow:0 40px 120px -30px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.03) inset, 0 0 90px -30px rgba(59,130,246,.35);
+  }
+}
+body .appshell{background:var(--z-ink)}
+
+/* ---------------- экраны ---------------- */
+body .screen, body .chatscreen{
+  background:
+    radial-gradient(520px 320px at 0% 0%, rgba(31,213,249,.07), transparent 70%),
+    radial-gradient(520px 380px at 100% 100%, rgba(124,92,255,.09), transparent 70%),
+    var(--z-ink);
+}
+body #screenStories{background:#000}
+body .screentitle{font-size:26px;font-weight:800;letter-spacing:-.02em}
+
+/* ---------------- список чатов ---------------- */
+body #screenChats .screen-header{
+  background:transparent;padding:14px 14px 10px;
+}
+body #screenChats .search{
+  background:var(--z-surface);border:1px solid var(--z-line);border-radius:18px;padding:12px 16px;
+  transition:border-color .2s ease, box-shadow .2s ease;
+}
+body #screenChats .search:focus-within{
+  border-color:rgba(31,213,249,.55);
+  box-shadow:0 0 0 4px rgba(31,213,249,.10), 0 12px 30px -18px rgba(31,213,249,.8);
+}
+body #screenChats .search i{color:var(--z-muted)}
+body #screenChats .search input{font-size:15px}
+
+body #screenChats .story-add{
+  border:1.5px dashed rgba(31,213,249,.6);background:rgba(31,213,249,.08);color:var(--z-cyan);
+}
+body #screenChats .storyava{
+  background:linear-gradient(var(--z-ink),var(--z-ink)) padding-box, var(--z-grad) border-box;
+}
+body .storyname{color:var(--z-muted);font-size:12px}
+
+/* «Создать группу» / «Создать канал» */
+body #screenChats .sidebar-actions{gap:10px;margin-top:12px}
+body #screenChats .sidebar-actions .btn.small{
+  flex:1 1 0;justify-content:center;min-height:42px;border-radius:14px;font-size:14px;font-weight:600;
+  color:var(--z-text);
+  background:linear-gradient(var(--z-surface),var(--z-surface)) padding-box,
+             linear-gradient(135deg,rgba(31,213,249,.55),rgba(124,92,255,.55)) border-box;
+  border:1px solid transparent;
+}
+body #screenChats .sidebar-actions .btn.small i{color:var(--z-cyan);font-size:14px}
+body #screenChats .sidebar-actions .btn.small:active{transform:scale(.98)}
+
+body #screenChats .chatlist{background:transparent;padding:4px 8px 96px}
+body #screenChats .chatitem{
+  border-radius:18px;padding:10px 12px;margin:2px 0;
+  transition:background .15s ease;
+}
+body #screenChats .chatitem::after{display:none}
+body #screenChats .chatitem:hover{background:rgba(150,175,255,.06)}
+body #screenChats .chatitem.active{
+  background:linear-gradient(90deg,rgba(59,130,246,.20),rgba(124,92,255,.08));
+  box-shadow:inset 3px 0 0 var(--z-cyan);
+}
+body #screenChats .chatitem .avatar.circle{background:var(--z-grad)}
+body #screenChats .chatitem .avatar.circle.saved{background:linear-gradient(135deg,#7c5cff,#c05cff)}
+body #screenChats .chatitem .meta .name{font-size:16px;font-weight:700;letter-spacing:-.01em}
+body #screenChats .chatitem .meta .preview{color:var(--z-muted)}
+body #screenChats .chatitem .dot{left:52px;bottom:12px;border-color:var(--z-ink);background:#3de8a0;box-shadow:0 0 10px rgba(61,232,160,.8)}
+
+/* ---------------- чат ---------------- */
+body #screenChat .topbar{
+  background:rgba(13,19,38,.82);border-bottom:1px solid var(--z-line);
+  backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%);
+  padding:10px 10px;
+}
+body #screenChat .title .h{font-size:17px;letter-spacing:-.01em}
+body #screenChat .title .s{color:var(--z-muted)}
+body #screenChat #callBtn, body #screenChat #omVideoBtn{color:var(--z-cyan)}
+
+body #messages{padding:12px 12px 8px}
+body #messages .bubble{
+  background:var(--z-raised);border:1px solid var(--z-line);
+  border-radius:20px 20px 20px 6px;padding:8px 12px 6px;box-shadow:none;
+}
+body #messages .mrow.mine .bubble{
+  background:var(--z-grad);border:none;border-radius:20px 20px 6px 20px;
+  box-shadow:0 10px 26px -14px rgba(59,130,246,.9);
+}
+/* кружочки и большие эмодзи — без «пузыря», как в Telegram */
+body #messages .bubble.bare, body #messages .mrow.mine .bubble.bare{
+  background:transparent;border:none;box-shadow:none;padding:0;
+  display:flex;flex-direction:column;align-items:flex-start;gap:6px;
+}
+body #messages .mrow.mine .bubble.bare{align-items:flex-end}
+body #messages .bubble.bare .mtime, body #messages .mrow.mine .bubble.bare .mtime{
+  float:none;margin:0;padding:3px 9px;border-radius:999px;
+  background:rgba(150,175,255,.10);color:var(--z-muted);
+}
+body #messages .btop:empty{display:none}
+body #messages .bubble.bare-round{position:relative;display:block}
+body #messages .bubble.bare-round .mtime, body #messages .mrow.mine .bubble.bare-round .mtime{
+  position:absolute;right:0;bottom:0;background:rgba(13,19,38,.86);border:1px solid var(--z-line);color:var(--z-text);
+}
+body #messages .mtext{line-height:1.38}
+body #messages .mrow.mine .mtime{color:rgba(255,255,255,.78)}
+body #messages .who{color:var(--z-cyan)}
+body #messages .mimg, body #messages .mvid{border-radius:16px}
+
+body #screenChat .composer{
+  background:transparent;border-top:none;padding:8px 10px calc(10px + env(safe-area-inset-bottom,0px));gap:6px;
+}
+body #screenChat .composer .text{
+  background:var(--z-surface);border:1px solid var(--z-line);border-radius:24px;padding:12px 16px;
+}
+body #screenChat .composer .text:focus{border-color:rgba(31,213,249,.5);outline:none}
+body #screenChat .composer .iconbtn{color:var(--z-muted)}
+body #screenChat .composer .iconbtn.send{background:var(--z-grad);box-shadow:var(--z-glow);color:#fff}
+body .attachmenu{background:var(--z-surface);border:1px solid var(--z-line);border-radius:20px}
+
+/* голосовые */
+body .voicecard{min-width:210px;padding:4px 2px 2px}
+body .voiceplay{width:42px;height:42px;background:var(--z-grad);color:#fff}
+body .voicetrack{height:4px;background:rgba(150,175,255,.24)}
+body .voiceprogress{background:var(--z-cyan)}
+body .voicetime{color:var(--z-muted)}
+body .mrow.mine .voiceplay{background:#fff;color:#3b6cf6}
+body .mrow.mine .voicetrack{background:rgba(255,255,255,.34)}
+body .mrow.mine .voiceprogress{background:#fff}
+body .mrow.mine .voicetime{color:rgba(255,255,255,.88)}
+
+/* кружочки */
+body .roundmsg{box-shadow:0 0 0 2px rgba(150,175,255,.22), 0 16px 34px -18px rgba(0,0,0,.9)}
+/* ---------------- нижнее меню: плавающая док-панель ---------------- */
+body .bottomnav{
+  position:absolute;left:14px;right:14px;bottom:calc(12px + env(safe-area-inset-bottom,0px));
+  padding:6px;gap:4px;border-radius:26px!important;
+  background:rgba(16,23,48,.82);border:1px solid var(--z-line);
+  backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
+  box-shadow:0 20px 50px -18px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.06);
+}
+body .bottomnav .navbtn{
+  flex:1;border-radius:20px;padding:9px 4px 8px;gap:4px;color:var(--z-muted);font-size:11px;font-weight:600;
+  transition:background .2s ease, color .2s ease;
+}
+body .bottomnav .navbtn i{font-size:19px}
+body .bottomnav .navbtn.active{background:var(--z-grad);color:#fff;box-shadow:var(--z-glow)}
+body .bottomnav .navbtn.active i{color:#fff}
+/* экраны со списками заканчиваются выше дока, чтобы последний пункт не прятался под ним */
+body #screenSettings, body #screenProfile .tgscroll{padding-bottom:96px}
+body #screenStories .reel-info{padding-bottom:104px}
+body #screenStories .reel-rail{bottom:104px}
+
+/* ---------------- кнопки, карточки, окна ---------------- */
+body .btn.primary{
+  background:var(--z-grad);border:none;color:#fff;font-weight:700;box-shadow:var(--z-glow);
+}
+body .btn.ghost{background:rgba(150,175,255,.07);border:1px solid var(--z-line);color:var(--z-text)}
+body .btn{border-radius:16px}
+body .modal{background:rgba(3,5,12,.66);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+body .modal .card{
+  background:var(--z-surface);border:1px solid var(--z-line);border-radius:26px;
+  box-shadow:0 40px 90px -30px rgba(0,0,0,.95);
+}
+body .formgrid input, body .formgrid select{
+  background:rgba(6,9,20,.6);border:1px solid var(--z-line);border-radius:14px;
+}
+body .formgrid input:focus, body .formgrid select:focus{border-color:rgba(31,213,249,.55);outline:none}
+body .tgcard{background:var(--z-surface);border:1px solid var(--z-line);border-radius:22px}
+body .settingscategory{border-radius:20px}
+body .toast{background:rgba(16,23,48,.95);border:1px solid var(--z-line);border-radius:16px}
+body .verified-badge{color:var(--z-cyan)}
+
+:focus-visible{outline:2px solid var(--z-cyan);outline-offset:2px}
