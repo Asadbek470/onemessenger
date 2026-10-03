@@ -25,24 +25,24 @@
 
   var css = [
     "#omSplash{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;overflow:hidden;",
-    "background:radial-gradient(900px 700px at 50% 42%,#15335a 0%,#0a1626 55%,#050a13 100%);",
+    "background:radial-gradient(900px 700px at 50% 42%,#16264f 0%,#0b132b 55%,#070c1c 100%);",
     "font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#eaf2ff;",
     "transition:opacity .55s ease,transform .55s ease,filter .55s ease}",
     "#omSplash.out{opacity:0;transform:scale(1.06);filter:blur(6px);pointer-events:none}",
 
     /* дышащее сияние фона */
     "#omSplash .blob{position:absolute;width:70vmax;height:70vmax;border-radius:50%;filter:blur(90px);opacity:.5}",
-    "#omSplash .b1{top:-25vmax;left:-20vmax;background:radial-gradient(circle,rgba(42,157,244,.75),transparent 65%);animation:omDrift1 7s ease-in-out infinite alternate}",
-    "#omSplash .b2{bottom:-30vmax;right:-20vmax;background:radial-gradient(circle,rgba(140,80,255,.65),transparent 65%);animation:omDrift2 7s ease-in-out infinite alternate}",
+    "#omSplash .b1{top:-25vmax;left:-20vmax;background:radial-gradient(circle,rgba(58,134,255,.7),transparent 65%);animation:omDrift1 7s ease-in-out infinite alternate}",
+    "#omSplash .b2{bottom:-30vmax;right:-20vmax;background:radial-gradient(circle,rgba(47,111,230,.6),transparent 65%);animation:omDrift2 7s ease-in-out infinite alternate}",
     "#omSplash .b3{top:50%;left:50%;width:55vmax;height:55vmax;margin:-27.5vmax 0 0 -27.5vmax;",
-    "background:radial-gradient(circle,rgba(70,220,255,.28),transparent 70%);animation:omPulseBg 4.2s ease-in-out infinite}",
+    "background:radial-gradient(circle,rgba(94,156,255,.26),transparent 70%);animation:omPulseBg 4.2s ease-in-out infinite}",
     "@keyframes omDrift1{to{transform:translate(9vmax,7vmax) scale(1.12)}}",
     "@keyframes omDrift2{to{transform:translate(-8vmax,-7vmax) scale(1.1)}}",
     "@keyframes omPulseBg{0%,100%{opacity:.35;transform:scale(.9)}50%{opacity:.7;transform:scale(1.08)}}",
 
     /* частицы, всплывающие вверх — как отправленные сообщения */
     "#omSplash .dot{position:absolute;bottom:-6vh;width:7px;height:7px;border-radius:50%;",
-    "background:linear-gradient(180deg,#8fd4ff,#6a8cff);opacity:0;animation:omFloat linear infinite}",
+    "background:linear-gradient(180deg,#a9c8ff,#3a86ff);opacity:0;animation:omFloat linear infinite}",
     "@keyframes omFloat{0%{transform:translateY(0) scale(.6);opacity:0}",
     "8%{opacity:.8}70%{opacity:.5}100%{transform:translateY(-112vh) scale(1.1);opacity:0}}",
 
@@ -92,7 +92,7 @@
     "#omSplash .bar{width:120px;height:3px;border-radius:3px;background:rgba(255,255,255,.12);",
     "overflow:hidden;opacity:0;position:relative;animation:omTagIn .4s ease 1.15s forwards}",
     "#omSplash .bar i{display:block;height:100%;width:0;border-radius:3px;",
-    "background:linear-gradient(90deg,#2a9df4,#8b5cff);animation:omBar 1.25s cubic-bezier(.4,0,.2,1) 1.2s forwards}",
+    "background:linear-gradient(90deg,#5e9cff,#3a86ff);animation:omBar 1.25s cubic-bezier(.4,0,.2,1) 1.2s forwards}",
     "#omSplash .bar b{position:absolute;top:0;left:0;height:100%;width:26px;",
     "background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);",
     "transform:translateX(-30px);animation:omBarShine 1.25s cubic-bezier(.4,0,.2,1) 1.2s forwards}",
@@ -130,7 +130,7 @@
         '<div class="badge">' +
           '<svg viewBox="0 0 200 200" width="132" height="132" aria-hidden="true">' +
             '<defs>' +
-              '<linearGradient id="omg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a9df4"/><stop offset="1" stop-color="#6a5cff"/></linearGradient>' +
+              '<linearGradient id="omg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4e96ff"/><stop offset="1" stop-color="#2c74f0"/></linearGradient>' +
               '<linearGradient id="oms" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>' +
               '<clipPath id="omc"><rect width="200" height="200" rx="46"/></clipPath>' +
             '</defs>' +
